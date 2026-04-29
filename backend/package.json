@@ -1,0 +1,20 @@
+{
+  "name": "wanxiang-backend",
+  "version": "1.0.0",
+  "description": "万象书屋后端：书源管理 + 访问统计 + 管理面板",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "init-db": "node -e \"require('./db').init()\"",
+    "seed": "node scripts/seed-default-sources.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "better-sqlite3": "^11.3.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

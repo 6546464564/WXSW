@@ -1,0 +1,27 @@
+# 万象书屋后端 systemd 单元
+# 安装步骤:
+#   sudo cp wanxiang.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now wanxiang
+
+[Unit]
+Description=Wanxiang Bookstore Backend
+After=network.target
+
+[Service]
+Type=simple
+User=wanxiang
+WorkingDirectory=/opt/wanxiang
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=SECURE_COOKIE=1
+# 首次启动会用此密码初始化管理员;之后改了就忽略,可以删
+Environment=ADMIN_INITIAL_PASSWORD=wanxiang2026
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
