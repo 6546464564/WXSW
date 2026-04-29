@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>万象书屋 · 管理后台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <style>
+        body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; }
+        .gradient-bg { background: linear-gradient(135deg, #8B6F47 0%, #A93226 100%); }
+        .stat-card { transition: transform .15s ease; }
+        .stat-card:hover { transform: translateY(-2px); }
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    </style>
+</head>
+
+<body class="bg-stone-50 text-stone-800">
+
+    <!-- Login Page -->
+    <div id="login-page" class="hidden min-h-screen flex items-center justify-center gradient-bg">
+        <div class="bg-white rounded-2xl shadow-2xl p-10 w-96">
+            <div class="text-center mb-6">
+                <div class="text-3xl font-bold text-stone-800">万 象 书 屋</div>
+                <div class="text-sm text-stone-500 mt-1">管理后台</div>
+            </div>
+            <input id="login-pwd" type="password" placeholder="管理密码"
+                class="w-full px-4 py-3 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-700/40" />
+            <div id="login-err" class="text-red-600 text-sm mt-2 hidden"></div>
+            <button onclick="login()"
+                class="mt-4 w-full py-3 bg-amber-800 hover:bg-amber-900 text-white rounded-lg font-medium">登 录</button>
+        </div>
+    </div>
+
+    <!-- Main Page -->
+    <div id="main-page" class="hidden min-h-screen">
+        <header class="gradient-bg text-white shadow">
+            <div class="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold tracking-wide">万象书屋 · 管理后台</h1>
+                    <p class="text-sm opacity-80">书源管理 / 访问统计 / 系统配置</p>
+                </div>
+                <div class="flex gap-3 items-center">
+                    <button onclick="openChangePwd()" class="text-sm bg-white/15 hover:bg-white/25 rounded px-3 py-1.5">修改密码</button>
+                    <button onclick="logout()" class="text-sm bg-white/15 hover:bg-white/25 rounded px-3 py-1.5">退出</button>
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-7xl mx-auto px-6 py-8 space-y-8">
+            <!-- Stats -->
+            <section>
+                <h2 class="text-lg font-bold mb-3 text-stone-700">访问统计</h2>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="stat-card bg-white rounded-xl shadow p-5">
+                        <div class="text-xs text-stone-500">实时在线（5 分钟）</div>
+                        <div id="s-online" class="text-3xl font-bold text-amber-800 mt-1">-</div>
+                    </div>
+                    <div class="stat-card bg-white rounded-xl shadow p-5">
+                        <div class="text-xs text-stone-500">今日访问</div>
+                        <div id="s-today" class="text-3xl font-bold text-stone-800 mt-1">-</div>
+                    </div>
+                    <div class="stat-card bg-white rounded-xl shadow p-5">
+                        <div class="text-xs text-stone-500">本周访问（独立设备）</div>
+                        <div id="s-week" class="text-3xl font-bold text-stone-800 mt-1">-</div>
+                    </div>
+                    <div class="stat-card bg-white rounded-xl shadow p-5">
+                        <div class="text-xs text-stone-500">本月访问（独立设备）</div>
+                        <div id="s-month" class="text-3xl font-bold text-stone-800 mt-1">-</div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow mt-4 p-5">
+                    <div class="text-sm text-stone-600 mb-2">近 7 天访问趋势</div>
+                    <div id="chart-daily" style="height:280px"></div>
+                </div>
+            </section>
+
+            <!-- Sources -->
+            <section>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold text-stone-700">书源管理 <span id="srcCount" class="text-sm text-stone-500"></span></h2>
+                    <div class="flex gap-2">
+                        <button onclick="openAdd()" class="text-sm bg-amber-800 hover:bg-amber-900 text-white px-4 py-2 rounded">+ 添加 / 导入</button>
+                        <button onclick="loadSources()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-4 py-2 rounded">刷新</button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow overflow-hidden">
+                    <div class="max-h-[600px] overflow-y-auto scrollbar-thin">
+                        <table class="w-full text-sm">
+                            <thead class="bg-stone-100 text-stone-600 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">名称</th>
+                                    <th class="px-4 py-3 text-left">URL</th>
+                                    <th class="px-4 py-3">状态</th>
+                                    <th class="px-4 py-3">更新</th>
+                                    <th class="px-4 py-3">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="srcTbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Add/Import Modal -->
+    <div id="modalAdd" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6">
+        <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div class="px-6 py-4 border-b flex items-center justify-between">
+                <div class="font-bold">添加 / 导入书源</div>
+                <button onclick="closeAdd()" class="text-stone-500 hover:text-stone-800">✕</button>
+            </div>
+            <div class="px-6 py-4 space-y-3 overflow-y-auto">
+                <p class="text-sm text-stone-600">把单个或多个 Legado 书源 JSON 粘进来（数组或对象都行），保存后立刻覆盖到 App 端。</p>
+                <textarea id="addJson" class="w-full h-72 p-3 border border-stone-300 rounded font-mono text-xs"
+                    placeholder='[{"bookSourceName":"xxx","bookSourceUrl":"https://xxx",...}]'></textarea>
+                <div id="addErr" class="text-red-600 text-sm hidden"></div>
+            </div>
+            <div class="px-6 py-3 border-t bg-stone-50 flex justify-end gap-2">
+                <button onclick="closeAdd()" class="px-4 py-2 rounded border border-stone-300 bg-white hover:bg-stone-50">取消</button>
+                <button onclick="submitAdd()" class="px-4 py-2 rounded bg-amber-800 text-white hover:bg-amber-900">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="modalPwd" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6">
+        <div class="bg-white rounded-2xl w-full max-w-md">
+            <div class="px-6 py-4 border-b flex items-center justify-between">
+                <div class="font-bold">修改密码</div>
+                <button onclick="closePwd()" class="text-stone-500 hover:text-stone-800">✕</button>
+            </div>
+            <div class="px-6 py-4 space-y-3">
+                <input id="oldPwd" type="password" placeholder="当前密码" class="w-full px-3 py-2 border border-stone-300 rounded" />
+                <input id="newPwd" type="password" placeholder="新密码（≥ 6 位）" class="w-full px-3 py-2 border border-stone-300 rounded" />
+                <div id="pwdErr" class="text-red-600 text-sm hidden"></div>
+            </div>
+            <div class="px-6 py-3 border-t bg-stone-50 flex justify-end gap-2">
+                <button onclick="closePwd()" class="px-4 py-2 rounded border border-stone-300 bg-white">取消</button>
+                <button onclick="submitPwd()" class="px-4 py-2 rounded bg-amber-800 text-white">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiGet = (u) => fetch(u, { credentials: 'same-origin' }).then(r => r.json());
+        const apiSend = (u, m, body) => fetch(u, {
+            method: m, credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: body !== undefined ? JSON.stringify(body) : undefined
+        }).then(r => r.json());
+
+        async function checkLogin() {
+            const r = await apiGet('/api/admin/me');
+            if (r.ok) showMain(); else showLogin();
+        }
+        function showLogin() {
+            document.getElementById('login-page').classList.remove('hidden');
+            document.getElementById('main-page').classList.add('hidden');
+        }
+        function showMain() {
+            document.getElementById('login-page').classList.add('hidden');
+            document.getElementById('main-page').classList.remove('hidden');
+            loadStats();
+            loadSources();
+            // 自动刷新统计
+            setInterval(loadStats, 30 * 1000);
+        }
+
+        async function login() {
+            const pwd = document.getElementById('login-pwd').value;
+            const r = await apiSend('/api/admin/login', 'POST', { password: pwd });
+            if (r.ok) showMain();
+            else {
+                const e = document.getElementById('login-err');
+                e.textContent = r.msg || '登录失败';
+                e.classList.remove('hidden');
+            }
+        }
+        async function logout() {
+            await apiSend('/api/admin/logout', 'POST');
+            location.reload();
+        }
+
+        async function loadStats() {
+            try {
+                const s = await apiGet('/api/admin/stats');
+                document.getElementById('s-online').textContent = s.online;
+                document.getElementById('s-today').textContent = s.today;
+                document.getElementById('s-week').textContent = s.week;
+                document.getElementById('s-month').textContent = s.month;
+                renderChart(s.daily || []);
+            } catch (e) { /* ignore */ }
+        }
+
+        let chart = null;
+        function renderChart(daily) {
+            if (!chart) chart = echarts.init(document.getElementById('chart-daily'));
+            chart.setOption({
+                grid: { top: 20, right: 20, bottom: 30, left: 40 },
+                xAxis: { type: 'category', data: daily.map(d => d.day.slice(5)) },
+                yAxis: { type: 'value', minInterval: 1 },
+                series: [{
+                    type: 'line', smooth: true, symbol: 'circle', symbolSize: 8,
+                    lineStyle: { color: '#8B6F47', width: 3 },
+                    itemStyle: { color: '#A93226' },
+                    areaStyle: {
+                        color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                            colorStops: [{ offset: 0, color: 'rgba(139,111,71,.35)' }, { offset: 1, color: 'rgba(139,111,71,0)' }] }
+                    },
+                    data: daily.map(d => d.count)
+                }]
+            });
+        }
+
+        async function loadSources() {
+            const list = await apiGet('/api/admin/sources');
+            document.getElementById('srcCount').textContent = `（共 ${list.length} 条）`;
+            const tbody = document.getElementById('srcTbody');
+            tbody.innerHTML = list.map(s => `
+                <tr class="border-t hover:bg-stone-50">
+                  <td class="px-4 py-3 font-medium">${escapeHtml(s.name || '')}</td>
+                  <td class="px-4 py-3 text-stone-500 break-all">${escapeHtml(s.url)}</td>
+                  <td class="px-4 py-3 text-center">
+                    <button onclick="toggleEnabled('${escapeJs(s.url)}', ${!s.enabled})"
+                        class="text-xs px-2 py-1 rounded ${s.enabled ? 'bg-green-100 text-green-700' : 'bg-stone-200 text-stone-500'}">
+                      ${s.enabled ? '启用中' : '已禁用'}
+                    </button>
+                  </td>
+                  <td class="px-4 py-3 text-xs text-stone-400">${new Date(s.updated_at).toLocaleString()}</td>
+                  <td class="px-4 py-3 text-center whitespace-nowrap">
+                    <button onclick="viewRaw('${escapeJs(s.url)}')" class="text-xs text-amber-800 hover:underline mr-3">JSON</button>
+                    <button onclick="del('${escapeJs(s.url)}')" class="text-xs text-red-600 hover:underline">删除</button>
+                  </td>
+                </tr>
+            `).join('') || `<tr><td colspan="5" class="px-4 py-12 text-center text-stone-400">暂无书源 — 点右上「添加 / 导入」开始</td></tr>`;
+        }
+
+        function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+        function escapeJs(s) { return String(s ?? '').replace(/['"\\]/g, '\\$&'); }
+
+        async function toggleEnabled(url, enabled) {
+            await apiSend('/api/admin/sources/enabled', 'PATCH', { url, enabled });
+            loadSources();
+        }
+        async function del(url) {
+            if (!confirm('确认删除该书源？\n' + url)) return;
+            await fetch('/api/admin/sources?url=' + encodeURIComponent(url), { method: 'DELETE', credentials: 'same-origin' });
+            loadSources();
+        }
+        async function viewRaw(url) {
+            const r = await fetch('/api/admin/sources/raw?url=' + encodeURIComponent(url), { credentials: 'same-origin' });
+            const t = await r.text();
+            const w = window.open('', '_blank');
+            w.document.write('<pre style="font:12px monospace;white-space:pre-wrap;padding:20px">' + escapeHtml(JSON.stringify(JSON.parse(t), null, 2)) + '</pre>');
+        }
+
+        function openAdd() { document.getElementById('modalAdd').classList.remove('hidden'); document.getElementById('addJson').value = ''; document.getElementById('addErr').classList.add('hidden'); }
+        function closeAdd() { document.getElementById('modalAdd').classList.add('hidden'); }
+        async function submitAdd() {
+            const txt = document.getElementById('addJson').value.trim();
+            const err = document.getElementById('addErr');
+            err.classList.add('hidden');
+            try {
+                const data = JSON.parse(txt);
+                const r = await apiSend('/api/admin/sources', 'POST', data);
+                if (r.ok) {
+                    closeAdd();
+                    loadSources();
+                } else {
+                    err.textContent = r.msg || '保存失败';
+                    err.classList.remove('hidden');
+                }
+            } catch (e) {
+                err.textContent = 'JSON 格式错误：' + e.message;
+                err.classList.remove('hidden');
+            }
+        }
+
+        function openChangePwd() { document.getElementById('modalPwd').classList.remove('hidden'); document.getElementById('oldPwd').value = ''; document.getElementById('newPwd').value = ''; document.getElementById('pwdErr').classList.add('hidden'); }
+        function closePwd() { document.getElementById('modalPwd').classList.add('hidden'); }
+        async function submitPwd() {
+            const oldP = document.getElementById('oldPwd').value;
+            const newP = document.getElementById('newPwd').value;
+            const r = await apiSend('/api/admin/password', 'POST', { oldPassword: oldP, newPassword: newP });
+            if (r.ok) { closePwd(); alert('修改成功'); }
+            else {
+                const e = document.getElementById('pwdErr');
+                e.textContent = r.msg || '修改失败';
+                e.classList.remove('hidden');
+            }
+        }
+
+        document.getElementById('login-pwd').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+
+        checkLogin();
+    </script>
+</body>
+
+</html>

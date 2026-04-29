@@ -1,0 +1,11 @@
+# 万象书屋后端 Caddy 反代配置
+# DNS A 记录指向本机公网 IP 后,Caddy 会自动申请 Let's Encrypt 证书.
+
+www.wxsw.app {
+    encode gzip zstd
+    reverse_proxy 127.0.0.1:3000
+    log {
+        output file /var/log/caddy/wanxiang.log
+        format json
+    }
+}
