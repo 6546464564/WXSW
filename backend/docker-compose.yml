@@ -1,0 +1,38 @@
+# 万象书屋后端 docker-compose
+#
+# 用法:
+#   1. 复制 .env.example 到 .env, 填好 ADMIN_INITIAL_PASSWORD / DEVICE_TOKEN_SECRET
+#   2. docker-compose up -d
+#   3. 升级: docker-compose pull && docker-compose up -d
+#   4. 备份: docker exec wanxiang-backend node scripts/restore-backup.js (列出可用备份)
+
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    image: wanxiang-backend:latest
+    container_name: wanxiang-backend
+    restart: unless-stopped
+    ports:
+      # 生产建议绑 127.0.0.1, 然后用 nginx HTTPS 反代
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_PATH=/app/data/wanxiang.db
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+万象书屋: 章节付费墙锁屏页. 阅读区上层覆盖, 跟随当前阅读主题色.
+仅在用户没成功看完激励广告时显示, 提供"再试一次"和"返回上一章"两个出口.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/chapter_unlock_view"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:focusable="true"
+    android:visibility="gone"
+    tools:visibility="visible">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:paddingHorizontal="32dp">
+
+        <!-- 大锁图标 -->
+        <TextView
+            android:id="@+id/tvUnlockIcon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:text="🔒"
+            android:textSize="56sp" />
+
+        <TextView
+            android:id="@+id/tvUnlockTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:gravity="center"
+            android:letterSpacing="0.15"
+            android:text="@string/chapter_unlock_title"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvUnlockSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp"
+            android:text="@string/chapter_unlock_subtitle"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnUnlockWatch"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="36dp"
+            android:background="@drawable/bg_book_finished_button_primary"
+            android:text="@string/chapter_unlock_watch"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnUnlockGoBack"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="12dp"
+            android:background="@android:color/transparent"
+            android:text="@string/chapter_unlock_go_back"
+            android:textSize="14sp" />
+
+        <!-- loading 状态: 加载中显示 progress, 隐藏按钮 -->
+        <ProgressBar
+            android:id="@+id/unlockLoading"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="20dp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <TextView
+            android:id="@+id/tvUnlockLoadingMsg"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text="@string/chapter_unlock_loading"
+            android:textSize="13sp"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>

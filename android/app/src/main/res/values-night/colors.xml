@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#C9A86C</color>
+    <color name="primaryDark">#A88956</color>
+    <color name="accent">#B8956B</color>
+
+    <color name="disabled">@color/md_dark_disabled</color>
+
+    <color name="background">@color/wanxiang_theme_bg_night</color>
+    <color name="background_card">@color/wanxiang_theme_nav_night</color>
+    <color name="background_menu">#332E27</color>
+    <color name="background_prefs">#10303030</color>
+
+    <color name="night_mask">#69000000</color>
+
+    <color name="transparent10">#10ffffff</color>
+    <color name="transparent20">#20ffffff</color>
+    <color name="transparent30">#30ffffff</color>
+    <color name="transparent50">#50ffffff</color>
+
+    <color name="bg_divider_line">#554C41</color>
+
+    <color name="btn_bg_press">#634D4D4D</color>
+    <color name="btn_bg_press_2">#63686868</color>
+    <color name="btn_bg_press_tp">#63C7C7C7</color>
+
+    <color name="darker_gray">#66666666</color>
+
+    <color name="tv_btn_normal_black">#737373</color>
+    <color name="tv_btn_press_black">#565656</color>
+
+    <color name="primaryText">#ffffffff</color>
+    <color name="secondaryText">#b3ffffff</color>
+    <color name="tv_text_summary">#B3B3B3</color>
+    <color name="menu_color_default">#b7b7b7</color>
+
+    <color name="tv_text_button_nor">#303030</color>
+
+    <!--statusBarBackground-->
+    <color name="navigation_bar_bag">@color/wanxiang_theme_nav_night</color>
+
+    <!-- 夜间亦为暖褐偏纸质，非纯黑 -->
+    <color name="wanxiang_bg">#2C261F</color>
+    <color name="wanxiang_card">#3A3329</color>
+    <color name="wanxiang_text_primary">#EDE6DC</color>
+    <color name="wanxiang_text_secondary">#B5AA9E</color>
+    <color name="wanxiang_divider">#554C41</color>
+</resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 万象书屋: 翻完页"去书架/去书城" 主推按钮, 红色圆角胶囊 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#C44A39" />
+            <corners android:radius="22dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#E55A48" />
+            <corners android:radius="22dp" />
+        </shape>
+    </item>
+</selector>

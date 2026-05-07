@@ -1,0 +1,50 @@
+# 万象书屋 iOS · gitignore
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+
+# XcodeGen 生成物 (源真理: project.yml)
+# 万象书屋: 我们提交 .xcodeproj 让用户开箱即用,
+# 但 user.xcconfig 这类本地配置不传
+WanxiangBook.xcodeproj/xcuserdata/
+WanxiangBook.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+.build/
+
+# CocoaPods (M3 加广告 SDK 时可能会用)
+Pods/
+*.xcworkspace
+
+# Tuist (我们用 XcodeGen, 这条防御性的)
+Derived/
+
+# Mac 系统垃圾
+.DS_Store
+*.swp
+
+# 本地秘密 / 配置 (不能提交)
+*.xcconfig.local
+secrets.local.xcconfig
+
+# 苹果开发者证书 / Profile (绝对不能提交)
+*.p12
+*.mobileprovision
+*.cer
+
+# 测试覆盖
+*.xcresult
+
+# 临时
+*.log
+
+# 万象书屋: 广告 SDK 框架太大不入版本控制 (~530MB)
+# 用 setup.sh 从 ~/Desktop/sdk/ 拷贝
+Frameworks/*.xcframework
+Frameworks/*.bundle

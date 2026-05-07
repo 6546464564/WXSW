@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#faf6ef">
+<meta name="format-detection" content="telephone=no, address=no, email=no">
+<meta name="description" content="万象书屋 App —— 万卷藏书，一屋寻梦。500+ 精品书源，10万+ 书目，永久免费的沉浸式阅读体验。">
+<meta property="og:title" content="万象书屋 · 万卷藏书，一屋寻梦">
+<meta property="og:description" content="500+ 精品书源 · 10万+ 书目 · 永久免费">
+<meta property="og:type" content="website">
+<title>万象书屋 · 万卷藏书，一屋寻梦</title>
+
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23c8922a'/%3E%3Ctext x='16' y='23' font-family='serif' font-size='20' font-weight='900' text-anchor='middle' fill='%23faf6ef'%3E書%3C/text%3E%3C/svg%3E">
+
+<style>
+:root {
+  --ink: #1a1208;
+  --ink-soft: #3a2e1f;
+  --paper: #faf6ef;
+  --parchment: #f0e8d5;
+  --gold: #c8922a;
+  --gold-light: #e8b84b;
+  --mist: #6b7c8a;
+  --vermilion: #c93e2c;
+  --border: rgba(200,146,42,0.22);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-serif: 'Songti SC', 'STSong', 'Source Han Serif SC', SimSun, Georgia, serif;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; }
+html { -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; scroll-behavior:smooth; }
+
+body {
+  font-family:var(--font-sans);
+  background:var(--paper);
+  color:var(--ink);
+  overflow-x:hidden;
+  min-height:100vh;
+  background-image:
+    radial-gradient(circle at 12% 18%, rgba(200,146,42,0.04), transparent 40%),
+    radial-gradient(circle at 88% 80%, rgba(107,124,138,0.04), transparent 40%);
+}
+
+::selection { background:var(--gold); color:var(--paper); }
+
+a { color:inherit; -webkit-tap-highlight-color:transparent; }
+button { font:inherit; -webkit-tap-highlight-color:transparent; }
+
+:focus-visible {
+  outline:2px solid var(--gold);
+  outline-offset:3px;
+}
+
+/* NAV */
+nav {
+  position:fixed; inset:0 0 auto 0; z-index:100;
+  height:calc(56px + env(safe-area-inset-top));
+  padding:env(safe-area-inset-top) 5vw 0;
+  display:flex; align-items:center; justify-content:space-between;
+  background:rgba(250,246,239,0.86);
+  backdrop-filter:blur(14px) saturate(180%);
+  -webkit-backdrop-filter:blur(14px) saturate(180%);
+  border-bottom:0.5px solid var(--border);
+}
+.logo {
+  font-family:var(--font-serif);
+  font-size:18px; font-weight:700;
+  letter-spacing:0.1em; color:var(--ink);
+  display:flex; align-items:center; gap:10px;
+  text-decoration:none;
+}
+.logo-dot {
+  width:8px; height:8px; border-radius:50%;
+  background:var(--gold);
+  box-shadow:0 0 0 3px rgba(200,146,42,0.18);
+  animation:pulse 2.4s ease-in-out infinite;
+}
+/* MAIN */
+.main {
+  min-height:100vh;
+  padding:calc(56px + env(safe-area-inset-top)) 5vw 0;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  position:relative;
+  overflow:hidden;
+}
+.main::before {
+  content:'';
+  position:absolute; top:0; right:0; bottom:0; width:50%;
+  background:var(--parchment);
+  background-image:linear-gradient(135deg, rgba(0,0,0,0.015), rgba(255,255,255,0.02));
+  clip-path:polygon(8% 0, 100% 0, 100% 100%, 0% 100%);
+}
+.main::after {
+  content:'書';
+  position:absolute;
+  right:5vw; top:50%; transform:translateY(-50%);
+  font-family:var(--font-serif);
+  font-size:clamp(180px, 22vw, 320px);
+  font-weight:900;
+  color:rgba(200,146,42,0.06);
+  line-height:1;
+  pointer-events:none; z-index:0; user-select:none;
+}
+
+/* HERO LEFT */
+.hero-left {
+  display:flex; flex-direction:column; justify-content:center;
+  padding:32px 4vw 32px 0;
+  position:relative; z-index:2;
+}
+
+.badge {
+  display:inline-flex; align-items:center; gap:8px;
+  background:rgba(200,146,42,0.08);
+  border:0.5px solid var(--border);
+  border-radius:99px; padding:5px 14px;
+  font-size:11px; color:var(--gold); letter-spacing:0.08em;
+  margin-bottom:22px; width:fit-content;
+}
+.badge-dot {
+  width:5px; height:5px; border-radius:50%;
+  background:var(--gold);
+  animation:pulse 2.4s ease-in-out infinite;
+}
+
+h1 {
+  font-family:var(--font-serif);
+  font-size:clamp(40px, 5.4vw, 68px);
+  font-weight:900; line-height:1.08;
+  letter-spacing:-0.01em; color:var(--ink);
+  margin-bottom:14px;
+}
+h1 .accent {
+  color:var(--gold);
+  display:inline;
+  background-image:linear-gradient(transparent 68%, rgba(200,146,42,0.22) 68%, rgba(200,146,42,0.22) 92%, transparent 92%);
+  background-repeat:no-repeat;
+  padding:0 0.05em;
+}
+
+.tagline {
+  font-family:var(--font-serif);
+  font-size:15px; color:var(--mist);
+  line-height:1.95; letter-spacing:0.04em;
+  margin-bottom:30px; max-width:32em;
+}
+
+/* DOWNLOAD */
+.dl-row { margin-bottom:10px; }
+.dl-btn {
+  display:inline-flex; align-items:center; gap:14px;
+  padding:16px 32px;
+  background:#fff; color:var(--ink);
+  border-radius:14px; text-decoration:none;
+  box-shadow:
+    0 4px 18px rgba(26,18,8,0.10),
+    0 1px 0 rgba(255,255,255,0.6) inset;
+  border:1px solid rgba(26,18,8,0.06);
+  transition:transform 0.2s ease, box-shadow 0.25s ease, border-color 0.2s;
+  position:relative; overflow:hidden;
+}
+.dl-btn::before {
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(120deg, transparent 30%, rgba(200,146,42,0.18), transparent 70%);
+  transform:translateX(-100%); transition:transform 0.6s;
+}
+@media (hover: hover) {
+  .dl-btn:hover {
+    transform:translateY(-2px);
+    box-shadow:0 12px 32px rgba(200,146,42,0.22);
+    border-color:rgba(200,146,42,0.4);
+  }
+  .dl-btn:hover::before { transform:translateX(100%); }
+  .dl-btn:hover .dl-arrow { transform:translateX(4px); color:var(--gold); }
+}
+.dl-btn:active { transform:translateY(0); }
+.dl-icon {
+  width:24px; height:24px; color:var(--gold);
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.dl-icon svg { width:100%; height:100%; }
+.dl-label {
+  font-size:17px; font-weight:700;
+  font-family:var(--font-serif);
+  letter-spacing:0.06em; color:var(--ink); white-space:nowrap;
+}
+.dl-arrow {
+  width:18px; height:18px; color:var(--mist);
+  display:inline-flex; align-items:center; justify-content:center;
+  transition:transform 0.25s, color 0.2s;
+}
+.dl-arrow svg { width:100%; height:100%; }
+
+.dl-hint {
+  font-size:12px; color:var(--mist);
+  letter-spacing:0.04em;
+  margin-bottom:22px;
+  display:flex; align-items:center; gap:7px;
+  min-height:1em;
+}
+.dl-hint-dot {
+  width:6px; height:6px; border-radius:50%;
+  background:#34c759;
+  box-shadow:0 0 0 3px rgba(52,199,89,0.18);
+}
+
+/* QR (desktop only) */
+.qr-card {
+  display:none;
+  margin-bottom:26px;
+  padding:12px;
+  background:#fff;
+  border:1px solid rgba(26,18,8,0.08);
+  border-radius:12px;
+  box-shadow:0 6px 18px rgba(26,18,8,0.06);
+  width:fit-content; align-items:center; gap:14px;
+}
+.qr-card.show { display:inline-flex; }
+.qr-card.pulse { animation:qrPulse 0.9s ease; }
+.qr-img {
+  width:96px; height:96px;
+  background:var(--parchment);
+  border-radius:8px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  position:relative; overflow:hidden;
+}
+.qr-img img { width:100%; height:100%; display:block; border-radius:6px; }
+.qr-loading {
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:10px; color:var(--mist);
+}
+.qr-meta { display:flex; flex-direction:column; gap:3px; padding-right:8px; }
+.qr-title {
+  font-family:var(--font-serif);
+  font-size:13px; font-weight:700; color:var(--ink);
+  letter-spacing:0.06em;
+}
+.qr-desc { font-size:11px; color:var(--mist); line-height:1.6; }
+
+/* STATS */
+.stats {
+  display:flex; gap:36px;
+  padding-top:24px;
+  border-top:0.5px solid var(--border);
+}
+.stat-num {
+  font-family:var(--font-serif);
+  font-size:26px; font-weight:700; color:var(--ink); line-height:1;
+}
+.stat-num span { color:var(--gold); }
+.stat-label {
+  font-size:11px; color:var(--mist);
+  letter-spacing:0.08em; margin-top:6px;
+}
+
+/* HERO RIGHT */
+.hero-right {
+  display:flex; flex-direction:column; justify-content:center; align-items:center;
+  padding:32px 0 32px 4vw;
+  position:relative; z-index:2; gap:22px;
+}
+
+.features {
+  display:grid; grid-template-columns:1fr 1fr; gap:10px;
+  width:100%; max-width:340px;
+}
+.feat {
+  background:rgba(250,246,239,0.7);
+  border:0.5px solid var(--border);
+  border-radius:12px;
+  padding:14px 16px;
+  transition:transform 0.25s, box-shadow 0.25s, border-color 0.2s;
+  position:relative; overflow:hidden;
+  backdrop-filter:blur(4px);
+}
+.feat::before {
+  content:'';
+  position:absolute; top:0; left:0; right:0; height:1.5px;
+  background:linear-gradient(90deg, var(--gold), transparent);
+  opacity:0; transition:opacity 0.25s;
+}
+@media (hover: hover) {
+  .feat:hover {
+    transform:translateY(-3px);
+    box-shadow:0 10px 24px rgba(26,18,8,0.07);
+    border-color:rgba(200,146,42,0.4);
+  }
+  .feat:hover::before { opacity:1; }
+}
+.feat-icon {
+  width:22px; height:22px; color:var(--gold);
+  margin-bottom:8px;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.feat-icon svg { width:100%; height:100%; }
+.feat-title { font-size:13px; font-weight:500; color:var(--ink); margin-bottom:3px; }
+.feat-desc { font-size:11px; color:var(--mist); line-height:1.6; }
+
+/* PHONE */
+.phone-wrap {
+  position:relative;
+  display:flex; align-items:center; justify-content:center;
+}
+.phone {
+  width:148px; height:296px;
+  background:var(--ink);
+  border-radius:28px; padding:6px;
+  box-shadow:
+    0 28px 60px rgba(26,18,8,0.25),
+    0 0 0 1px rgba(200,146,42,0.18),
+    0 0 0 6px rgba(26,18,8,0.04);
+  animation:float 5.5s ease-in-out infinite;
+  flex-shrink:0; position:relative;
+}
+.phone-inner {
+  width:100%; height:100%;
+  background:var(--paper);
+  border-radius:22px; overflow:hidden;
+  display:flex; flex-direction:column;
+  position:relative;
+}
+.phone-notch {
+  position:absolute; top:6px; left:50%; transform:translateX(-50%);
+  width:50px; height:14px;
+  background:var(--ink); border-radius:0 0 10px 10px;
+  z-index:2;
+}
+.phone-status {
+  height:18px;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 12px;
+  font-size:8px; font-weight:600; color:var(--ink);
+  font-variant-numeric:tabular-nums;
+}
+.phone-status-r {
+  display:inline-flex; align-items:center; gap:3px; color:var(--ink);
+}
+.phone-status-r svg { display:block; }
+.phone-body {
+  flex:1; padding:6px 8px 8px;
+  display:flex; flex-direction:column; gap:5px;
+}
+.phone-head {
+  display:flex; align-items:baseline; justify-content:space-between;
+  border-bottom:0.5px solid var(--border);
+  padding:0 2px 5px; margin-bottom:1px;
+}
+.phone-head-title {
+  font-family:var(--font-serif);
+  font-size:10px; font-weight:700; color:var(--ink);
+  letter-spacing:0.06em;
+}
+.phone-head-sub {
+  font-size:7px; color:var(--mist); letter-spacing:0.04em;
+}
+.mini-card {
+  background:var(--parchment); border-radius:7px; padding:5px 7px;
+  display:flex; gap:6px; align-items:center;
+  transition:transform 0.3s;
+}
+.mini-cover {
+  width:24px; height:32px; border-radius:3px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 1px 2px rgba(0,0,0,0.18);
+}
+.mini-cover-text {
+  font-size:7px; color:#fff;
+  writing-mode:vertical-rl;
+  letter-spacing:0.1em;
+  font-family:var(--font-serif);
+}
+.mini-info { flex:1; min-width:0; }
+.mini-title {
+  font-size:8.5px; font-weight:600; color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.mini-auth { font-size:7px; color:var(--mist); margin-top:1px; }
+.mini-bar {
+  height:2px; background:rgba(200,146,42,0.18);
+  border-radius:2px; margin-top:4px; overflow:hidden;
+}
+.mini-fill { height:100%; background:var(--gold); border-radius:2px; }
+
+/* SEAL stamp */
+.seal {
+  position:absolute;
+  right:-10px; top:36px;
+  width:46px; height:46px;
+  background:var(--vermilion);
+  color:#fffaf0;
+  border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--font-serif);
+  font-weight:900; font-size:18px;
+  transform:rotate(-8deg);
+  box-shadow:0 6px 16px rgba(201,62,44,0.32);
+  z-index:3; user-select:none;
+  background-image:
+    radial-gradient(circle at 30% 28%, rgba(255,255,255,0.14), transparent 55%),
+    radial-gradient(circle at 72% 78%, rgba(0,0,0,0.18), transparent 55%);
+  border:1.5px solid rgba(255,250,240,0.85);
+}
+.seal::before {
+  content:''; position:absolute; inset:3px;
+  border:1px solid rgba(255,250,240,0.55);
+  border-radius:3px; pointer-events:none;
+}
+
+/* FOOTER */
+footer {
+  background:var(--ink);
+  padding:18px 5vw calc(18px + env(safe-area-inset-bottom));
+  display:flex; align-items:center; justify-content:space-between;
+  flex-wrap:wrap; gap:12px;
+}
+.footer-logo {
+  font-family:var(--font-serif);
+  font-size:14px; font-weight:700; color:var(--paper);
+  letter-spacing:0.12em;
+  display:flex; align-items:center; gap:8px;
+}
+.footer-logo-dot {
+  width:6px; height:6px; border-radius:50%; background:var(--gold);
+}
+.footer-links { display:flex; gap:20px; list-style:none; }
+.footer-links a {
+  font-size:12px; color:rgba(250,246,239,0.45);
+  text-decoration:none; transition:color 0.2s;
+}
+@media (hover: hover) {
+  .footer-links a:hover { color:var(--gold); }
+}
+.footer-copy {
+  font-size:11px; color:rgba(250,246,239,0.25);
+  letter-spacing:0.04em;
+}
+
+/* IN-APP BROWSER GUIDE */
+.wx-mask {
+  display:none;
+  position:fixed; inset:0; z-index:9999;
+  background:rgba(20,14,6,0.92);
+  -webkit-backdrop-filter:blur(2px);
+  backdrop-filter:blur(2px);
+  color:#faf6ef;
+  font-family:var(--font-sans);
+  animation:fadeIn 0.3s ease;
+}
+.wx-mask.show { display:block; }
+.wx-arrow {
+  position:absolute;
+  top:8px; right:14px;
+  width:140px; height:160px;
+  color:var(--gold-light);
+  pointer-events:none;
+  animation:wxBounce 1.6s ease-in-out infinite;
+}
+.wx-arrow svg { width:100%; height:100%; display:block; }
+.wx-dots {
+  position:absolute;
+  top:18px; right:22px;
+  display:flex; gap:5px;
+  padding:6px 10px;
+  border-radius:99px;
+  background:rgba(250,246,239,0.10);
+  border:1px solid rgba(250,246,239,0.20);
+}
+.wx-dots span {
+  width:5px; height:5px; border-radius:50%;
+  background:#faf6ef;
+}
+.wx-content {
+  position:absolute;
+  top:46%; left:50%; transform:translate(-50%,-50%);
+  text-align:center;
+  padding:0 36px;
+  max-width:420px;
+}
+.wx-title {
+  font-family:var(--font-serif);
+  font-size:22px; font-weight:700;
+  color:#faf6ef;
+  letter-spacing:0.08em;
+  margin-bottom:14px;
+}
+.wx-title .accent { color:var(--gold-light); }
+.wx-desc {
+  font-size:14px; line-height:1.9;
+  color:rgba(250,246,239,0.75);
+  letter-spacing:0.04em;
+}
+.wx-desc b {
+  color:var(--gold-light);
+  font-weight:500;
+  padding:1px 6px;
+  border:0.5px solid rgba(232,184,75,0.35);
+  border-radius:4px;
+  margin:0 2px;
+  white-space:nowrap;
+}
+.wx-actions {
+  position:absolute;
+  bottom:60px; left:50%; transform:translateX(-50%);
+  display:flex; flex-direction:column; align-items:center; gap:14px;
+  width:100%;
+}
+.wx-copy {
+  display:inline-flex; align-items:center; gap:8px;
+  padding:11px 26px;
+  background:var(--gold);
+  border:none; color:var(--ink);
+  border-radius:99px;
+  font-size:14px; font-weight:600;
+  cursor:pointer;
+  letter-spacing:0.06em;
+  font-family:var(--font-serif);
+  transition:transform 0.15s, background 0.2s;
+}
+.wx-copy.copied { background:#34c759; color:#fff; }
+@media (hover: hover) {
+  .wx-copy:hover { background:var(--gold-light); }
+}
+.wx-copy:active { transform:scale(0.97); }
+.wx-close {
+  background:none; border:none;
+  color:rgba(250,246,239,0.5);
+  font-size:12px; cursor:pointer;
+  letter-spacing:0.08em;
+  padding:6px 16px;
+}
+@media (hover: hover) {
+  .wx-close:hover { color:#faf6ef; }
+}
+.wx-toast {
+  position:fixed;
+  top:50%; left:50%; transform:translate(-50%,-50%);
+  background:rgba(26,18,8,0.92);
+  color:#faf6ef;
+  padding:12px 22px;
+  border-radius:10px;
+  font-size:13px;
+  letter-spacing:0.06em;
+  z-index:10000;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity 0.25s;
+}
+.wx-toast.show { opacity:1; }
+
+/* ANIMATIONS */
+@keyframes pulse {
+  0%, 100% { opacity:1; transform:scale(1); }
+  50% { opacity:0.4; transform:scale(0.75); }
+}
+@keyframes float {
+  0%, 100% { transform:translateY(0) rotate(-1.5deg); }
+  50% { transform:translateY(-10px) rotate(1.5deg); }
+}
+@keyframes fadeUp {
+  from { opacity:0; transform:translateY(14px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+@keyframes qrPulse {
+  0%, 100% { box-shadow:0 6px 18px rgba(26,18,8,0.06); }
+  50%      { box-shadow:0 0 0 6px rgba(200,146,42,0.18), 0 6px 18px rgba(26,18,8,0.06); }
+}
+@keyframes fadeIn {
+  from { opacity:0; }
+  to   { opacity:1; }
+}
+@keyframes wxBounce {
+  0%, 100% { transform:translate(0, 0); }
+  50%      { transform:translate(6px, -6px); }
+}
+
+.reveal { animation:fadeUp 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.reveal-1 { animation-delay:0.05s; }
+.reveal-2 { animation-delay:0.15s; }
+.reveal-3 { animation-delay:0.25s; }
+.reveal-4 { animation-delay:0.35s; }
+.reveal-5 { animation-delay:0.45s; }
+.reveal-6 { animation-delay:0.55s; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration:0.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:0.001ms !important;
+    scroll-behavior:auto !important;
+  }
+}
+
+/* MOBILE */
+@media (max-width:760px){
+  /* 移动端：导航随流布局、不再补偿 safe-area，
+     避免 iOS 在 in-app 预览器里产生 ~100px+ 空白 */
+  nav {
+    position:static;
+    height:auto;
+    padding:12px 20px 8px;
+    background:transparent;
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    border-bottom:none;
+  }
+
+  .main {
+    grid-template-columns:1fr;
+    padding:0 20px;
+    min-height:auto;
+  }
+  .main::before { display:none; }
+  .main::after {
+    right:auto; left:50%;
+    top:60%; transform:translate(-50%, -50%);
+    font-size:48vw;
+    color:rgba(200,146,42,0.04);
+  }
+
+  .hero-left {
+    padding:18px 0 16px;
+    align-items:center; text-align:center;
+    justify-content:flex-start;
+  }
+  .badge { margin-left:auto; margin-right:auto; margin-bottom:16px; }
+  h1 { font-size:clamp(34px, 9.5vw, 52px); margin-bottom:10px; }
+  .tagline { font-size:14px; margin-bottom:22px; }
+
+  .dl-row { display:flex; justify-content:center; margin-bottom:8px; }
+  .dl-btn { padding:14px 28px; }
+  .dl-label { font-size:16px; }
+  .dl-hint { justify-content:center; text-align:center; margin-bottom:18px; }
+
+  .qr-card { margin-left:auto; margin-right:auto; }
+
+  .stats { justify-content:center; gap:24px; padding-top:18px; }
+  .stat-num { font-size:22px; }
+
+  .hero-right { padding:0 0 28px; gap:18px; }
+  .features { max-width:100%; gap:8px; }
+  .feat { padding:12px; }
+  .feat-icon { width:18px; height:18px; }
+  .feat-title { font-size:12px; }
+  .feat-desc { font-size:10px; }
+
+  .phone { width:160px; height:320px; }
+  .seal { right:-8px; top:36px; width:46px; height:46px; font-size:18px; }
+
+  footer {
+    flex-direction:column; align-items:center;
+    text-align:center; padding:22px; gap:10px;
+    padding-bottom:calc(22px + env(safe-area-inset-bottom));
+  }
+  .footer-links { flex-wrap:wrap; justify-content:center; gap:14px; }
+}
+</style>
+</head>
+<body>
+
+<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0" aria-hidden="true">
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="9"/>
+    <path d="M3 12h18"/>
+    <path d="M12 3a13.5 13.5 0 010 18M12 3a13.5 13.5 0 000 18"/>
+  </symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 10-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+  </symbol>
+  <symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 4h6a4 4 0 014 4v12a3 3 0 00-3-3H2z"/>
+    <path d="M22 4h-6a4 4 0 00-4 4v12a3 3 0 013-3h7z"/>
+  </symbol>
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+    <path d="M7 10l5 5 5-5"/>
+    <path d="M12 15V3"/>
+  </symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 12h14M13 6l6 6-6 6"/>
+  </symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 18a1.5 1.5 0 100 3 1.5 1.5 0 000-3z"/>
+    <path d="M5 11l1.4 1.4a8 8 0 0111.2 0L19 11A10 10 0 005 11z" opacity="0.7"/>
+    <path d="M2 8l1.4 1.4a12 12 0 0117.2 0L22 8A14 14 0 002 8z" opacity="0.4"/>
+  </symbol>
+  <symbol id="i-battery" viewBox="0 0 24 12" fill="none" stroke="currentColor" stroke-width="1">
+    <rect x="0.5" y="0.5" width="20" height="11" rx="2"/>
+    <rect x="2" y="2" width="14" height="8" rx="1" fill="currentColor" stroke="none"/>
+    <rect x="21.5" y="3.5" width="2" height="5" rx="0.5" fill="currentColor" stroke="none"/>
+  </symbol>
+</svg>
+
+<nav>
+  <div class="logo" aria-label="万象书屋">
+    <span class="logo-dot" aria-hidden="true"></span>
+    万象书屋
+  </div>
+</nav>
+
+<main class="main">
+  <section class="hero-left" aria-labelledby="hero-title">
+    <span class="badge reveal reveal-1">
+      <span class="badge-dot" aria-hidden="true"></span>
+      全新版本 · 永久免费书源
+    </span>
+    <h1 id="hero-title" class="reveal reveal-2">万卷藏书<br>一屋<span class="accent">寻梦</span></h1>
+    <p class="tagline reveal reveal-3">万象书屋 App —— 告别书荒，打造沉浸式阅读<br>更新快 · 全免费 · 永久源</p>
+
+    <div class="dl-row reveal reveal-4">
+      <a href="/dl/wanxiang-latest.apk" class="dl-btn" id="dl-main-btn" onclick="handleDownload(event)" aria-label="下载万象书屋 App">
+        <span class="dl-icon" id="dl-icon"><svg width="24" height="24"><use href="#i-download"/></svg></span>
+        <span class="dl-label" id="dl-label">立即下载 App</span>
+        <span class="dl-arrow"><svg width="18" height="18"><use href="#i-arrow"/></svg></span>
+      </a>
+    </div>
+    <div class="dl-hint reveal reveal-4">
+      <span class="dl-hint-dot" aria-hidden="true"></span>
+      <span id="dl-hint-text">支持 Android · iOS 即将上架</span>
+    </div>
+    <noscript>
+      <div class="dl-hint" style="color:var(--vermilion)">浏览器已禁用 JavaScript，请在 Safari / Chrome 中开启后访问。直接下载：<a href="/dl/wanxiang-latest.apk" style="color:var(--gold)">点这里</a></div>
+    </noscript>
+
+    <div class="qr-card" id="qr-card" role="region" aria-label="扫码下载">
+      <div class="qr-img">
+        <span class="qr-loading" id="qr-loading">加载中…</span>
+        <img id="qr-img" alt="下载二维码">
+      </div>
+      <div class="qr-meta">
+        <span class="qr-title">扫码下载 App</span>
+        <span class="qr-desc" id="qr-desc">使用手机相机扫一扫<br>Android 直接安装</span>
+      </div>
+    </div>
+
+    <div class="stats reveal reveal-5">
+      <div>
+        <div class="stat-num">10<span>万+</span></div>
+        <div class="stat-label">书目收录</div>
+      </div>
+      <div>
+        <div class="stat-num">500<span>+</span></div>
+        <div class="stat-label">精品书源</div>
+      </div>
+      <div>
+        <div class="stat-num">0<span>元</span></div>
+        <div class="stat-label">永久免费</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hero-right" id="features" aria-label="产品特色">
+    <div class="features reveal reveal-3">
+      <div class="feat">
+        <div class="feat-icon"><svg width="22" height="22"><use href="#i-globe"/></svg></div>
+        <div class="feat-title">海量书源</div>
+        <div class="feat-desc">500+ 精选书源，全品类覆盖</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon"><svg width="22" height="22"><use href="#i-heart"/></svg></div>
+        <div class="feat-title">完全免费</div>
+        <div class="feat-desc">零内购，永久免费使用</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon"><svg width="22" height="22"><use href="#i-book"/></svg></div>
+        <div class="feat-title">沉浸阅读</div>
+        <div class="feat-desc">自定义字体背景夜间模式</div>
+      </div>
+      <div class="feat">
+        <div class="feat-icon"><svg width="22" height="22"><use href="#i-download"/></svg></div>
+        <div class="feat-title">离线缓存</div>
+        <div class="feat-desc">全本下载，随时随地畅读</div>
+      </div>
+    </div>
+
+    <div class="phone-wrap reveal reveal-5">
+      <div class="phone" aria-hidden="true">
+        <div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-status">
+            <span id="phone-time">21:08</span>
+            <span class="phone-status-r">
+              <svg width="9" height="9"><use href="#i-wifi"/></svg>
+              <svg width="14" height="7"><use href="#i-battery"/></svg>
+            </span>
+          </div>
+          <div class="phone-body">
+            <div class="phone-head">
+              <span class="phone-head-title">书架</span>
+              <span class="phone-head-sub">3 本在读</span>
+            </div>
+            <div class="mini-card">
+              <div class="mini-cover" style="background:linear-gradient(135deg,#8b3a1e,#c8922a)">
+                <span class="mini-cover-text">紅樓</span>
+              </div>
+              <div class="mini-info">
+                <div class="mini-title">红楼梦</div>
+                <div class="mini-auth">曹雪芹</div>
+                <div class="mini-bar"><div class="mini-fill" style="width:38%"></div></div>
+              </div>
+            </div>
+            <div class="mini-card">
+              <div class="mini-cover" style="background:linear-gradient(135deg,#12244a,#2a4a8a)">
+                <span class="mini-cover-text">三體</span>
+              </div>
+              <div class="mini-info">
+                <div class="mini-title">三体</div>
+                <div class="mini-auth">刘慈欣</div>
+                <div class="mini-bar"><div class="mini-fill" style="width:72%"></div></div>
+              </div>
+            </div>
+            <div class="mini-card">
+              <div class="mini-cover" style="background:linear-gradient(135deg,#1a3a1e,#4a6741)">
+                <span class="mini-cover-text">活著</span>
+              </div>
+              <div class="mini-info">
+                <div class="mini-title">活着</div>
+                <div class="mini-auth">余华</div>
+                <div class="mini-bar"><div class="mini-fill" style="width:15%"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="seal" aria-hidden="true">閱</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="footer-logo">
+    <span class="footer-logo-dot" aria-hidden="true"></span>
+    万象书屋
+  </div>
+  <ul class="footer-links">
+    <li><a href="/legal/privacy">隐私政策</a></li>
+    <li><a href="/legal/agreement">用户协议</a></li>
+    <li><a href="/dl/">下载页</a></li>
+    <li><a href="/admin">管理后台</a></li>
+  </ul>
+  <div class="footer-copy">© 2026 万象书屋 · 万卷藏书，一屋寻梦</div>
+</footer>
+
+<div class="wx-mask" id="wx-mask" role="dialog" aria-modal="true" aria-labelledby="wx-title">
+  <div class="wx-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+  <div class="wx-arrow" aria-hidden="true">
+    <svg viewBox="0 0 140 160" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 30 150 Q 20 90 50 60 T 120 24" stroke-dasharray="4 6"/>
+      <path d="M 110 14 L 124 22 L 116 38" fill="none"/>
+    </svg>
+  </div>
+  <div class="wx-content">
+    <div class="wx-title" id="wx-title">请在<span class="accent">浏览器</span>中打开</div>
+    <div class="wx-desc">
+      点击右上角 <b>⋯</b> 或 <b>≡</b><br>
+      选择「<b>在浏览器中打开</b>」<br>
+      即可正常下载万象书屋 App
+    </div>
+  </div>
+  <div class="wx-actions">
+    <button type="button" class="wx-copy" id="wx-copy">复制下载链接</button>
+    <button type="button" class="wx-close" id="wx-close">我知道了，先看看页面</button>
+  </div>
+</div>
+<div class="wx-toast" id="wx-toast" role="status" aria-live="polite"></div>
+
+<script>
+/* 万象书屋: 下载链接.
+ * 用相对路径, 部署到任何域名 / IP / HTTPS 都自适应.
+ * iOS 暂未上架, 同样导向 APK 让用户看到提示 (App 内会提示 "iOS 暂不支持").
+ * PC 二维码用当前页面 URL, 手机扫码后看到同一个落地页, 自动识别 Android 跳 APK.
+ */
+const APK_PATH    = '/dl/wanxiang-latest.apk';
+const IOS_URL     = APK_PATH;
+const ANDROID_URL = APK_PATH;
+const PC_URL      = location.origin + '/';
+
+/* 内联二维码生成器（0网络请求） */
+/* qrcode-generator v1.4.4 (MIT, Kazuhiko Arase) - minified, trimmed to encoder-only */
+var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],f={},c=function(t,r){o=function(t){for(var r=new Array(t),e=0;e<t;e+=1){r[e]=new Array(t);for(var n=0;n<t;n+=1)r[e][n]=null}return r}(i=4*e+17),l(0,0),l(i-7,0),l(0,i-7),s(),h(),d(t,r),e>=7&&v(t),null==a&&(a=p(e,n,u)),w(a,r)},l=function(t,r){for(var e=-1;e<=7;e+=1)if(!(t+e<=-1||i<=t+e))for(var n=-1;n<=7;n+=1)r+n<=-1||i<=r+n||(o[t+e][r+n]=0<=e&&e<=6&&(0==n||6==n)||0<=n&&n<=6&&(0==e||6==e)||2<=e&&e<=4&&2<=n&&n<=4)},h=function(){for(var t=8;t<i-8;t+=1)null==o[t][6]&&(o[t][6]=t%2==0);for(var r=8;r<i-8;r+=1)null==o[6][r]&&(o[6][r]=r%2==0)},s=function(){for(var t=B.getPatternPosition(e),r=0;r<t.length;r+=1)for(var n=0;n<t.length;n+=1){var i=t[r],a=t[n];if(null==o[i][a])for(var u=-2;u<=2;u+=1)for(var f=-2;f<=2;f+=1)o[i+u][a+f]=-2==u||2==u||-2==f||2==f||0==u&&0==f}},v=function(t){for(var r=B.getBCHTypeNumber(e),n=0;n<18;n+=1){var a=!t&&1==(r>>n&1);o[Math.floor(n/3)][n%3+i-8-3]=a}for(n=0;n<18;n+=1){a=!t&&1==(r>>n&1);o[n%3+i-8-3][Math.floor(n/3)]=a}},d=function(t,r){for(var e=n<<3|r,a=B.getBCHTypeInfo(e),u=0;u<15;u+=1){var f=!t&&1==(a>>u&1);u<6?o[u][8]=f:u<8?o[u+1][8]=f:o[i-15+u][8]=f}for(u=0;u<15;u+=1){f=!t&&1==(a>>u&1);u<8?o[8][i-u-1]=f:u<9?o[8][15-u-1+1]=f:o[8][15-u-1]=f}o[i-8][8]=!t},w=function(t,r){for(var e=-1,n=i-1,a=7,u=0,f=B.getMaskFunction(r),c=i-1;c>0;c-=2)for(6==c&&(c-=1);;){for(var g=0;g<2;g+=1)if(null==o[n][c-g]){var l=!1;u<t.length&&(l=1==(t[u]>>>a&1)),f(n,c-g)&&(l=!l),o[n][c-g]=l,-1==(a-=1)&&(u+=1,a=7)}if((n+=e)<0||i<=n){n-=e,e=-e;break}}},p=function(t,r,e){for(var n=A.getRSBlocks(t,r),o=b(),i=0;i<e.length;i+=1){var a=e[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var u=0;for(i=0;i<n.length;i+=1)u+=n[i].dataCount;if(o.getLengthInBits()>8*u)throw"code length overflow. ("+o.getLengthInBits()+">"+8*u+")";for(o.getLengthInBits()+4<=8*u&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=8*u||(o.put(236,8),o.getLengthInBits()>=8*u));)o.put(17,8);return function(t,r){for(var e=0,n=0,o=0,i=new Array(r.length),a=new Array(r.length),u=0;u<r.length;u+=1){var f=r[u].dataCount,c=r[u].totalCount-f;n=Math.max(n,f),o=Math.max(o,c),i[u]=new Array(f);for(var g=0;g<i[u].length;g+=1)i[u][g]=255&t.getBuffer()[g+e];e+=f;var l=B.getErrorCorrectPolynomial(c),h=k(i[u],l.getLength()-1).mod(l);for(a[u]=new Array(l.getLength()-1),g=0;g<a[u].length;g+=1){var s=g+h.getLength()-a[u].length;a[u][g]=s>=0?h.getAt(s):0}}var v=0;for(g=0;g<r.length;g+=1)v+=r[g].totalCount;var d=new Array(v),w=0;for(g=0;g<n;g+=1)for(u=0;u<r.length;u+=1)g<i[u].length&&(d[w]=i[u][g],w+=1);for(g=0;g<o;g+=1)for(u=0;u<r.length;u+=1)g<a[u].length&&(d[w]=a[u][g],w+=1);return d}(o,n)};f.addData=function(t,r){var e=null;switch(r=r||"Byte"){case"Numeric":e=M(t);break;case"Alphanumeric":e=x(t);break;case"Byte":e=m(t);break;default:throw"mode:"+r}u.push(e),a=null},f.isDark=function(t,r){if(t<0||i<=t||r<0||i<=r)throw t+","+r;return o[t][r]},f.getModuleCount=function(){return i},f.make=function(){if(e<1){for(var t=1;t<40;t++){for(var r=A.getRSBlocks(t,n),o=b(),i=0;i<u.length;i++){var a=u[i];o.put(a.getMode(),4),o.put(a.getLength(),B.getLengthInBits(a.getMode(),t)),a.write(o)}var g=0;for(i=0;i<r.length;i++)g+=r[i].dataCount;if(o.getLengthInBits()<=8*g)break}e=t}c(!1,function(){for(var t=0,r=0,e=0;e<8;e+=1){c(!0,e);var n=B.getLostPoint(f);(0==e||t>n)&&(t=n,r=e)}return r}())};return f};t.stringToBytes=function(t){for(var r=[],e=0;e<t.length;e+=1){var n=t.charCodeAt(e);r.push(255&n)}return r};var r,e,n,o,i,a=1,u=2,f=4,c=8,g={L:1,M:0,Q:3,H:2},l=0,h=1,s=2,v=3,d=4,w=5,p=6,y=7,B=(r=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],e=1335,n=7973,i=function(t){for(var r=0;0!=t;)r+=1,t>>>=1;return r},(o={}).getBCHTypeInfo=function(t){for(var r=t<<10;i(r)-i(e)>=0;)r^=e<<i(r)-i(e);return 21522^(t<<10|r)},o.getBCHTypeNumber=function(t){for(var r=t<<12;i(r)-i(n)>=0;)r^=n<<i(r)-i(n);return t<<12|r},o.getPatternPosition=function(t){return r[t-1]},o.getMaskFunction=function(t){switch(t){case l:return function(t,r){return(t+r)%2==0};case h:return function(t,r){return t%2==0};case s:return function(t,r){return r%3==0};case v:return function(t,r){return(t+r)%3==0};case d:return function(t,r){return(Math.floor(t/2)+Math.floor(r/3))%2==0};case w:return function(t,r){return t*r%2+t*r%3==0};case p:return function(t,r){return(t*r%2+t*r%3)%2==0};case y:return function(t,r){return(t*r%3+(t+r)%2)%2==0};default:throw"bad maskPattern:"+t}},o.getErrorCorrectPolynomial=function(t){for(var r=k([1],0),e=0;e<t;e+=1)r=r.multiply(k([1,C.gexp(e)],0));return r},o.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case a:return 10;case u:return 9;case f:case c:return 8;default:throw"mode:"+t}else if(r<27)switch(t){case a:return 12;case u:return 11;case f:return 16;case c:return 10;default:throw"mode:"+t}else{if(!(r<41))throw"type:"+r;switch(t){case a:return 14;case u:return 13;case f:return 16;case c:return 12;default:throw"mode:"+t}}},o.getLostPoint=function(t){for(var r=t.getModuleCount(),e=0,n=0;n<r;n+=1)for(var o=0;o<r;o+=1){for(var i=0,a=t.isDark(n,o),u=-1;u<=1;u+=1)if(!(n+u<0||r<=n+u))for(var f=-1;f<=1;f+=1)o+f<0||r<=o+f||0==u&&0==f||a==t.isDark(n+u,o+f)&&(i+=1);i>5&&(e+=3+i-5)}for(n=0;n<r-1;n+=1)for(o=0;o<r-1;o+=1){var c=0;t.isDark(n,o)&&(c+=1),t.isDark(n+1,o)&&(c+=1),t.isDark(n,o+1)&&(c+=1),t.isDark(n+1,o+1)&&(c+=1),0!=c&&4!=c||(e+=3)}for(n=0;n<r;n+=1)for(o=0;o<r-6;o+=1)t.isDark(n,o)&&!t.isDark(n,o+1)&&t.isDark(n,o+2)&&t.isDark(n,o+3)&&t.isDark(n,o+4)&&!t.isDark(n,o+5)&&t.isDark(n,o+6)&&(e+=40);for(o=0;o<r;o+=1)for(n=0;n<r-6;n+=1)t.isDark(n,o)&&!t.isDark(n+1,o)&&t.isDark(n+2,o)&&t.isDark(n+3,o)&&t.isDark(n+4,o)&&!t.isDark(n+5,o)&&t.isDark(n+6,o)&&(e+=40);var g=0;for(o=0;o<r;o+=1)for(n=0;n<r;n+=1)t.isDark(n,o)&&(g+=1);return e+=Math.abs(100*g/r/r-50)/5*10},o),C=function(){for(var t=new Array(256),r=new Array(256),e=0;e<8;e+=1)t[e]=1<<e;for(e=8;e<256;e+=1)t[e]=t[e-4]^t[e-5]^t[e-6]^t[e-8];for(e=0;e<255;e+=1)r[t[e]]=e;return{glog:function(t){if(t<1)throw"glog("+t+")";return r[t]},gexp:function(r){for(;r<0;)r+=255;for(;r>=256;)r-=255;return t[r]}}}();function k(t,r){if(void 0===t.length)throw t.length+"/"+r;var e=function(){for(var e=0;e<t.length&&0==t[e];)e+=1;for(var n=new Array(t.length-e+r),o=0;o<t.length-e;o+=1)n[o]=t[o+e];return n}(),n={getAt:function(t){return e[t]},getLength:function(){return e.length},multiply:function(t){for(var r=new Array(n.getLength()+t.getLength()-1),e=0;e<n.getLength();e+=1)for(var o=0;o<t.getLength();o+=1)r[e+o]^=C.gexp(C.glog(n.getAt(e))+C.glog(t.getAt(o)));return k(r,0)},mod:function(t){if(n.getLength()-t.getLength()<0)return n;for(var r=C.glog(n.getAt(0))-C.glog(t.getAt(0)),e=new Array(n.getLength()),o=0;o<n.getLength();o+=1)e[o]=n.getAt(o);for(o=0;o<t.getLength();o+=1)e[o]^=C.gexp(C.glog(t.getAt(o))+r);return k(e,0).mod(t)}};return n}var A=function(){var t=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],r=function(t,r){return{totalCount:t,dataCount:r}},e={};return e.getRSBlocks=function(e,n){var o=function(r,e){switch(e){case g.L:return t[4*(r-1)+0];case g.M:return t[4*(r-1)+1];case g.Q:return t[4*(r-1)+2];case g.H:return t[4*(r-1)+3]}}(e,n);if(void 0===o)throw"bad rs block @ typeNumber:"+e+"/errorCorrectionLevel:"+n;for(var i=o.length/3,a=[],u=0;u<i;u+=1)for(var f=o[3*u+0],c=o[3*u+1],l=o[3*u+2],h=0;h<f;h+=1)a.push(r(c,l));return a},e}(),b=function(){var t=[],r=0;return{getBuffer:function(){return t},put:function(t,r){for(var e=0;e<r;e+=1)this.putBit(1==(t>>>r-e-1&1))},getLengthInBits:function(){return r},putBit:function(e){var n=Math.floor(r/8);t.length<=n&&t.push(0),e&&(t[n]|=128>>>r%8),r+=1}}},M=function(t){var r=a,e=t,n={getMode:function(){return r},getLength:function(){return e.length},write:function(t){for(var r=e,n=0;n+2<r.length;)t.put(o(r.substring(n,n+3)),10),n+=3;n<r.length&&(r.length-n==1?t.put(o(r.substring(n,n+1)),4):r.length-n==2&&t.put(o(r.substring(n,n+2)),7))}},o=function(t){for(var r=0,e=0;e<t.length;e+=1)r=10*r+i(t.charAt(e));return r},i=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);throw"illegal char :"+t};return n},x=function(t){var r=u,e=t,n={getMode:function(){return r},getLength:function(){return e.length},write:function(t){for(var r=e,n=0;n+1<r.length;)t.put(45*o(r.charAt(n))+o(r.charAt(n+1)),11),n+=2;n<r.length&&t.put(o(r.charAt(n)),6)}},o=function(t){if("0"<=t&&t<="9")return t.charCodeAt(0)-"0".charCodeAt(0);if("A"<=t&&t<="Z")return t.charCodeAt(0)-"A".charCodeAt(0)+10;switch(t){case" ":return 36;case"$":return 37;case"%":return 38;case"*":return 39;case"+":return 40;case"-":return 41;case".":return 42;case"/":return 43;case":":return 44;default:throw"illegal char :"+t}};return n},m=function(r){var e=f,n=t.stringToBytes(r);return{getMode:function(){return e},getLength:function(){return n.length},write:function(t){for(var r=0;r<n.length;r+=1)t.put(n[r],8)}}};return t}();
+
+function generateQrSvg(text, fg, bg){
+  const qr = qrcode(0, 'M');
+  qr.addData(text, 'Byte');
+  qr.make();
+  const n = qr.getModuleCount();
+  const cell = 8, margin = 16;
+  const size = n * cell + 2 * margin;
+  let p = '';
+  for (let r = 0; r < n; r++){
+    for (let c = 0; c < n; c++){
+      if (qr.isDark(r, c)){
+        p += 'M' + (c*cell+margin) + ',' + (r*cell+margin) + 'h' + cell + 'v' + cell + 'h-' + cell + 'z';
+      }
+    }
+  }
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + size + ' ' + size + '" shape-rendering="crispEdges" preserveAspectRatio="xMidYMid meet">' +
+         '<rect width="100%" height="100%" fill="' + bg + '"/>' +
+         '<path d="' + p + '" fill="' + fg + '"/></svg>';
+}
+
+function detectPlatform() {
+  const ua = navigator.userAgent || '';
+  if (/iPad|iPhone|iPod/.test(ua)) return 'ios';
+  if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return 'ios';
+  if (/Android/i.test(ua)) return 'android';
+  return 'pc';
+}
+
+function detectInAppBrowser() {
+  const ua = (navigator.userAgent || '').toLowerCase();
+  if (/micromessenger/.test(ua))            return 'wechat';
+  if (/qq\//.test(ua) || /qqbrowser/.test(ua)) return 'qq';
+  if (/weibo/.test(ua))                     return 'weibo';
+  if (/dingtalk/.test(ua))                  return 'dingtalk';
+  if (/lark|feishu/.test(ua))               return 'feishu';
+  if (/aweme|bytedance|tiktok/.test(ua))    return 'douyin';
+  if (/alipay/.test(ua))                    return 'alipay';
+  return null;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('wx-toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).then(() => true).catch(() => fallbackCopy(text));
+  }
+  return Promise.resolve(fallbackCopy(text));
+}
+function fallbackCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) { return false; }
+}
+
+function handleDownload(e) {
+  const platform = detectPlatform();
+
+  if (platform === 'pc') {
+    /* PC 拦下点击, 不直接下载 APK (PC 装不了 Android 包), 改成弹二维码 */
+    if (e && e.preventDefault) e.preventDefault();
+    const qr = document.getElementById('qr-card');
+    qr.classList.add('show');
+    qr.classList.remove('pulse');
+    void qr.offsetWidth;
+    qr.classList.add('pulse');
+    qr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    showToast('请用手机扫码下载, PC 端暂未提供桌面版');
+    return;
+  }
+
+  if (platform === 'ios') {
+    /* iOS 暂未上架 - 提示用户后保留默认 a 链接 fallback (会下载 APK 但 iOS 装不了, Safari 给提示) */
+    if (e && e.preventDefault) e.preventDefault();
+    showToast('iOS 版即将上架, 当前请用 Android 设备体验');
+    return;
+  }
+
+  /* Android: 让 a 标签默认行为生效, 浏览器直接下载 APK */
+}
+
+function updateClock() {
+  const t = new Date();
+  const hh = String(t.getHours()).padStart(2, '0');
+  const mm = String(t.getMinutes()).padStart(2, '0');
+  const el = document.getElementById('phone-time');
+  if (el) el.textContent = hh + ':' + mm;
+}
+
+/* 立即执行：脚本位于 body 末尾，相关 DOM 已就绪，无需等待 DOMContentLoaded */
+(function initPlatform() {
+  try {
+    const platform = detectPlatform();
+    const inApp    = detectInAppBrowser();
+    const label    = document.getElementById('dl-label');
+    const hintText = document.getElementById('dl-hint-text');
+    const qrCard   = document.getElementById('qr-card');
+    const qrImg    = document.getElementById('qr-img');
+    const qrLoading= document.getElementById('qr-loading');
+    const qrDesc   = document.getElementById('qr-desc');
+
+    document.documentElement.dataset.platform = platform;
+    if (inApp) document.documentElement.dataset.inapp = inApp;
+
+    if (platform === 'ios') {
+      label.textContent    = 'iOS 即将上架';
+      hintText.textContent = '已识别设备: iPhone / iPad - 暂请用 Android 体验';
+    } else if (platform === 'android') {
+      label.textContent    = '下载 Android 版';
+      hintText.textContent = '已识别设备: Android - 点击下载安装包';
+    } else {
+      label.textContent    = '扫码下载 App';
+      hintText.textContent = '已识别设备: 桌面端, 请用手机扫码下载';
+      try {
+        const svg = generateQrSvg(PC_URL, '#1a1208', '#f0e8d5');
+        qrImg.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+        if (qrLoading) qrLoading.style.display = 'none';
+      } catch (err) {
+        if (qrLoading) qrLoading.textContent = '二维码生成失败';
+        if (qrDesc)    qrDesc.innerHTML = '请直接访问<br><b style="color:var(--ink)">' + PC_URL.replace(/^https?:\/\//,'') + '</b>';
+      }
+      qrCard.classList.add('show');
+    }
+
+    initInAppGuide(inApp, platform);
+    animateStats();
+  } catch (err) {
+    console.warn('[万象书屋] 初始化失败：', err);
+  }
+
+  updateClock();
+  setInterval(updateClock, 30000);
+})();
+
+/* 0 → 目标值 的数字动画 */
+function animateStats() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('.stat-num').forEach(node => {
+    const text = node.textContent.trim();
+    const m = text.match(/^(\d+)/);
+    if (!m) return;
+    const target = parseInt(m[1], 10);
+    if (target <= 0) return;
+    const suffixSpan = node.querySelector('span');
+    const suffix = suffixSpan ? suffixSpan.outerHTML : '';
+    const duration = 900;
+    const start = performance.now();
+    function tick(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const v = Math.round(target * eased);
+      node.innerHTML = v + suffix;
+      if (t < 1) requestAnimationFrame(tick);
+    }
+    node.innerHTML = '0' + suffix;
+    requestAnimationFrame(tick);
+  });
+}
+
+function initInAppGuide(inApp, platform) {
+  const mask     = document.getElementById('wx-mask');
+  const copyBtn  = document.getElementById('wx-copy');
+  const closeBtn = document.getElementById('wx-close');
+  if (!mask || !copyBtn || !closeBtn) return;
+
+  const shouldShow = !!inApp && (platform === 'ios' || platform === 'android');
+  const force = /[?&]wx=1\b/.test(location.search);
+
+  function openMask() {
+    mask.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeMask() {
+    mask.classList.remove('show');
+    document.body.style.overflow = '';
+  }
+
+  if (shouldShow || force) openMask();
+
+  closeBtn.addEventListener('click', closeMask);
+
+  /* 点遮罩空白处关闭（不点到内容） */
+  mask.addEventListener('click', e => {
+    if (e.target === mask) closeMask();
+  });
+
+  /* ESC 键关闭 */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && mask.classList.contains('show')) closeMask();
+  });
+
+  copyBtn.addEventListener('click', () => {
+    copyText(location.href).then(ok => {
+      if (ok) {
+        const original = copyBtn.textContent;
+        copyBtn.classList.add('copied');
+        copyBtn.textContent = '✓ 已复制，去浏览器粘贴打开';
+        setTimeout(() => {
+          copyBtn.classList.remove('copied');
+          copyBtn.textContent = original;
+        }, 2200);
+      } else {
+        showToast('复制失败，请长按地址栏手动复制');
+      }
+    });
+  });
+}
+</script>
+</body>
+</html>

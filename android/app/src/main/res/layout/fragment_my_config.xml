@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <io.legado.app.ui.widget.TitleBar
+        android:id="@+id/title_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:attachToActivity="false"
+        app:title="@string/my" />
+
+    <!-- 万象书屋: 纯净阅读状态卡 (在解锁窗口内显示). 主动续广告的入口之一. -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/cardUnlockStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginTop="8dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#1A1B23"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="14dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvUnlockCardTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/unlock_card_title"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/tvUnlockCardRemaining"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textColor="#FFEACE3F"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    tools:text="剩余 25:32" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnUnlockCardExtend"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_book_finished_button_primary"
+                android:minWidth="0dp"
+                android:paddingHorizontal="16dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="13sp"
+                tools:text="看 1 次广告 +30 分钟" />
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <LinearLayout
+        android:id="@+id/pre_fragment"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical" />
+
+</LinearLayout>

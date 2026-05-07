@@ -6,13 +6,24 @@
   "scripts": {
     "start": "node server.js",
     "init-db": "node -e \"require('./db').init()\"",
-    "seed": "node scripts/seed-default-sources.js"
+    "seed": "node scripts/seed-default-sources.js",
+    "test": "node --test test/sourceValidator.test.js test/ssrf.test.js",
+    "test:api": "node --experimental-require-module --test test/api.test.js",
+    "test:all": "node --experimental-require-module --test test/sourceValidator.test.js test/ssrf.test.js test/api.test.js",
+    "reset-pwd": "node scripts/reset-admin-password.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "better-sqlite3": "^11.3.0",
     "bcryptjs": "^2.4.3",
-    "cookie-parser": "^1.4.6"
+    "better-sqlite3": "^11.3.0",
+    "compression": "^1.8.1",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.6",
+    "express": "^4.19.2",
+    "helmet": "^8.1.0",
+    "otplib": "^13.4.0",
+    "supertest": "^7.2.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "engines": {
     "node": ">=18"

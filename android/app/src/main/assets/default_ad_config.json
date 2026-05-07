@@ -1,0 +1,31 @@
+{
+  "version": 0,
+  "etag": "asset",
+  "config": {
+    "disabled": true,
+    "sdk": {
+      "csj": { "appId": "" },
+      "ylh": { "appId": "" }
+    },
+    "placements": {
+      "splash": {
+        "enabled": false,
+        "timeoutMs": 3000,
+        "providers": [
+          { "name": "csj", "weight": 50, "posId": "" },
+          { "name": "ylh", "weight": 50, "posId": "" }
+        ]
+      },
+      "rewardedReadingUnlock": {
+        "enabled": false,
+        "unlockMinutes": 30,
+        "cooldownMinutes": 30,
+        "providers": [
+          { "name": "csj", "weight": 50, "posId": "" },
+          { "name": "ylh", "weight": 50, "posId": "" }
+        ]
+      }
+    },
+    "pollIntervalSec": 21600
+  }
+}
