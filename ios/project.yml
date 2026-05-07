@@ -1,0 +1,293 @@
+name: WanxiangBook
+options:
+  bundleIdPrefix: com.wanxiang
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: false
+  # 万象书屋: 强制生成 shared scheme, 让 xcodebuild -scheme 找得到
+  schemePathPrefix: ""
+  # 万象书屋: 不生成 .xcworkspace, 单 .xcodeproj 够用
+  groupOrdering:
+    - order: [App, Theme, Networking, Database, BookSource, Features, Ad, Resources]
+
+# 万象书屋: 显式定义 scheme, 避免 XcodeGen 默认 scheme platform 为空
+schemes:
+  WanxiangBook:
+    build:
+      targets:
+        WanxiangBook: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+# 全局 Swift 编译选项
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    # 万象书屋: 严格编译, 任何 warning 当 error 阻止合并 — 避免历史债
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO   # M0 阶段先 NO, M2 后期开 YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # 显式声明并发模型 (Swift 6 准备)
+    SWIFT_STRICT_CONCURRENCY: minimal     # M2 后期可改 complete
+    # 万象书屋: Xcode 26 必须显式声明 SUPPORTED_PLATFORMS, 否则 xcodebuild "no destinations" 错
+    SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG WANXIANG_DEBUG"
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+    Release:
+      SWIFT_OPTIMIZATION_LEVEL: "-O"
+      VALIDATE_PRODUCT: YES
+
+targets:
+  WanxiangBook:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources/WanxiangBook
+        excludes:
+          - "Resources/legal/**"
+          - "Resources/PrivacyInfo.xcprivacy"
+          - "Resources/Assets.xcassets/**"
+          - "Info.plist"
+    resources:
+      - path: Sources/WanxiangBook/Resources/legal
+        type: folder
+      - path: Sources/WanxiangBook/Resources/PrivacyInfo.xcprivacy
+      - path: Sources/WanxiangBook/Resources/Assets.xcassets
+    info:
+      path: Sources/WanxiangBook/Info.plist
+      properties:
+        # 万象书屋: 跟 Android applicationId 一致
+        CFBundleDisplayName: 万象书屋
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen:
+          UIImageName: "LaunchLogo"
+          UIColorName: "LaunchBackground"
+          UIImageRespectsSafeAreaInsets: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # 万象书屋: ATT 文案 (M3 阶段细化)
+        NSUserTrackingUsageDescription: "用于显示更相关的内容和广告,完全不收集用户身份"
+        # 万象书屋: 备案下来切 https://api.wanxiangbook.com 后, 这段可以删
+        # 万象书屋 (M2.6.3): 听书 / 有声 后台播放权限. 没这个 iOS 锁屏后会停 TTS.
+        UIBackgroundModes:
+          - audio
+        NSAppTransportSecurity:
+          # 万象书屋 (P0): 第三方书源大量是 http:// 域名 (笔趣阁/晋江老子站/七星阁/小说之家 等),
+          # 封面/章节内容必须能拉. 上架时 App Store 审核备注会写"对接 100+ 公开第三方书源".
+          NSAllowsArbitraryLoads: true
+          NSExceptionDomains:
+            "104.224.156.240":
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: false
+            # 万象书屋: 本地开发模拟器走宿主机 :3000 (HTTP)
+            "localhost":
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: false
+            "127.0.0.1":
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: false
+        # 万象书屋: SDK 网络访问描述
+        NSCameraUsageDescription: "扫描二维码导入书源"
+        NSPhotoLibraryUsageDescription: "选择阅读器背景图"
+        # 万象书屋 (M4): Document Types — 让 iOS 文件 App "用万象书屋打开 TXT/EPUB"
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: "纯文本电子书"
+            CFBundleTypeRole: "Viewer"
+            LSHandlerRank: "Alternate"
+            LSItemContentTypes:
+              - "public.plain-text"
+              - "public.text"
+          - CFBundleTypeName: "EPUB 电子书"
+            CFBundleTypeRole: "Viewer"
+            LSHandlerRank: "Alternate"
+            LSItemContentTypes:
+              - "org.idpf.epub-container"
+          - CFBundleTypeName: "MOBI / AZW 电子书"
+            CFBundleTypeRole: "Viewer"
+            LSHandlerRank: "Alternate"
+            LSItemContentTypes:
+              - "com.amazon.mobi8-ebook"
+              - "com.amazon.ebook"
+              - "com.amazon.kindle-ebook"
+          - CFBundleTypeName: "UMD 电子书"
+            CFBundleTypeRole: "Viewer"
+            LSHandlerRank: "Alternate"
+            LSItemContentTypes:
+              - "public.data"
+        # 万象书屋 (M3): 广告 SDK 必须列 SKAdNetwork ID, 否则 iOS 14.5+ 拿不到归因
+        # CSJ Pangle 官方 23 个 + GDT 优量汇 官方 50 个 (含部分重复, 已去重)
+        SKAdNetworkItems:
+          # ---- CSJ Pangle 官方 ----
+          - SKAdNetworkIdentifier: "238da6jt44.skadnetwork"  # Pangle (字节)
+          - SKAdNetworkIdentifier: "22mmun2rn5.skadnetwork"  # AdColony
+          - SKAdNetworkIdentifier: "44jx6755aq.skadnetwork"  # AppLovin
+          - SKAdNetworkIdentifier: "lr83yxwka7.skadnetwork"  # AppLovin
+          - SKAdNetworkIdentifier: "4fzdc2evr5.skadnetwork"  # ironSource
+          - SKAdNetworkIdentifier: "4pfyvq9l8r.skadnetwork"  # ironSource
+          - SKAdNetworkIdentifier: "v9wttpbfk9.skadnetwork"  # ironSource
+          - SKAdNetworkIdentifier: "n38lu8286q.skadnetwork"  # ironSource
+          - SKAdNetworkIdentifier: "424m5254lk.skadnetwork"  # MyTarget
+          - SKAdNetworkIdentifier: "578prtvx9j.skadnetwork"  # InMobi
+          - SKAdNetworkIdentifier: "su67r6k2v3.skadnetwork"  # InMobi
+          - SKAdNetworkIdentifier: "ydx93a7ass.skadnetwork"  # Smaato
+          - SKAdNetworkIdentifier: "feyaarzu9v.skadnetwork"  # Smaato
+          - SKAdNetworkIdentifier: "ggvn48r87g.skadnetwork"  # Vungle
+          - SKAdNetworkIdentifier: "wzmmz9fp6w.skadnetwork"  # Smaato
+          - SKAdNetworkIdentifier: "yclnxrl5pm.skadnetwork"  # Vungle
+          - SKAdNetworkIdentifier: "9rd848q2bz.skadnetwork"  # Maio
+          - SKAdNetworkIdentifier: "7ug5zh24hu.skadnetwork"  # Liftoff
+          - SKAdNetworkIdentifier: "gta9lk7p23.skadnetwork"  # Vungle (新)
+          - SKAdNetworkIdentifier: "vutu7akeur.skadnetwork"  # Yandex
+          - SKAdNetworkIdentifier: "y45688jllp.skadnetwork"  # Mintegral
+          - SKAdNetworkIdentifier: "n9x2a789qt.skadnetwork"  # Tapjoy
+          - SKAdNetworkIdentifier: "9t245vhmpl.skadnetwork"  # Mintegral
+          # ---- GDT 优量汇 官方 ----
+          - SKAdNetworkIdentifier: "f38h382jlk.skadnetwork"  # Tencent
+          - SKAdNetworkIdentifier: "ydx93a7ass.skadnetwork"
+          - SKAdNetworkIdentifier: "294l99pt4k.skadnetwork"
+          - SKAdNetworkIdentifier: "v72qych5uu.skadnetwork"
+          - SKAdNetworkIdentifier: "ludvb6z3bs.skadnetwork"
+          - SKAdNetworkIdentifier: "cp8zw746q7.skadnetwork"
+          - SKAdNetworkIdentifier: "3sh42y64q3.skadnetwork"
+          - SKAdNetworkIdentifier: "c6k4g5qg8m.skadnetwork"
+          - SKAdNetworkIdentifier: "3rd42ekr43.skadnetwork"
+          - SKAdNetworkIdentifier: "3qcr597p9d.skadnetwork"
+          - SKAdNetworkIdentifier: "424m5254lk.skadnetwork"
+          - SKAdNetworkIdentifier: "5lm9lj6jb7.skadnetwork"
+          - SKAdNetworkIdentifier: "av6w8kgt66.skadnetwork"
+          - SKAdNetworkIdentifier: "2u9pt9hc89.skadnetwork"
+          - SKAdNetworkIdentifier: "8s468mfl3y.skadnetwork"
+          - SKAdNetworkIdentifier: "klf5c3l5u5.skadnetwork"
+          - SKAdNetworkIdentifier: "ppxm28t8ap.skadnetwork"
+          - SKAdNetworkIdentifier: "ecpz2srf59.skadnetwork"
+          - SKAdNetworkIdentifier: "uw77j35x4d.skadnetwork"
+          - SKAdNetworkIdentifier: "pwa73g5rt2.skadnetwork"
+          - SKAdNetworkIdentifier: "mlmmfzh3r3.skadnetwork"
+          - SKAdNetworkIdentifier: "kbd757ywx3.skadnetwork"
+          - SKAdNetworkIdentifier: "9rd848q2bz.skadnetwork"
+          - SKAdNetworkIdentifier: "wg4vff78zm.skadnetwork"
+          - SKAdNetworkIdentifier: "238da6jt44.skadnetwork"
+          - SKAdNetworkIdentifier: "488r3q3dtq.skadnetwork"
+          - SKAdNetworkIdentifier: "275upjj5gd.skadnetwork"
+          - SKAdNetworkIdentifier: "prcb7njmu6.skadnetwork"
+          - SKAdNetworkIdentifier: "wzmmz9fp6w.skadnetwork"
+          - SKAdNetworkIdentifier: "9nlqeag3gk.skadnetwork"
+          - SKAdNetworkIdentifier: "qqp299437r.skadnetwork"
+          - SKAdNetworkIdentifier: "n6fk4nfna4.skadnetwork"
+          - SKAdNetworkIdentifier: "k674qkevps.skadnetwork"
+          - SKAdNetworkIdentifier: "4468km3ulz.skadnetwork"
+          - SKAdNetworkIdentifier: "kbmxgpxpgc.skadnetwork"
+          - SKAdNetworkIdentifier: "mlmmfzh3r3.skadnetwork"
+          - SKAdNetworkIdentifier: "9t245vhmpl.skadnetwork"
+          - SKAdNetworkIdentifier: "rx5hdcabgc.skadnetwork"
+          - SKAdNetworkIdentifier: "97r2b46745.skadnetwork"
+          - SKAdNetworkIdentifier: "g28c52eehv.skadnetwork"
+          - SKAdNetworkIdentifier: "krvm3zuq6h.skadnetwork"
+          - SKAdNetworkIdentifier: "44n7hlldy6.skadnetwork"
+          - SKAdNetworkIdentifier: "23wq4n3eu5.skadnetwork"
+          - SKAdNetworkIdentifier: "5l3tpt7t6e.skadnetwork"
+          - SKAdNetworkIdentifier: "eqhxz8m8av.skadnetwork"
+          - SKAdNetworkIdentifier: "v79kvwwj4g.skadnetwork"
+          - SKAdNetworkIdentifier: "523jb4fst2.skadnetwork"
+          - SKAdNetworkIdentifier: "tl55sbb4fm.skadnetwork"
+          - SKAdNetworkIdentifier: "6g9af3uyq4.skadnetwork"
+          - SKAdNetworkIdentifier: "u679fj5vs4.skadnetwork"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wanxiang.reader
+        PRODUCT_NAME: WanxiangBook
+        TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        DEVELOPMENT_TEAM: ""             # 用户填
+        CODE_SIGN_STYLE: Automatic
+        # 万象书屋: 模拟器构建不签名, 真机/Archive 时开
+        CODE_SIGNING_ALLOWED: NO         # 让 xcodebuild build 不挑剔; 真机 Archive 时 Xcode GUI 自动开
+        # 万象书屋: target 级也要显式声明, 否则 Xcode 26 "no destinations"
+        SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+        VALID_ARCHS: "arm64 arm64e x86_64"
+        # 万象书屋 (M3): CSJ/GDT 是 ObjC 静态库混 framework, 必须 -ObjC 让链接器拉所有 category
+        OTHER_LDFLAGS: "-ObjC"
+        ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    # 万象书屋 (M1): SwiftSoup 用于 CSS 选择器 + HTML 解析
+    # M2.8: ZIPFoundation 用于 EPUB 解压 (EPUB 本质是 zip)
+    # libxml2 是 iOS 系统库 (XPath 支持), JavaScriptCore 也是系统的, 都不需要 SPM
+    # PDFKit 系统自带, 不需要依赖
+    # M3 广告 SDK: 二进制 xcframework, 需要先跑 ./scripts/setup-ad-sdks.sh
+    dependencies:
+      - package: SwiftSoup
+      - package: ZIPFoundation
+      # 广告 SDK (从 Frameworks/ 引)
+      # CSJ 7.6.0.3 全 slice OK (arm64 真机 + arm64 + x86_64 simulator)
+      - framework: Frameworks/BUAdSDK.xcframework
+        embed: true
+      # 万象书屋: GDT 4.15.80 这版 simulator slice 只有 x86_64, 缺 arm64 simulator.
+      # Apple Silicon 模拟器 (M1/M2/M3/M4 Mac) 编不过.
+      # 真机 archive 时把下面两行注释解开 + 在 GdtAdProvider.swift 也解开 import:
+      # - framework: Frameworks/GDTMobSDK.xcframework
+      #   embed: true
+      # - framework: Frameworks/Tquic.xcframework
+      #   embed: true
+      # 系统库 (CSJ/GDT 都需要)
+      - sdk: WebKit.framework
+      - sdk: AdSupport.framework
+      - sdk: AppTrackingTransparency.framework
+      - sdk: StoreKit.framework
+      - sdk: CoreLocation.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: CoreMotion.framework
+      - sdk: CoreHaptics.framework        # CSJ CSJHapticPlayer
+      - sdk: AVFoundation.framework
+      - sdk: AVKit.framework
+      - sdk: AudioToolbox.framework
+      - sdk: Photos.framework
+      - sdk: PhotosUI.framework
+      - sdk: MessageUI.framework
+      - sdk: MediaPlayer.framework
+      - sdk: ImageIO.framework
+      - sdk: CoreImage.framework
+      - sdk: CoreText.framework
+      - sdk: CoreTelephony.framework
+      - sdk: Accelerate.framework
+      - sdk: CoreML.framework             # CSJ MLFeatureValue/MLModel/MLSequence
+      - sdk: MobileCoreServices.framework
+      - sdk: AdServices.framework
+        weak: true
+      - sdk: AppClip.framework
+        weak: true
+      # libsqlite3 / libc++ / libresolv (CSJ 必须)
+      - sdk: libc++.tbd
+      - sdk: libresolv.tbd
+      - sdk: libsqlite3.tbd
+      - sdk: libz.tbd
+      - sdk: libxml2.tbd
+      - sdk: libbz2.tbd
+
+# SwiftPM 依赖
+packages:
+  SwiftSoup:
+    url: https://github.com/scinfu/SwiftSoup
+    from: "2.7.5"
+  # M2.8.1.2: EPUB 容器是 zip, 用这个标准库解压
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation
+    from: "0.9.19"

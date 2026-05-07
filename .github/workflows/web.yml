@@ -49,7 +49,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Build and move files
-        working-directory: modules/web
+        working-directory: android/modules/web
         run: |
           pnpm i
           pnpm build
@@ -61,5 +61,5 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5.1.0
         with:
           commit_message: Bump web ${{ env.APP_VER}}
-          file_pattern: app/src/main/assets/web/vue/
+          file_pattern: android/app/src/main/assets/web/vue/
 

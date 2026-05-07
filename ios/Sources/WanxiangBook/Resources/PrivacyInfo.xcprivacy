@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+万象书屋 iOS · 隐私清单 (Apple Privacy Manifest)
+iOS 17+ 强制。每个收集的数据类型都要声明用途、是否关联用户、是否用于追踪。
+对应 Android: assets/legal/collectList.md (个人信息收集清单)
+
+文档:
+  https://developer.apple.com/documentation/bundleresources/privacy_manifest_files
+
+注意: M3 阶段接入广告 SDK (Pangle / GDT) 时, 需要把它们各自的 SDK 数据类型也加进来.
+当前 M2.10 仅声明 App 自身收集的字段.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 1. 我们追踪用户吗? -->
+    <!-- 万象书屋: false. 我们不跨 App/网站追踪用户身份, 不构建用户画像. -->
+    <key>NSPrivacyTracking</key>
+    <false/>
+
+    <!-- 2. 追踪域名 (NSPrivacyTracking=false 时为空) -->
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+
+    <!-- 3. 收集的数据类型 -->
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array>
+        <!-- 设备 ID (匿名 UUID, 后端用于去重统计) -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeDeviceID</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+            </array>
+        </dict>
+
+        <!-- 崩溃日志 (异常 + 堆栈, 不含用户输入) -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeCrashData</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- 性能日志 (HTTP 响应时间, 用于书源熔断和体检) -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypePerformanceData</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- 其它诊断 (启动耗时, 内存占用) -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- 4. 调用 Required Reasons API (iOS 17+ 检查) -->
+    <!-- Apple 限制了某些 API 必须声明使用理由. 以下是我们用到的: -->
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array>
+        <!-- UserDefaults: 存主题偏好/搜索历史/纯净阅读倒计时 -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <!-- CA92.1: Access info from same app, per documentation -->
+                <string>CA92.1</string>
+            </array>
+        </dict>
+        <!-- File Timestamp: 章节缓存按更新时间排序 / 下载进度 -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <!-- C617.1: Inside app's container -->
+                <string>C617.1</string>
+            </array>
+        </dict>
+        <!-- System Boot Time: 启动耗时统计 -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <!-- 35F9.1: Measure time elapsed for events that begin/end while app is in foreground -->
+                <string>35F9.1</string>
+            </array>
+        </dict>
+        <!-- Disk Space: 缓存管理需要查可用空间 -->
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <!-- E174.1: Decide whether to download / cache -->
+                <string>E174.1</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

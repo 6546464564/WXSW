@@ -28,6 +28,7 @@ jobs:
 
       - name: Download Cronet
         if: ${{ env.cronet == 'ok' }}
+        working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew app:downloadCronet

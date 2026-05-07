@@ -1,0 +1,759 @@
+//
+//  JSEngine.swift
+//  万象书屋 iOS · JavaScript 执行引擎 (基于 JavaScriptCore)
+//
+//  对应 Android: org.mozilla.javascript.Rhino + io.legado.app.help.JsExtensions
+//
+//  关键差异点跟 Android Rhino 的兼容垫片:
+//   - java.put(key, value) / java.get(key)         ← 共享变量
+//   - java.log(msg)                                ← 日志
+//   - java.ajax(url) / java.ajaxAll([urls])        ← 同步 HTTP (这是 iOS 难点!)
+//   - java.cache(key, default)                     ← KV 持久 (用 UserDefaults)
+//   - java.timeFormat(timestamp, fmt)
+//   - java.t2s / java.s2t                          ← 简繁转换 (M2.5.4 接)
+//   - java.encodeURI / decodeURI / urlEncode
+//   - java.base64Encode / base64Decode
+//   - java.md5Encode / sha1Encode / sha256Encode
+//   - java.aesEncode / aesDecode (M1 不实现, 真用到再写)
+//   - java.toString
+//   - 隐式变量: result, baseUrl, src, book, chapter, page (按上下文注入)
+//
+//  iOS 难点: java.ajax 在 Android Rhino 是同步阻塞的, JavaScriptCore 沙盒不能在 JS 内部
+//  发同步 HTTP. 解法:
+//    - 把 JS 评估放在 actor, JS 调 native 时 yield 给 actor 执行 async, 然后 resolve 回去
+//    - 或者: pre-fetch (提前算出该 ajax 的结果, 存进 java context, JS 里调时直接读)
+//  M1 用方案 B (pre-fetch + cache hit), 复杂场景再加 callback bridge.
+//
+
+import Foundation
+import JavaScriptCore
+
+/// JS 执行作用域 (隐式变量 + 共享 KV)
+public final class JSContextScope: @unchecked Sendable {
+    public var result: Any? = nil
+    public var baseUrl: String? = nil
+    public var src: String? = nil
+    public var key: String? = nil   // 万象书屋: 搜索关键词 (legado @js: 里能用)
+    public var page: Int = 1        // 万象书屋: 翻页 (legado JS 里 page 全局可读)
+    public var book: [String: Any]? = nil
+    public var chapter: [String: Any]? = nil
+    public var sharedKV: [String: Any] = [:]
+    public var prefetchedAjax: [String: String] = [:]
+    /// 万象书屋: 当前书源 (注入 source / host / cookie 全局 + jsLib)
+    public var bookSource: BookSource? = nil
+
+    public init() {}
+}
+
+/// JS 引擎 (actor 串行化避免 JSContext 多线程并发问题)
+public actor JSEngine {
+
+    private let ctx: JSContext
+
+    public init() {
+        // JavaScriptCore JSContext 不是 thread-safe, 全 actor 串行化
+        let ctx = JSContext()!
+        ctx.exceptionHandler = { _, e in
+            if let e {
+                print("[JSEngine] uncaught: \(e.toString() ?? "?")")
+            }
+        }
+        self.ctx = ctx
+        injectStdLib()
+        // 万象书屋: legado 源 JS 内部经常调 org.jsoup.Jsoup.parse(...).select(...)
+        // (Android Rhino 暴露 Java 类). iOS 必须 wrap SwiftSoup 提供同接口
+        JsoupShim.install(in: ctx)
+    }
+
+    /// 评估 JS, 返回最后一个表达式的值
+    /// - Parameters:
+    ///   - script: JS 源码
+    ///   - source: 给到 JS 的 src 隐式变量 (HTML / JSON 字符串)
+    ///   - baseUrl: 给到 JS 的 baseUrl 隐式变量
+    ///   - scope: 共享上下文 (跨多次 evaluate 的 result / java.put)
+    public func evaluate(script: String, source: String? = nil, baseUrl: String? = nil, scope: JSContextScope? = nil) throws -> Any? {
+        // 注入 / 重置隐式变量
+        let s = scope ?? JSContextScope()
+        s.src = source ?? s.src
+        s.baseUrl = baseUrl ?? s.baseUrl
+        injectScopeVars(s)
+
+        // 万象书屋: legado JS 经常是 statement-style (含 let/var/const + if/for + 末尾裸表达式).
+        // 老 prepareScript 用启发式加 return, 对 if/else 块后跟表达式的情况判断不准.
+        // 新策略: 把整段当 string 注入, IIFE 里 eval — eval 自动返回最后求值的 expression 值,
+        // 跟 Android Rhino + legado 行为一致. (direct eval 在 IIFE 内是 sloppy mode, let/const 隔离)
+        let prepared = prepareScriptForEval(script)
+        if ProcessInfo.processInfo.environment["WX_DEBUG_JS"] != nil {
+            print("[JS.prepared]\n\(prepared)\n[/JS.prepared]")
+        }
+        // 用 base64 注入避免任何 \ ` ${} 的 escape 灾难
+        let b64 = Data(prepared.utf8).base64EncodedString()
+        let wrapped = """
+        (function() {
+            try {
+                var __wx_src = atob("\(b64)");
+                // direct eval — let/const 局限在内, 自动返回最后 expression 值
+                return eval(__wx_src);
+            } catch (e) {
+                if (typeof e === 'object' && e && e.message) return '__WX_JS_ERR__:' + e.message;
+                return '__WX_JS_ERR__:' + String(e);
+            }
+        })()
+        """
+        guard let v = ctx.evaluateScript(wrapped) else {
+            throw BookSourceEngineError.jsExecutionFailed("ctx returned nil")
+        }
+        if let exc = ctx.exception {
+            ctx.exception = nil
+            throw BookSourceEngineError.jsExecutionFailed(exc.toString() ?? "?")
+        }
+        if let s = v.toString(), s.hasPrefix("__WX_JS_ERR__:") {
+            throw BookSourceEngineError.jsExecutionFailed(String(s.dropFirst("__WX_JS_ERR__:".count)))
+        }
+        let result = jsValueToSwift(v, scope: s)
+        if ProcessInfo.processInfo.environment["WX_DEBUG_JS"] != nil {
+            let preview = String(describing: result ?? "nil").prefix(120)
+            print("[JS.eval] result=\(preview)")
+        }
+        return result
+    }
+
+    /// 万象书屋: 给 eval 路径用 — 极少处理, 只去 trim, 因为 eval 会自动返回最后值.
+    /// 注意 `atob` 在 JavaScriptCore 默认存在.
+    private nonisolated func prepareScriptForEval(_ script: String) -> String {
+        var trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 老式 legado JS 末尾偶尔有"裸 return"(显式 return ...) — eval 不允许 outer return,
+        // 把它去掉变成表达式让 eval 返回.
+        if trimmed.hasPrefix("return ") {
+            trimmed = String(trimmed.dropFirst("return ".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        // 万象书屋: legado JS 在 Android 跑的是 Rhino, Rhino 对 `let`/`const` 重复声明很宽松;
+        // JavaScriptCore 严格 ES2015 会抛 "Cannot declare a let variable twice".
+        // 实战中观察到一批源 (笔趣类、第一版主类) 在 if/else 多分支里都写 `let bu = ...` 导致冲突.
+        // 简单办法: 把顶层 `let ` / `const ` 都改成 `var ` (function scope, 允许重复).
+        // 这会丢掉 block scope 语义, 但 legado 源 JS 一般不依赖 let 在循环里的闭包捕获.
+        return demoteLetConstToVar(trimmed)
+    }
+
+    /// 把脚本里所有不在字符串/正则/注释里的 `let`/`const` 关键字改成 `var`.
+    /// 边界条件用 word boundary, 避免误改 `letXX` / `constants` 等标识符.
+    nonisolated private func demoteLetConstToVar(_ s: String) -> String {
+        guard s.range(of: #"\b(let|const)\b"#, options: .regularExpression) != nil else { return s }
+        var out = ""
+        out.reserveCapacity(s.count)
+        var i = s.startIndex
+        var inSingle = false   // ' string
+        var inDouble = false   // " string
+        var inTpl = false      // ` string (template literal)
+        var inLine = false     // // ...
+        var inBlock = false    // /* ... */
+        var inRegex = false    // /.../
+        var prevSig: Character = "\n"   // 上一个非空白字符 (判断 / 是 regex 还是除法)
+        while i < s.endIndex {
+            let c = s[i]
+            let next = s.index(after: i)
+            // 注释
+            if inLine {
+                out.append(c); if c == "\n" { inLine = false }
+                i = next; continue
+            }
+            if inBlock {
+                out.append(c)
+                if c == "*", next < s.endIndex, s[next] == "/" {
+                    out.append("/"); i = s.index(after: next); inBlock = false; continue
+                }
+                i = next; continue
+            }
+            // 字符串
+            if inSingle {
+                out.append(c); if c == "\\", next < s.endIndex { out.append(s[next]); i = s.index(after: next); continue }
+                if c == "'" { inSingle = false }
+                i = next; continue
+            }
+            if inDouble {
+                out.append(c); if c == "\\", next < s.endIndex { out.append(s[next]); i = s.index(after: next); continue }
+                if c == "\"" { inDouble = false }
+                i = next; continue
+            }
+            if inTpl {
+                out.append(c); if c == "\\", next < s.endIndex { out.append(s[next]); i = s.index(after: next); continue }
+                if c == "`" { inTpl = false }
+                i = next; continue
+            }
+            if inRegex {
+                out.append(c); if c == "\\", next < s.endIndex { out.append(s[next]); i = s.index(after: next); continue }
+                if c == "/" { inRegex = false }
+                i = next; continue
+            }
+
+            // 进入字符串/注释/regex 的判定
+            if c == "/" {
+                if next < s.endIndex && s[next] == "/" {
+                    out.append("/"); out.append("/"); inLine = true; i = s.index(after: next); continue
+                }
+                if next < s.endIndex && s[next] == "*" {
+                    out.append("/"); out.append("*"); inBlock = true; i = s.index(after: next); continue
+                }
+                // 区分除法 vs regex 字面量: 上一非空白若是表达式结尾 (字母/数字/)/]) 则当除法
+                let isExprPrev = prevSig.isLetter || prevSig.isNumber || prevSig == ")" || prevSig == "]"
+                if !isExprPrev {
+                    out.append(c); inRegex = true; i = next; prevSig = c; continue
+                }
+            }
+            if c == "'" { out.append(c); inSingle = true; i = next; prevSig = c; continue }
+            if c == "\"" { out.append(c); inDouble = true; i = next; prevSig = c; continue }
+            if c == "`" { out.append(c); inTpl = true; i = next; prevSig = c; continue }
+
+            // word boundary: 检查 `let` / `const` 关键字 (前一字符不能是标识符字符)
+            let isPrevIdent = prevSig.isLetter || prevSig.isNumber || prevSig == "_" || prevSig == "$"
+            if !isPrevIdent {
+                if c == "l", let endLet = s.index(i, offsetBy: 3, limitedBy: s.endIndex), s[i..<endLet] == "let",
+                   endLet < s.endIndex, !(s[endLet].isLetter || s[endLet].isNumber || s[endLet] == "_" || s[endLet] == "$") {
+                    out.append("var")
+                    i = endLet
+                    prevSig = "t"
+                    continue
+                }
+                if c == "c", let endConst = s.index(i, offsetBy: 5, limitedBy: s.endIndex), s[i..<endConst] == "const",
+                   endConst < s.endIndex, !(s[endConst].isLetter || s[endConst].isNumber || s[endConst] == "_" || s[endConst] == "$") {
+                    out.append("var")
+                    i = endConst
+                    prevSig = "t"
+                    continue
+                }
+            }
+
+            out.append(c)
+            if !c.isWhitespace { prevSig = c }
+            i = next
+        }
+        return out
+    }
+
+    /// 万象书屋: 给最后一个表达式语句加 return (legado JS 经常这样写) — 已废弃, 留作老代码兼容
+    /// bug fix v3: 按"顶层 ;" 切语句 (跳过 string / regex / `${}` / 平衡组), 而非按 `\n`.
+    /// 这样 multi-line 表达式 (如 JSON.stringify({\n  ...\n})) 不会被错误判成控制流块.
+    private nonisolated func prepareScript(_ script: String) -> String {
+        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+
+        let stmts = splitTopLevelStatements(trimmed)
+        guard !stmts.isEmpty else { return trimmed }
+
+        // 找最后一个非空语句
+        var lastIdx = stmts.count - 1
+        while lastIdx >= 0,
+              stmts[lastIdx].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lastIdx -= 1
+        }
+        guard lastIdx >= 0 else { return trimmed }
+        let lastStmt = stmts[lastIdx].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 已经显式 return / 控制流 / 声明 — 不动
+        if lastStmt.hasPrefix("return ") || lastStmt == "return" || lastStmt.hasPrefix("return\t") || lastStmt.hasPrefix("return;") {
+            return trimmed
+        }
+        // 用 \b 风格判断, 防 letX (变量名) 误命中 let
+        let declKw = ["var ", "let ", "const ", "function ", "throw ", "if ", "if(",
+                      "for ", "for(", "while ", "while(", "switch ", "switch(",
+                      "try ", "try{", "do ", "do{", "//", "/*"]
+        if declKw.contains(where: { lastStmt.hasPrefix($0) }) {
+            return trimmed
+        }
+        // 到这里, lastStmt 是个表达式, 加 return
+        var newStmts = stmts
+        newStmts[lastIdx] = "return " + lastStmt
+        return newStmts.joined(separator: ";")
+    }
+
+    /// 万象书屋: 按"顶层 ;" 切. 字符串/反引号/正则/平衡组内的 ; 不算.
+    private nonisolated func splitTopLevelStatements(_ s: String) -> [String] {
+        var out: [String] = []
+        var cur = ""
+        var depthParen = 0     // ( ) 平衡
+        var depthBracket = 0   // [ ]
+        var depthBrace = 0     // { }
+        var inStr: Character? = nil
+        var prev: Character = " "
+        var inLineComment = false
+        var inBlockComment = false
+
+        for c in s {
+            // 行注释
+            if inLineComment {
+                cur.append(c)
+                if c == "\n" { inLineComment = false }
+                prev = c
+                continue
+            }
+            if inBlockComment {
+                cur.append(c)
+                if prev == "*" && c == "/" { inBlockComment = false }
+                prev = c
+                continue
+            }
+            if let q = inStr {
+                cur.append(c)
+                if c == q && prev != "\\" { inStr = nil }
+                prev = c
+                continue
+            }
+            // 检测注释开始
+            if prev == "/" && c == "/" { inLineComment = true; cur.append(c); prev = c; continue }
+            if prev == "/" && c == "*" { inBlockComment = true; cur.append(c); prev = c; continue }
+
+            switch c {
+            case "'", "\"", "`":
+                inStr = c
+                cur.append(c)
+            case "(": depthParen += 1; cur.append(c)
+            case ")": depthParen -= 1; cur.append(c)
+            case "[": depthBracket += 1; cur.append(c)
+            case "]": depthBracket -= 1; cur.append(c)
+            case "{": depthBrace += 1; cur.append(c)
+            case "}": depthBrace -= 1; cur.append(c)
+            case ";":
+                if depthParen == 0 && depthBracket == 0 && depthBrace == 0 {
+                    out.append(cur)
+                    cur = ""
+                } else {
+                    cur.append(c)
+                }
+            default:
+                cur.append(c)
+            }
+            prev = c
+        }
+        if !cur.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            out.append(cur)
+        }
+        return out
+    }
+
+    // MARK: - 注入隐式变量
+
+    private func injectScopeVars(_ scope: JSContextScope) {
+        // 万象书屋: legado JS 大量这样写 `result.articleid` `result.title`,
+        // 期待 result 是对象. 我们的 result 经常是 JSON 字符串 (节点序列化后的) —
+        // 用 JS 引擎直接把 string 当 JSON parse 注入对象, 让 dot 访问能用.
+        let resultObj: Any = parseResultIfJson(scope.result)
+        ctx.setObject(resultObj, forKeyedSubscript: "result" as NSString)
+        ctx.setObject(scope.baseUrl ?? "", forKeyedSubscript: "baseUrl" as NSString)
+        ctx.setObject(scope.src ?? "", forKeyedSubscript: "src" as NSString)
+        ctx.setObject(scope.book ?? NSNull(), forKeyedSubscript: "book" as NSString)
+        ctx.setObject(scope.chapter ?? NSNull(), forKeyedSubscript: "chapter" as NSString)
+        ctx.setObject(scope.key ?? "", forKeyedSubscript: "key" as NSString)
+        ctx.setObject(scope.key ?? "", forKeyedSubscript: "searchKey" as NSString)
+        ctx.setObject(scope.page, forKeyedSubscript: "page" as NSString)
+
+        // 万象书屋: legado 给每段 JS 评估都注入 source / cookie / host 全局
+        // 缺这些会让大量 "高级" 源 (动态 host / 用户 token / cookie 鉴权) 直接挂
+        injectSourceContext(scope.bookSource)
+    }
+
+    /// 注入 legado 的 `source` `cookie` `host` `book` 全局, 并 eval `jsLib`
+    /// 万象书屋: 每次 evaluate 都重新注入 (源可能不一样)
+    private func injectSourceContext(_ source: BookSource?) {
+        guard let source = source else {
+            // 无源时给 stub, 避免 JS 直接 ReferenceError
+            ctx.setObject(NSNull(), forKeyedSubscript: "source" as NSString)
+            ctx.setObject(NSNull(), forKeyedSubscript: "cookie" as NSString)
+            ctx.setObject([] as [String], forKeyedSubscript: "host" as NSString)
+            return
+        }
+
+        let sourceUrl = source.bookSourceUrl
+        let snapshot = SourceVariableSnapshot(sourceUrl: sourceUrl)
+
+        // 1. source 全局对象
+        let sourceObj = JSValue(newObjectIn: ctx)!
+
+        // 万象书屋: 用 box 让闭包能修改 snapshot.variable; 后面 evaluate 完写回 store
+        // 简化: 直接读 UserDefaults, 写也直接写 UserDefaults (一次评估调用次数有限)
+        let getKey: @convention(block) () -> String = { sourceUrl }
+        let getName: @convention(block) () -> String = { source.bookSourceName }
+        let getOrigin: @convention(block) () -> String = { sourceUrl }
+        let getTag: @convention(block) () -> String = { source.bookSourceName }
+
+        let getVariable: @convention(block) () -> String = {
+            UserDefaults.standard.string(forKey: "wx.sourceVariable." + sourceUrl) ?? ""
+        }
+        let setVariable: @convention(block) (Any?) -> Void = { val in
+            if let v = val as? String {
+                UserDefaults.standard.set(v, forKey: "wx.sourceVariable." + sourceUrl)
+            } else if val == nil {
+                UserDefaults.standard.removeObject(forKey: "wx.sourceVariable." + sourceUrl)
+            } else {
+                // legado 偶尔传 object, 序列化
+                if let v = val,
+                   let data = try? JSONSerialization.data(withJSONObject: v),
+                   let s = String(data: data, encoding: .utf8) {
+                    UserDefaults.standard.set(s, forKey: "wx.sourceVariable." + sourceUrl)
+                }
+            }
+        }
+        let getLoginInfo: @convention(block) () -> String = {
+            let snap = SourceVariableSnapshot(sourceUrl: sourceUrl)
+            if let data = try? JSONSerialization.data(withJSONObject: snap.loginInfo),
+               let s = String(data: data, encoding: .utf8) {
+                return s
+            }
+            return "{}"
+        }
+        let getLoginInfoMap: @convention(block) () -> [String: String] = {
+            SourceVariableSnapshot(sourceUrl: sourceUrl).loginInfo
+        }
+        let getLoginHeader: @convention(block) () -> String = { "" }
+        let getLoginHeaderMap: @convention(block) () -> [String: String] = { [:] }
+
+        sourceObj.setObject(getKey, forKeyedSubscript: "getKey" as NSString)
+        sourceObj.setObject(getName, forKeyedSubscript: "getName" as NSString)
+        sourceObj.setObject(getOrigin, forKeyedSubscript: "getOrigin" as NSString)
+        sourceObj.setObject(getTag, forKeyedSubscript: "getTag" as NSString)
+        sourceObj.setObject(getVariable, forKeyedSubscript: "getVariable" as NSString)
+        sourceObj.setObject(setVariable, forKeyedSubscript: "setVariable" as NSString)
+        sourceObj.setObject(getLoginInfo, forKeyedSubscript: "getLoginInfo" as NSString)
+        sourceObj.setObject(getLoginInfoMap, forKeyedSubscript: "getLoginInfoMap" as NSString)
+        sourceObj.setObject(getLoginHeader, forKeyedSubscript: "getLoginHeader" as NSString)
+        sourceObj.setObject(getLoginHeaderMap, forKeyedSubscript: "getLoginHeaderMap" as NSString)
+        ctx.setObject(sourceObj, forKeyedSubscript: "source" as NSString)
+
+        // 2. cookie 全局
+        let cookieObj = JSValue(newObjectIn: ctx)!
+        let getCookie: @convention(block) (String) -> String = { url in
+            CookieJarStore.getCookie(url: url)
+        }
+        let getCookieKey: @convention(block) (String, String) -> String = { url, key in
+            CookieJarStore.getCookieValue(url: url, key: key)
+        }
+        let setCookie: @convention(block) (String, String?) -> Void = { url, val in
+            CookieJarStore.setCookie(url: url, cookie: val)
+        }
+        let removeCookie: @convention(block) (String) -> Void = { url in
+            CookieJarStore.removeCookie(url: url)
+        }
+        cookieObj.setObject(getCookie, forKeyedSubscript: "getCookie" as NSString)
+        cookieObj.setObject(getCookieKey, forKeyedSubscript: "getCookieKey" as NSString)
+        cookieObj.setObject(setCookie, forKeyedSubscript: "setCookie" as NSString)
+        cookieObj.setObject(removeCookie, forKeyedSubscript: "removeCookie" as NSString)
+        cookieObj.setObject(removeCookie, forKeyedSubscript: "clearCookie" as NSString)
+        ctx.setObject(cookieObj, forKeyedSubscript: "cookie" as NSString)
+
+        // 3. host 数组 (legado 源用 host[0] 取主域)
+        if let parsed = URL(string: sourceUrl), let scheme = parsed.scheme, let host = parsed.host {
+            let hostUrl = "\(scheme)://\(host)"
+            ctx.setObject([hostUrl, sourceUrl], forKeyedSubscript: "host" as NSString)
+        } else {
+            ctx.setObject([sourceUrl], forKeyedSubscript: "host" as NSString)
+        }
+
+        // 4. 万象书屋: legado 全局 helper - getArguments(varStr, key)
+        // 解析 source.getVariable() 返回的 JSON, 取某 key 的值
+        let getArgumentsScript = """
+        if (typeof getArguments !== 'function') {
+          var getArguments = function(str, key) {
+            if (!str || str === "") return "";
+            try { var o = JSON.parse(str); return o[key] != null ? String(o[key]) : ""; }
+            catch (e) { return ""; }
+          };
+        }
+        // legado 源 jsLib 经常自定义这两个 fallback
+        if (typeof getServerHost !== 'function') {
+          var getServerHost = function() {
+            var s = source && source.getVariable ? source.getVariable() : "";
+            return getArguments(s, 'server') || getArguments(s, 'host') || (host && host[0]) || "";
+          };
+        }
+        if (typeof getSecretKey !== 'function') {
+          var getSecretKey = function() {
+            var s = source && source.getVariable ? source.getVariable() : "";
+            return getArguments(s, 'secret') || getArguments(s, 'key') || "";
+          };
+        }
+        """
+        ctx.evaluateScript(demoteLetConstToVar(getArgumentsScript))
+
+        // 5. 加载源的 jsLib (如果有)
+        if let jsLib = source.jsLib, !jsLib.isEmpty {
+            // jsLib 可能是: 纯 JS 代码 / URL / {name: url} 的 JSON map
+            evalJsLib(jsLib)
+        }
+    }
+
+    /// 万象书屋: 解析 jsLib 字段并 eval 进当前 ctx
+    /// jsLib 可能形态:
+    ///   1. 纯 JS 代码 ("function foo(){...}")
+    ///   2. 单 URL ("https://example.com/lib.js")
+    ///   3. JSON map ({"hub":"https://x/a.js", "util":"https://x/b.js"})
+    private func evalJsLib(_ jsLib: String) {
+        let trimmed = jsLib.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 单 URL
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            if let cached = JsLibCache.get(url: trimmed) {
+                ctx.evaluateScript(demoteLetConstToVar(cached))
+            } else {
+                // M2: 同步下载 (URLSession dataTask + condition var). 对每源首次评估稍慢, 后续走 cache.
+                if let js = JsLibCache.fetchSync(url: trimmed) {
+                    ctx.evaluateScript(demoteLetConstToVar(js))
+                }
+            }
+            return
+        }
+        // JSON map
+        if trimmed.hasPrefix("{") {
+            if let data = trimmed.data(using: .utf8),
+               let map = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                for (_, url) in map {
+                    if url.hasPrefix("http") {
+                        if let cached = JsLibCache.get(url: url) {
+                            ctx.evaluateScript(demoteLetConstToVar(cached))
+                        } else if let js = JsLibCache.fetchSync(url: url) {
+                            ctx.evaluateScript(demoteLetConstToVar(js))
+                        }
+                    } else {
+                        // 直接是 JS 代码
+                        ctx.evaluateScript(demoteLetConstToVar(url))
+                    }
+                }
+                return
+            }
+        }
+        // 纯 JS 代码
+        ctx.evaluateScript(demoteLetConstToVar(trimmed))
+    }
+
+    /// 万象书屋: 试 JSON parse, 失败返原值
+    private func parseResultIfJson(_ v: Any?) -> Any {
+        guard let v else { return NSNull() }
+        if let s = v as? String, !s.isEmpty {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
+                if let data = trimmed.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: data) {
+                    return parsed
+                }
+            }
+            return s
+        }
+        return v
+    }
+
+    // MARK: - 注入 java.* 兼容垫片
+
+    private func injectStdLib() {
+        // 万象书屋: JavaScriptCore 默认没有 browser globals atob/btoa, 补一下 (legado JS 经常用)
+        let atob: @convention(block) (String) -> String = { s in
+            guard let d = Data(base64Encoded: s) else { return "" }
+            return String(data: d, encoding: .utf8) ?? String(data: d, encoding: .isoLatin1) ?? ""
+        }
+        ctx.setObject(atob, forKeyedSubscript: "atob" as NSString)
+        let btoa: @convention(block) (String) -> String = { s in
+            return Data(s.utf8).base64EncodedString()
+        }
+        ctx.setObject(btoa, forKeyedSubscript: "btoa" as NSString)
+
+        let java = JSValue(newObjectIn: ctx)!
+
+        // java.put / get / cache (KV)
+        // 万象书屋: legado Android `java.put(k,v)` 返回 v 本身 (Rhino 行为), 这样可以
+        // 链式写 `key;java.put("key",key)` 让 mustache 取到 key 值同时存 K-V.
+        // 之前 Void 返回导致 `{{key;java.put("key",key)}}` 求值得 nil → URL 缺关键词.
+        let put: @convention(block) (String, JSValue) -> JSValue = { [weak self] key, val in
+            self?.ctx.setObject(val, forKeyedSubscript: ("__wx_kv_\(key)") as NSString)
+            return val
+        }
+        let get: @convention(block) (String) -> Any? = { [weak self] key in
+            self?.ctx.objectForKeyedSubscript(("__wx_kv_\(key)") as NSString)
+        }
+        java.setObject(put, forKeyedSubscript: "put" as NSString)
+        java.setObject(get, forKeyedSubscript: "get" as NSString)
+        java.setObject(put, forKeyedSubscript: "cache" as NSString)   // 简化: cache=put
+
+        // java.log
+        let log: @convention(block) (String) -> Void = { msg in
+            print("[JS.log] \(msg)")
+        }
+        java.setObject(log, forKeyedSubscript: "log" as NSString)
+
+        // java.ajax(url) — 用 condition variable 同步 fetch (跟 Android Rhino 同步 ajax 行为对齐)
+        // 万象书屋: 这是 iOS JavaScriptCore 没法绕的坑, 只能阻塞当前 actor 等 URLSession 完成
+        let ajax: @convention(block) (String) -> String = { url in
+            return SyncHTTP.get(url: url, headers: [:])?.body ?? ""
+        }
+        java.setObject(ajax, forKeyedSubscript: "ajax" as NSString)
+
+        // 万象书屋: java.get(url, headers) → Response 对象 (有 .body() .header(name) .code() .headers())
+        // 必须返回带"方法"的对象, 因为 legado 源 JS 用 `resp.header("location")` 而非 `resp.headers["location"]`.
+        // 用 native closure capture self.ctx 给返回的 JSValue 对象动态附加方法.
+        let weakCtx = ctx   // capture
+        let getHttp: @convention(block) (String, Any?) -> JSValue = { [weakCtx] url, headersAny in
+            let headers = (headersAny as? [String: Any])?.compactMapValues { String(describing: $0) } ?? [:]
+            let r = SyncHTTP.get(url: url, headers: headers)
+                ?? SyncHTTPResponse(body: "", statusCode: 0, headers: [:])
+            return Self.makeResponseValue(r, in: weakCtx)
+        }
+        java.setObject(getHttp, forKeyedSubscript: "get" as NSString)
+        java.setObject(getHttp, forKeyedSubscript: "head" as NSString)
+        java.setObject(getHttp, forKeyedSubscript: "connect" as NSString)
+
+        // java.post(url, body, headers) → Response
+        let postHttp: @convention(block) (String, Any?, Any?) -> JSValue = { [weakCtx] url, bodyAny, headersAny in
+            let body = (bodyAny as? String) ?? ""
+            let headers = (headersAny as? [String: Any])?.compactMapValues { String(describing: $0) } ?? [:]
+            let r = SyncHTTP.post(url: url, body: body, headers: headers)
+                ?? SyncHTTPResponse(body: "", statusCode: 0, headers: [:])
+            return Self.makeResponseValue(r, in: weakCtx)
+        }
+        java.setObject(postHttp, forKeyedSubscript: "post" as NSString)
+
+        // 万象书屋: java.toast / longToast (legado 在 Android 弹 Toast, iOS 这里 noop + log)
+        let toast: @convention(block) (Any?) -> Void = { msg in
+            if let m = msg { print("[js.toast] \(m)") }
+        }
+        java.setObject(toast, forKeyedSubscript: "toast" as NSString)
+        java.setObject(toast, forKeyedSubscript: "longToast" as NSString)
+
+        // 万象书屋: legado 还有这些纯 noop / 兼容方法
+        let webView: @convention(block) (Any?, Any?, Any?) -> String = { _, _, _ in "" }
+        java.setObject(webView, forKeyedSubscript: "webView" as NSString)
+        java.setObject(webView, forKeyedSubscript: "webViewGetSource" as NSString)
+        java.setObject(webView, forKeyedSubscript: "webViewGetOverrideUrl" as NSString)
+        java.setObject({ (_: String, _: String) in } as @convention(block) (String, String) -> Void,
+                       forKeyedSubscript: "startBrowser" as NSString)
+        let startBrowserAwait: @convention(block) (Any?, Any?) -> [String: Any] = { _, _ in
+            // 真要 await 浏览器需要 WebView, 这里给个空 response 让 JS 链能继续
+            return ["body": "", "code": 0, "headers": [:] as [String: String]]
+        }
+        java.setObject(startBrowserAwait, forKeyedSubscript: "startBrowserAwait" as NSString)
+        let randomUUID: @convention(block) () -> String = {
+            UUID().uuidString
+        }
+        java.setObject(randomUUID, forKeyedSubscript: "randomUUID" as NSString)
+
+        // 编码 / 解码 / 哈希
+        let encodeURI: @convention(block) (String) -> String = { s in
+            s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+        }
+        let decodeURI: @convention(block) (String) -> String = { s in
+            s.removingPercentEncoding ?? s
+        }
+        java.setObject(encodeURI, forKeyedSubscript: "encodeURI" as NSString)
+        java.setObject(decodeURI, forKeyedSubscript: "decodeURI" as NSString)
+        java.setObject(encodeURI, forKeyedSubscript: "urlEncode" as NSString)
+
+        let base64Encode: @convention(block) (String) -> String = { s in
+            s.data(using: .utf8)?.base64EncodedString() ?? ""
+        }
+        let base64Decode: @convention(block) (String) -> String = { s in
+            guard let d = Data(base64Encoded: s) else { return "" }
+            return String(data: d, encoding: .utf8) ?? ""
+        }
+        java.setObject(base64Encode, forKeyedSubscript: "base64Encode" as NSString)
+        java.setObject(base64Decode, forKeyedSubscript: "base64Decode" as NSString)
+
+        let md5Encode: @convention(block) (String) -> String = { s in
+            md5Hex(s)
+        }
+        java.setObject(md5Encode, forKeyedSubscript: "md5Encode" as NSString)
+
+        let sha1Encode: @convention(block) (String) -> String = { s in
+            sha1Hex(s)
+        }
+        java.setObject(sha1Encode, forKeyedSubscript: "sha1Encode" as NSString)
+
+        let toString: @convention(block) (Any?) -> String = { v in
+            v.map { String(describing: $0) } ?? ""
+        }
+        java.setObject(toString, forKeyedSubscript: "toString" as NSString)
+
+        // 时间格式化
+        let timeFormat: @convention(block) (Double, String) -> String = { ts, fmt in
+            let date = Date(timeIntervalSince1970: ts > 1e12 ? ts / 1000 : ts)
+            let f = DateFormatter()
+            f.dateFormat = fmt
+            return f.string(from: date)
+        }
+        java.setObject(timeFormat, forKeyedSubscript: "timeFormat" as NSString)
+
+        // 简繁转换 (M2.5.4 接真实数据集; M1 直接返原文)
+        let identity: @convention(block) (String) -> String = { $0 }
+        java.setObject(identity, forKeyedSubscript: "t2s" as NSString)
+        java.setObject(identity, forKeyedSubscript: "s2t" as NSString)
+
+        ctx.setObject(java, forKeyedSubscript: "java" as NSString)
+
+        // 万象书屋: legado 还有 String.prototype 扩展 (htmlEncode/Decode 等), M1 暂不补
+        // 跑到具体源 require 时按需加
+    }
+
+    /// 万象书屋: 把 SyncHTTPResponse 包成 JS 对象, 暴露 .header(name) / .body() / .code() / .headers() 方法
+    /// 这是 legado Connection.Response 的最小可用 shim
+    private nonisolated static func makeResponseValue(_ r: SyncHTTPResponse, in ctx: JSContext) -> JSValue {
+        let obj = JSValue(newObjectIn: ctx)!
+        obj.setObject(r.body, forKeyedSubscript: "_body" as NSString)
+        obj.setObject(r.statusCode, forKeyedSubscript: "_code" as NSString)
+        obj.setObject(r.headers, forKeyedSubscript: "_headers" as NSString)
+        // 字段风格 (一些源也这样用)
+        obj.setObject(r.body, forKeyedSubscript: "body" as NSString)
+        obj.setObject(r.statusCode, forKeyedSubscript: "code" as NSString)
+        obj.setObject(r.headers, forKeyedSubscript: "headers" as NSString)
+        // 方法风格 (legado 主流): .header("Location") / .body() / .code()
+        let headers = r.headers
+        let header: @convention(block) (String) -> String = { name in
+            // case-insensitive
+            return headers[name.lowercased()]
+                ?? headers[name]
+                ?? ""
+        }
+        obj.setObject(header, forKeyedSubscript: "header" as NSString)
+        let bodyFn: @convention(block) () -> String = { r.body }
+        obj.setObject(bodyFn, forKeyedSubscript: "body" as NSString)   // overrides field if called as method
+        let codeFn: @convention(block) () -> Int = { r.statusCode }
+        obj.setObject(codeFn, forKeyedSubscript: "code" as NSString)
+        let headersFn: @convention(block) () -> [String: String] = { headers }
+        obj.setObject(headersFn, forKeyedSubscript: "headers" as NSString)
+        return obj
+    }
+
+    // MARK: - JSValue → Swift Any
+
+    private nonisolated func jsValueToSwift(_ v: JSValue, scope: JSContextScope) -> Any? {
+        if v.isNull || v.isUndefined { return nil }
+        if v.isString { return v.toString() }
+        if v.isBoolean { return v.toBool() }
+        if v.isNumber { return v.toNumber() }
+        if v.isArray {
+            return (v.toArray() as? [Any]) ?? []
+        }
+        if v.isObject {
+            return v.toDictionary() as? [String: Any] ?? [:]
+        }
+        return v.toString()
+    }
+}
+
+// MARK: - 哈希工具 (CommonCrypto)
+
+import CommonCrypto
+
+func md5Hex(_ s: String) -> String {
+    let data = Data(s.utf8)
+    var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+    data.withUnsafeBytes { _ = CC_MD5($0.baseAddress, CC_LONG(data.count), &digest) }
+    return digest.map { String(format: "%02x", $0) }.joined()
+}
+
+func sha1Hex(_ s: String) -> String {
+    let data = Data(s.utf8)
+    var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
+    data.withUnsafeBytes { _ = CC_SHA1($0.baseAddress, CC_LONG(data.count), &digest) }
+    return digest.map { String(format: "%02x", $0) }.joined()
+}
+
+func sha256Hex(_ s: String) -> String {
+    let data = Data(s.utf8)
+    var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+    data.withUnsafeBytes { _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &digest) }
+    return digest.map { String(format: "%02x", $0) }.joined()
+}

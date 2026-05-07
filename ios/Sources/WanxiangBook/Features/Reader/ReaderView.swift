@@ -1,0 +1,795 @@
+//
+//  ReaderView.swift
+//  万象书屋 iOS · 阅读器主屏 (M2.5.1 + M2.5.3 + M2.5.4)
+//
+//  对应 Android: io.legado.app.ui.book.read.ReadBookActivity
+//
+//  M2.5 v1 交付:
+//   - 4 种翻页 (覆盖/滑动/滚动/无, 仿真延后)
+//   - 4 套主题 + 亮度
+//   - 中心点击呼出菜单, 两侧点击翻页
+//   - 上下章 / 进度条 / 目录 / 设置
+//   - 接 ReaderEngine, 实时拉章节正文 + SQLite 缓存
+//
+
+import SwiftUI
+
+public struct ReaderView: View {
+
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var engine: ReaderEngine
+    @StateObject private var config = ReadConfig.shared
+
+    @State private var menuVisible: Bool = false
+    @State private var styleSheet: Bool = false
+    @State private var tocSheet: Bool = false
+    @State private var screenSize: CGSize = .zero
+    @State private var contentCanvasSize: CGSize = .zero
+    @State private var pages: [ReaderPage] = []
+    @State private var currentPageId: String? = nil
+    @State private var readTimer: Timer? = nil
+    @State private var readingSecondsAccrued: Int = 0
+    @State private var dictKeyword: String? = nil
+    @State private var browserUrl: URL? = nil
+    @State private var showFinishedView: Bool = false
+    @State private var showTtsPlayer: Bool = false
+    @State private var showSearchContent: Bool = false
+    @State private var showContentEdit: Bool = false
+    @State private var showChangeSource: Bool = false
+    @StateObject private var autoRead = AutoReadController.shared
+    @State private var showAutoReadConfig: Bool = false
+
+    public init(book: ShelfBook, source: BookSource? = nil) {
+        _engine = StateObject(wrappedValue: ReaderEngine(book: book, source: source))
+    }
+
+    public var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                config.theme.background.ignoresSafeArea()
+
+                if showFinishedView {
+                    BookFinishedView(
+                        bookName: engine.book.name,
+                        onGoBookshelf: { dismiss() },
+                        onGoBookStore: { dismiss() },
+                        onChangeSource: { /* M2.5.5.1 留 */ },
+                        onWatchAdToContinue: {
+                            Task {
+                                _ = await AdManager.shared.showRewardedToUnlock()
+                                showFinishedView = false
+                            }
+                        }
+                    )
+                } else {
+                    VStack(spacing: 0) {
+                        PurifiedTopBar()
+                        contentView(canvasSize: geo.size)
+                            .background(
+                                GeometryReader { contentGeo in
+                                    Color.clear
+                                        .onAppear {
+                                            contentCanvasSize = contentGeo.size
+                                            repaginateCurrent()
+                                        }
+                                        .onChange(of: contentGeo.size) { _, newSize in
+                                            contentCanvasSize = newSize
+                                            repaginateCurrent()
+                                        }
+                                }
+                            )
+                    }
+                }
+
+                if menuVisible {
+                    menuOverlay
+                        .transition(.opacity)
+                }
+            }
+            // 上滑唤目录 (M2.5.7.3)
+            .gesture(
+                DragGesture(minimumDistance: 30)
+                    .onEnded { value in
+                        if value.translation.height < -80 && abs(value.translation.width) < 50 {
+                            tocSheet = true
+                        }
+                    }
+            )
+            .sheet(item: Binding(
+                get: { dictKeyword.map { DictItem(text: $0) } },
+                set: { _ in dictKeyword = nil })
+            ) { item in
+                DictLookupSheet(keyword: item.text)
+            }
+            .sheet(item: Binding(
+                get: { browserUrl.map { BrowserItem(url: $0) } },
+                set: { _ in browserUrl = nil })
+            ) { item in
+                InAppBrowserScreen(url: item.url)
+            }
+            .onAppear {
+                screenSize = geo.size
+                NotificationCenter.default.post(name: .wanxiangTabBarHiddenChanged, object: true)
+                Task { await engine.bootstrap() }
+                startReadingTimer()
+                UIApplication.shared.isIdleTimerDisabled = config.keepScreenOn
+                applyBrightness()
+            }
+            .onDisappear {
+                stopReadingTimer()
+                UIApplication.shared.isIdleTimerDisabled = false
+                NotificationCenter.default.post(name: .wanxiangTabBarHiddenChanged, object: false)
+            }
+            .onChange(of: config.brightness) { _, _ in applyBrightness() }
+            .onChange(of: config.autoBrightness) { _, _ in applyBrightness() }
+            .onChange(of: geo.size) { _, newSize in
+                screenSize = newSize
+                repaginateCurrent()
+            }
+            .onChange(of: config.keepScreenOn) { _, on in
+                UIApplication.shared.isIdleTimerDisabled = on
+            }
+            .onChange(of: engine.currentChapterIndex) { _, _ in
+                repaginateCurrent()
+            }
+            .onChange(of: engine.loadingChapter) { _, _ in
+                repaginateCurrent()
+            }
+            // 任何排版字段变化都要重新分页
+            .onReceive(config.$textSize.combineLatest(
+                config.$lineSpacing,
+                config.$paragraphSpacing,
+                config.$paddingHorizontal
+            )) { _ in
+                repaginateCurrent()
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        // 万象书屋 (P0 fix): TabView 默认 push 时不隐藏底部 tabBar, 阅读器必须沉浸全屏
+        .toolbar(.hidden, for: .tabBar)
+        .statusBarHidden(!menuVisible)
+        .preferredColorScheme(config.theme.isDark ? .dark : .light)
+        .sheet(isPresented: $styleSheet) {
+            ReadStyleSheet().presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $tocSheet) {
+            TocView(chapters: engine.chapters,
+                    currentIndex: engine.currentChapterIndex) { idx in
+                tocSheet = false
+                Task { await engine.goToChapter(idx) }
+            }
+        }
+        .fullScreenCover(isPresented: $showTtsPlayer) {
+            TtsPlayerView(
+                book: engine.book,
+                chapters: engine.chapters,
+                startIndex: engine.currentChapterIndex
+            )
+        }
+        .sheet(isPresented: $showSearchContent) {
+            SearchContentView(
+                book: engine.book,
+                chapters: engine.chapters,
+                currentChapterIndex: engine.currentChapterIndex
+            ) { idx in
+                Task { await engine.goToChapter(idx) }
+            }
+        }
+        .confirmationDialog("净化此章", isPresented: $showContentEdit, titleVisibility: .visible) {
+            Button("应用替换规则重新净化") {
+                Task { await engine.retryCurrentChapter() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("会重新拉取本章正文并按当前替换规则处理")
+        }
+        .sheet(isPresented: $showChangeSource) {
+            ChangeSourceView(originalBook: engine.book) { newBook, newSource in
+                Task { await engine.changeSource(to: newBook, source: newSource) }
+            }
+        }
+        .sheet(isPresented: $showAutoReadConfig) {
+            AutoReadConfigSheet()
+        }
+        // 万象书屋: 进入 reader 启用音量键翻页, 退出关闭
+        .onAppear {
+            NotificationCenter.default.post(name: .wanxiangTabBarHiddenChanged, object: true)
+            VolumeKeyHandler.shared.enable(
+                onUp: { Task { @MainActor in
+                    autoRead.resetCountdown()
+                    if currentPageId != nil { handlePageJump(to: prevPageId() ?? "") }
+                } },
+                onDown: { Task { @MainActor in
+                    autoRead.resetCountdown()
+                    if let next = nextPageId() { handlePageJump(to: next) }
+                    else { Task { await engine.nextChapter() } }
+                } }
+            )
+        }
+        .onDisappear {
+            VolumeKeyHandler.shared.disable()
+            autoRead.stop()
+            NotificationCenter.default.post(name: .wanxiangTabBarHiddenChanged, object: false)
+        }
+    }
+
+    private func prevPageId() -> String? {
+        guard let cur = currentPageId, let i = pages.firstIndex(where: { $0.id == cur }), i > 0 else { return nil }
+        return pages[i - 1].id
+    }
+    private func nextPageId() -> String? {
+        guard let cur = currentPageId, let i = pages.firstIndex(where: { $0.id == cur }), i + 1 < pages.count else { return nil }
+        return pages[i + 1].id
+    }
+
+    // MARK: - Content (按翻页方式分发)
+
+    @ViewBuilder
+    private func contentView(canvasSize: CGSize) -> some View {
+        Group {
+            if engine.loadingChapter && engine.content(for: engine.currentChapterIndex) == nil {
+                loadingState
+            } else if let err = engine.lastError {
+                errorState(err)
+            } else if pages.isEmpty {
+                loadingState
+            } else {
+                switch config.pageAnim {
+                case .scroll:   scrollPager
+                case .simulate: simulatePager      // 仿真翻书 (UIPageViewController.pageCurl)
+                default:        horizontalPager   // 覆盖 / 滑动 / 无 (TabView .page)
+                }
+            }
+        }
+        // 万象书屋: 双指捏合调字号 (M2.5.7.4)
+        .gesture(
+            MagnificationGesture()
+                .onEnded { scale in
+                    let delta = (scale - 1) * 4
+                    let newSize = max(12, min(32, config.textSize + delta))
+                    config.textSize = newSize
+                }
+        )
+    }
+
+    private var loadingState: some View {
+        ZStack(alignment: .top) {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .tint(config.theme.textColor)
+                Text("加载中…")
+                    .font(.caption)
+                    .foregroundStyle(config.theme.textColor.opacity(0.6))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onTapGesture {
+                withAnimation { menuVisible.toggle() }
+            }
+            // 万象书屋 (P0 fix): loading 超时时用户也能退出
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(WanxiangColors.primary.opacity(0.7))
+                        .background(Circle().fill(.white.opacity(0.8)))
+                }
+                .padding(.leading, 16)
+                .padding(.top, 50)
+                Spacer()
+            }
+        }
+    }
+
+    private func errorState(_ msg: String) -> some View {
+        ZStack(alignment: .top) {
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.orange)
+                Text(msg)
+                    .font(.subheadline)
+                    .foregroundStyle(config.theme.textColor)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                HStack(spacing: 12) {
+                    Button {
+                        Task { await engine.retryCurrentChapter() }
+                    } label: {
+                        Label("重试", systemImage: "arrow.clockwise")
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(WanxiangColors.primary)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    }
+                    // 万象书屋 (P0 fix): 出错状态也得能返回 (顶部 nav 默认隐藏, 这里给 fallback)
+                    Button { dismiss() } label: {
+                        Label("返回", systemImage: "chevron.backward")
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            .overlay(Capsule().stroke(WanxiangColors.primary.opacity(0.6)))
+                            .foregroundStyle(WanxiangColors.primary)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // 万象书屋: 顶部留一个 close 按钮兜底 (即使 errorState 没渲染按钮, 用户也能退出)
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(WanxiangColors.primary.opacity(0.7))
+                        .background(Circle().fill(.white.opacity(0.8)))
+                }
+                .padding(.leading, 16)
+                .padding(.top, 50)
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - 翻页方式
+
+    private var horizontalPager: some View {
+        TabView(selection: Binding(
+            get: { currentPageId ?? pages.first?.id ?? "" },
+            set: { newId in
+                currentPageId = newId
+                handlePageJump(to: newId)
+            }
+        )) {
+            ForEach(pages) { page in
+                ReaderPageView(
+                    page: page,
+                    config: config,
+                    onTapMenu: { withAnimation { menuVisible.toggle() } },
+                    onSelectionAction: { action, text in handleSelection(action: action, text: text) }
+                )
+                .tag(page.id)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .ignoresSafeArea(edges: [])
+    }
+
+    /// 仿真翻书 (UIPageViewController .pageCurl, 跟 iBooks 同款)
+    private var simulatePager: some View {
+        PageCurlContainer(
+            pages: pages.map { p in
+                (id: p.id, view: ReaderPageView(
+                    page: p,
+                    config: config,
+                    onTapMenu: { withAnimation { menuVisible.toggle() } },
+                    onSelectionAction: { action, text in handleSelection(action: action, text: text) }
+                ))
+            },
+            currentId: Binding(
+                get: { currentPageId ?? pages.first?.id ?? "" },
+                set: { newId in
+                    currentPageId = newId
+                    handlePageJump(to: newId)
+                }
+            )
+        )
+        .ignoresSafeArea()
+    }
+
+    private var scrollPager: some View {
+        ScrollView {
+            LazyVStack(spacing: config.paragraphSpacing) {
+                ForEach(pages) { page in
+                    Text(page.text)
+                        .font(.system(size: config.textSize))
+                        .foregroundStyle(config.theme.textColor)
+                        .lineSpacing(config.textSize * (config.lineSpacing - 1))
+                        .padding(.horizontal, config.paddingHorizontal)
+                }
+                // bug fix: 滚动模式下滚到底部, 自动 load 下一章 (跟 Android 对齐)
+                if let last = pages.last {
+                    Color.clear.frame(height: 1)
+                        .onAppear {
+                            // 用户已滚到末尾, 触发下一章
+                            Task { await engine.nextChapter() }
+                            _ = last
+                        }
+                }
+            }
+            .padding(.top, config.paddingTop)
+            .padding(.bottom, config.paddingBottom)
+        }
+        .onTapGesture {
+            withAnimation { menuVisible.toggle() }
+        }
+    }
+
+    // MARK: - 菜单
+
+    private var menuOverlay: some View {
+        VStack(spacing: 0) {
+            // 顶部
+            HStack(spacing: 12) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.backward")
+                        .font(.title3)
+                        .foregroundStyle(.white)
+                }
+                Spacer()
+                Text(currentPageText)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer()
+                // 万象书屋: 章内/全书搜索 (M2.5.7 新加)
+                Button {
+                    showSearchContent = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.white)
+                }
+                // 万象书屋 (M2.6.3): 听书入口
+                Button {
+                    showTtsPlayer = true
+                } label: {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .foregroundStyle(.white)
+                }
+                // 万象书屋: 章节编辑 / 换源 / 自动翻页
+                Menu {
+                    Button {
+                        Task { await engine.retryCurrentChapter() }
+                    } label: { Label("重新加载", systemImage: "arrow.clockwise") }
+                    Button { showContentEdit = true } label: {
+                        Label("净化此章", systemImage: "sparkles")
+                    }
+                    Button { showChangeSource = true } label: {
+                        Label("换源", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    Divider()
+                    // 万象书屋: 自动翻页
+                    Button {
+                        autoRead.toggle(onTurn: { Task { await self.engine.nextChapter() } })
+                    } label: {
+                        Label(autoRead.isRunning ? "停止自动翻页" : "自动翻页",
+                              systemImage: autoRead.isRunning ? "stop.circle" : "play.circle")
+                    }
+                    Button { showAutoReadConfig = true } label: {
+                        Label("自动翻页设置", systemImage: "speedometer")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(.white)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 50)
+            .padding(.bottom, 12)
+            .background(.black.opacity(0.7))
+
+            Spacer()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation { menuVisible = false }
+                }
+
+            // 底部
+            VStack(spacing: 14) {
+                // 进度条
+                if !engine.chapters.isEmpty {
+                    HStack {
+                        Text("\(engine.currentChapterIndex + 1)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white)
+                        Slider(
+                            value: Binding(
+                                get: { Double(engine.currentChapterIndex) },
+                                set: { newVal in
+                                    Task { await engine.goToChapter(Int(newVal)) }
+                                }
+                            ),
+                            in: 0...Double(max(0, engine.chapters.count - 1)),
+                            step: 1
+                        )
+                        .tint(WanxiangColors.primary)
+                        Text("\(engine.chapters.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal)
+                }
+
+                // 5 个按钮: 上一章 / 目录 / 设置 / 书签 / 下一章
+                HStack(spacing: 0) {
+                    menuBtn("chevron.left", "上一章") {
+                        Task { await engine.previousChapter() }
+                    }
+                    menuBtn("list.bullet", "目录") { tocSheet = true }
+                    menuBtn("textformat.size", "设置") { styleSheet = true }
+                    menuBtn("chevron.right", "下一章") {
+                        Task {
+                            if engine.currentChapterIndex + 1 >= engine.chapters.count {
+                                showFinishedView = true
+                            } else {
+                                await engine.nextChapter()
+                            }
+                        }
+                    }
+                }
+                .padding(.bottom, 28)
+            }
+            .background(.black.opacity(0.7))
+        }
+        .ignoresSafeArea()
+    }
+
+    private func menuBtn(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.title3)
+                Text(label)
+                    .font(.caption2)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private var currentPageText: String {
+        let title = engine.chapters[safe: engine.currentChapterIndex]?.title ?? ""
+        return title.isEmpty ? engine.book.name : title
+    }
+
+    // MARK: - 分页 / 翻页处理
+
+    private func repaginateCurrent() {
+        let viewport = contentCanvasSize.width > 0 ? contentCanvasSize : screenSize
+        guard viewport.width > 0 else { return }
+        let idx = engine.currentChapterIndex
+        guard let body = engine.content(for: idx) else {
+            pages = []
+            return
+        }
+        let title = engine.chapters[safe: idx]?.title ?? engine.book.name
+        // 万象书屋: 给 paginate 文字真实可用区 (减去 ReaderPageView 内的 padding + footer)
+        // ReaderPageView 页脚 + 最后一行安全缓冲。
+        // 过小会让正文压到页脚; 过大又会每页底部空白。52pt 是当前字号/行距下的平衡值。
+        let footerHeight: CGFloat = 52
+        let canvasSize = CGSize(
+            width: max(0, viewport.width - config.paddingHorizontal * 2),
+            height: max(0, viewport.height - config.paddingTop - config.paddingBottom - footerHeight)
+        )
+        let snapshot = ReadConfigSnapshot.current(from: config)
+        let result = PaginationEngine.paginate(
+            text: body,
+            chapterIndex: idx,
+            chapterTitle: title,
+            canvasSize: canvasSize,
+            config: snapshot
+        )
+        self.pages = result
+        if let first = result.first { self.currentPageId = first.id }
+    }
+
+    private func handlePageJump(to id: String) {
+        // id 形如 "chapterIdx-pageIdx", 当前章内翻页不需要切章; 跨章也通过这处理
+        let parts = id.split(separator: "-")
+        guard parts.count == 2,
+              let cIdx = Int(parts[0]) else { return }
+        if cIdx != engine.currentChapterIndex {
+            Task { await engine.goToChapter(cIdx) }
+        }
+    }
+
+    // MARK: - 阅读时长统计 (M2.5.7.6)
+
+    private func startReadingTimer() {
+        readingSecondsAccrued = 0
+        readTimer?.invalidate()
+        readTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Task { @MainActor in
+                readingSecondsAccrued += 60
+                let bookUrl = engine.book.bookUrl
+                try? await ReadRecordRepository.shared.addSeconds(bookUrl: bookUrl, seconds: 60)
+            }
+        }
+    }
+
+    private func stopReadingTimer() {
+        readTimer?.invalidate()
+        readTimer = nil
+        // 退出时把不足 1 分钟的零头也算上 (取整 30 秒以上算 1 分钟)
+        if readingSecondsAccrued == 0 {
+            Task {
+                try? await ReadRecordRepository.shared.addSeconds(bookUrl: engine.book.bookUrl, seconds: 30)
+            }
+        }
+    }
+
+    /// 万象书屋: 应用亮度 (M2.5.4)
+    private func applyBrightness() {
+        if config.autoBrightness || config.brightness < 0 {
+            return  // 跟随系统
+        }
+        UIScreen.main.brightness = CGFloat(config.brightness) / 100.0
+    }
+
+    // MARK: - 选词菜单 7 项 action 处理 (M2.5.6.1)
+
+    private func handleSelection(action: SelectableTextView.SelectionAction, text: String) {
+        guard !text.isEmpty else { return }
+        switch action {
+        case .copyText:
+            UIPasteboard.general.string = text
+        case .replace:
+            // M2.5.5: 跳到 ReplaceRule 编辑页, 预填 pattern
+            // 简化: 直接复制到剪贴板
+            UIPasteboard.general.string = text
+        case .bookmark:
+            Task {
+                let chapter = engine.chapters[safe: engine.currentChapterIndex]
+                let b = BookmarkEntity(
+                    bookUrl: engine.book.bookUrl,
+                    bookName: engine.book.name,
+                    chapterIndex: engine.currentChapterIndex,
+                    chapterTitle: chapter?.title,
+                    content: text
+                )
+                _ = try? await BookmarkRepository.shared.add(b)
+            }
+        case .dict:
+            dictKeyword = text
+        case .searchContent:
+            // M2.5.7.7 全书搜留, 简化: 复制到剪贴板
+            UIPasteboard.general.string = text
+        case .browser:
+            let q = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
+            if let url = URL(string: "https://www.baidu.com/s?wd=\(q)") {
+                browserUrl = url
+            }
+        case .share:
+            let av = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+            UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.windows.first?.rootViewController }
+                .first?.present(av, animated: true)
+        }
+    }
+
+    /// 万象书屋: 当前章节加书签 (M2.5.5.5)
+    private func addBookmark() async {
+        let chapter = engine.chapters[safe: engine.currentChapterIndex]
+        let bookmark = BookmarkEntity(
+            bookUrl: engine.book.bookUrl,
+            bookName: engine.book.name,
+            chapterIndex: engine.currentChapterIndex,
+            chapterTitle: chapter?.title,
+            chapterPos: 0,
+            content: nil,
+            note: nil
+        )
+        _ = try? await BookmarkRepository.shared.add(bookmark)
+        // 简单 toast (用 UIKit 的 UIImpactFeedbackGenerator 让用户知道)
+        await MainActor.run {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+    }
+}
+
+// MARK: - 选词菜单 sheet item
+
+struct DictItem: Identifiable { let id = UUID(); let text: String }
+struct BrowserItem: Identifiable { let id = UUID(); let url: URL }
+
+// MARK: - 单页内容
+
+private struct ReaderPageView: View {
+    let page: ReaderPage
+    @ObservedObject var config: ReadConfig
+    let onTapMenu: () -> Void
+    let onSelectionAction: (SelectableTextView.SelectionAction, String) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            VStack(alignment: .leading, spacing: 0) {
+                // 万象书屋 (P0 fix): SwiftUI Text 自动按 frame 自适应换行/截断, 跟 PaginationEngine
+                // CTFramesetter 行高/字距完全一致, 不会出现 UITextView 那样字数算错留白的情况
+                Text(page.text)
+                    .font(.system(size: config.textSize))
+                    .foregroundStyle(config.theme.textColor)
+                    .lineSpacing(config.textSize * (config.lineSpacing - 1))
+                    .kerning(config.letterSpacing)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                // 页脚
+                HStack {
+                    Text(page.chapterTitle)
+                        .font(.caption2)
+                        .lineLimit(1)
+                    Spacer()
+                    Text("\(page.pageIndex + 1) / \(page.totalPages)")
+                        .font(.caption2.monospacedDigit())
+                }
+                .foregroundStyle(config.theme.textColor.opacity(0.5))
+                .padding(.top, 8)
+            }
+            .padding(.horizontal, config.paddingHorizontal)
+            .padding(.top, config.paddingTop)
+            .padding(.bottom, config.paddingBottom)
+            // 三段点击区: 左 1/3 上一页, 中 1/3 菜单, 右 1/3 下一页
+            // (TabView .page 模式下右滑/左滑天然翻页, 这里只处理 tap 中心)
+            .overlay(
+                HStack(spacing: 0) {
+                    Color.clear.frame(width: geo.size.width / 3)
+                    Color.clear
+                        .frame(width: geo.size.width / 3)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onTapMenu() }
+                    Color.clear.frame(width: geo.size.width / 3)
+                }
+            )
+        }
+    }
+}
+
+// MARK: - 安全下标
+
+private extension Array {
+    subscript(safe i: Int) -> Element? {
+        indices.contains(i) ? self[i] : nil
+    }
+}
+
+// MARK: - 自动翻页配置
+
+private struct AutoReadConfigSheet: View {
+    @StateObject private var auto = AutoReadController.shared
+    @Environment(\.dismiss) private var dismiss
+
+    private let speeds: [Double] = [5, 10, 15, 20, 25, 30, 45, 60]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("当前状态") {
+                    HStack {
+                        Image(systemName: auto.isRunning ? "play.circle.fill" : "pause.circle")
+                            .foregroundStyle(auto.isRunning ? Color.green : Color.secondary)
+                        Text(auto.isRunning ? "运行中" : "已停止")
+                        Spacer()
+                        if auto.isRunning {
+                            Text("\(Int(ceil(auto.countdown))) 秒后翻页")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Section(header: Text("翻页间隔")) {
+                    ForEach(speeds, id: \.self) { s in
+                        Button {
+                            auto.setSpeed(s)
+                        } label: {
+                            HStack {
+                                Text("\(Int(s)) 秒/页")
+                                Spacer()
+                                if Int(auto.secondsPerPage) == Int(s) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                }
+                Section(footer: Text("说明:启用后每隔指定秒数自动翻下一页。在阅读页面菜单 ⋯ 内可启动/停止。音量键也可用于翻页:音量↑上一页,音量↓下一页 (真机)。")) {
+                    EmptyView()
+                }
+            }
+            .navigationTitle("自动翻页")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+}

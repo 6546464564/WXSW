@@ -1,18 +1,62 @@
 *.iml
-.gradle
-local.properties
 .DS_Store
-/build
+
+# ─── 全局 build / 缓存 ───────────────────────────────────
 build/
-/captures
-.externalNativeBuild
-/release
-/tmp
+/build
 node_modules/
-/app/app
-/app/google
-/app/gradle.properties
 package-lock.json
 .idea/
+.externalNativeBuild
+/tmp
+/release
+/captures
+
+# ─── Android (现在统一在 android/ 下) ────────────────────
+android/.gradle/
+android/.kotlin/
+android/build/
+android/local.properties
+android/app/build/
+android/app/app/
+android/app/google/
+android/app/gradle.properties
+android/modules/*/build/
+
 # Kotlin 2.0
 .kotlin/
+.gradle
+
+# 旧布局兼容 (历史 commit 仍可能引用)
+/local.properties
+/app/build/
+/app/app/
+/app/google/
+/app/gradle.properties
+
+# ─── iOS ────────────────────────────────────────────────
+ios/.build/
+ios/BookSourceCLI/.build/
+ios/**/.build/
+ios/build/
+ios/**/*.xcuserstate
+ios/**/xcuserdata/
+ios/**/DerivedData/
+
+# ─── scratch / 反编译参考 (本地调试产物, 不入库) ─────────
+scratch/
+.tools/
+
+# ─── 本地 IDE / AI 工具配置 ──────────────────────────────
+.claude/
+.cursor/
+.vscode/
+*.log
+
+# ─── Backend 本地数据 / 环境 ─────────────────────────────
+backend/data/
+backend/.env
+backend/*.db
+backend/*.db-journal
+backend/*.db-wal
+backend/*.db-shm

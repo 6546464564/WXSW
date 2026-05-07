@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+万象书屋: 阅读到全书末尾时显示的「作者努力更新中」占位页.
+
+设计:
+  - 嵌入在 activity_book_read 上层 (盖在 ReadView 上), 占满整个阅读区
+  - 不是 Dialog 形式, 用户视觉上感受是"翻到了最后一页, 这页就是这内容"
+  - 透明背景跟随阅读主题 (用 @color/background, 各主题适配),
+    避免在墨水屏 / 暗色主题下白底刺眼
+  - 默认 visibility=gone, 由 ReadBookActivity.onNoNextPage 时切到 visible
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/book_finished_view"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:focusable="true"
+    android:visibility="gone"
+    tools:visibility="visible">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:paddingHorizontal="32dp">
+
+        <!-- 大标题 "作 者 努 力 更 新 中" 字间距用 letterSpacing 模拟. 颜色由 Activity 运行时改 -->
+        <TextView
+            android:id="@+id/tvFinishedTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:letterSpacing="0.3"
+            android:text="@string/book_finished_title"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvFinishedSubtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:letterSpacing="0.1"
+            android:text="@string/book_finished_subtitle"
+            android:textSize="15sp" />
+
+        <!-- 装饰分隔线 -->
+        <View
+            android:id="@+id/finishedDividerLine"
+            android:layout_width="80dp"
+            android:layout_height="1dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="20dp" />
+
+        <View
+            android:id="@+id/finishedDividerDot"
+            android:layout_width="4dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="-2dp" />
+
+        <!-- 万象书屋: 提示用户这是个可翻回的占位页, 跟普通书页体验对齐 -->
+        <TextView
+            android:id="@+id/tvFinishedSwipeHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:alpha="0.5"
+            android:gravity="center"
+            android:text="@string/book_finished_swipe_hint"
+            android:textSize="12sp" />
+
+        <!-- 万象书屋: 看广告续期主推按钮 (累加 30 分钟纯净阅读). 冷却中置灰. -->
+        <Button
+            android:id="@+id/btnFinishedExtendUnlock"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="32dp"
+            android:background="@drawable/bg_book_finished_button_primary"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <!-- 三按钮横排 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="20dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnFinishedChangeSource"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="12dp"
+                android:background="@drawable/bg_book_finished_button_secondary"
+                android:minHeight="44dp"
+                android:paddingHorizontal="20dp"
+                android:text="@string/book_finished_change_source"
+                android:textColor="@android:color/white"
+                android:textSize="15sp" />
+
+            <Button
+                android:id="@+id/btnFinishedGoBookshelf"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="12dp"
+                android:background="@drawable/bg_book_finished_button_primary"
+                android:minHeight="44dp"
+                android:paddingHorizontal="20dp"
+                android:text="@string/book_finished_go_bookshelf"
+                android:textColor="@android:color/white"
+                android:textSize="15sp" />
+
+            <Button
+                android:id="@+id/btnFinishedGoBookstore"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_book_finished_button_primary"
+                android:minHeight="44dp"
+                android:paddingHorizontal="20dp"
+                android:text="@string/book_finished_go_bookstore"
+                android:textColor="@android:color/white"
+                android:textSize="15sp" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
