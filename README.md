@@ -1,110 +1,104 @@
-# [English](English.md) [中文](README.md)
+# 万象书屋 (Wanxiang Reader)
 
-[![icon_android](https://github.com/gedoor/gedoor.github.io/blob/master/static/img/legado/icon_android.png)](https://play.google.com/store/apps/details?id=io.legado.play.release)
-<a href="https://jb.gg/OpenSourceSupport" target="_blank">
-<img width="24" height="24" src="https://resources.jetbrains.com/storage/products/company/brand/logos/jb_beam.svg?_gl=1*135yekd*_ga*OTY4Mjg4NDYzLjE2Mzk0NTE3MzQ.*_ga_9J976DJZ68*MTY2OTE2MzM5Ny4xMy4wLjE2NjkxNjMzOTcuNjAuMC4w&_ga=2.257292110.451256242.1669085120-968288463.1639451734" alt="idea"/>
-</a>
+> **License**: GPL-3.0 · **Repo**: https://github.com/6546464564/WXSW · **Upstream**: 基于 [gedoor/legado](https://github.com/gedoor/legado) 二次开发
 
-<div align="center">
-<img width="125" height="125" src="https://github.com/gedoor/legado/raw/master/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="legado"/>  
-  
-Legado / 开源阅读
-<br>
-<a href="https://gedoor.github.io" target="_blank">gedoor.github.io</a> / <a href="https://www.legado.top/" target="_blank">legado.top</a>
-<br>
-Legado is a free and open source novel reader for Android.
-</div>
+万象书屋 是一款基于 [legado / 阅读](https://github.com/gedoor/legado)(GPL-3.0)二次开发的多端电子书阅读器,在保留 legado 强大书源引擎的基础上,做了如下定制:
 
-[![](https://img.shields.io/badge/-Contents:-696969.svg)](#contents) [![](https://img.shields.io/badge/-Function-F5F5F5.svg)](#Function-主要功能-) [![](https://img.shields.io/badge/-Community-F5F5F5.svg)](#Community-交流社区-) [![](https://img.shields.io/badge/-API-F5F5F5.svg)](#API-) [![](https://img.shields.io/badge/-Other-F5F5F5.svg)](#Other-其他-) [![](https://img.shields.io/badge/-Grateful-F5F5F5.svg)](#Grateful-感谢-) [![](https://img.shields.io/badge/-Interface-F5F5F5.svg)](#Interface-界面-)
+- **品牌重塑**:`com.wanxiang.reader` 包名,自有 UI 与法律页
+- **后端化**:书源、广告配置、运营开关全部由自建后端下发,App 内不再内置书源
+- **多端**:Android (Kotlin) / iOS (SwiftUI) / Web 管理面板共用一套后端 API
+- **合规**:内置隐私政策、用户协议、个人信息收集清单、SDK 列表等中国大陆上架所需法律页
+- **广告变现**:接入穿山甲 (Pangle) + 优量汇 (Tencent YLH),激励视频解锁纯净阅读
 
->新用户？
->
->软件不提供内容，需要您自己手动添加，例如导入书源等。
->看看 [官方帮助文档](https://www.yuque.com/legado/wiki)，也许里面就有你要的答案。
+## 仓库结构
 
-# Function-主要功能 [![](https://img.shields.io/badge/-Function-F5F5F5.svg)](#Function-主要功能-)
-[English](English.md)
+```
+WXSW/
+├── android/        Android 客户端 (Kotlin, 基于 legado fork)
+│   ├── app/        主应用模块
+│   └── modules/    功能模块 (book / rhino 等)
+├── ios/            iOS 客户端 (SwiftUI, M0-M5 路线图见 ios/docs/PLAN.md)
+├── backend/        Node.js + Express + SQLite 后端 + 管理面板
+├── docs/           英文 README / API 文档 / 全栈审查报告 / NOTICE
+├── scripts/        发布前自检 / Mac 迁移脚本
+├── screenshots/    应用截图
+└── .github/        CI 工作流 (release / cronet / web / 后端 CI 等)
+```
 
-<details><summary>中文</summary>
-1.自定义书源，自己设置规则，抓取网页数据，规则简单易懂，软件内有规则说明。<br>
-2.列表书架，网格书架自由切换。<br>
-3.书源规则支持搜索及发现，所有找书看书功能全部自定义，找书更方便。<br>
-4.订阅内容,可以订阅想看的任何内容,看你想看<br>
-5.支持替换净化，去除广告替换内容很方便。<br>
-6.支持本地TXT、EPUB阅读，手动浏览，智能扫描。<br>
-7.支持高度自定义阅读界面，切换字体、颜色、背景、行距、段距、加粗、简繁转换等。<br>
-8.支持多种翻页模式，覆盖、仿真、滑动、滚动等。<br>
-9.软件开源，持续优化，无广告。
-</details>
+## 子项目文档
 
-<a href="#readme">
-    <img src="https://img.shields.io/badge/-返回顶部-orange.svg" alt="#" align="right">
-</a>
+| 路径 | 说明 |
+|---|---|
+| [docs/English.md](docs/English.md) | English README (legacy from legado) |
+| [docs/api.md](docs/api.md) | 阅读 API 调用文档(Web / Content Provider) |
+| [docs/AUDIT_REPORT.md](docs/AUDIT_REPORT.md) | 万象书屋 · 全栈审查报告(后端 + Android) |
+| [docs/NOTICE.md](docs/NOTICE.md) | 第三方组件清单与上游声明 |
+| [backend/README.md](backend/README.md) | 后端部署、API、管理面板说明 |
+| [ios/README.md](ios/README.md) | iOS 工程快速跑通指南 |
+| [android/app/src/main/assets/updateLog.md](android/app/src/main/assets/updateLog.md) | Android 应用内更新日志 |
+| [android/app/src/main/assets/legal/privacyPolicy.md](android/app/src/main/assets/legal/privacyPolicy.md) | 隐私政策 |
+| [android/app/src/main/assets/legal/userAgreement.md](android/app/src/main/assets/legal/userAgreement.md) | 用户协议 |
+| [android/app/src/main/assets/legal/sdkList.md](android/app/src/main/assets/legal/sdkList.md) | 第三方 SDK 列表 |
 
-# Community-交流社区 [![](https://img.shields.io/badge/-Community-F5F5F5.svg)](#Community-交流社区-)
+## 快速开始
 
-#### Telegram
-[![Telegram-group](https://img.shields.io/badge/Telegram-%E7%BE%A4%E7%BB%84-blue)](https://t.me/yueduguanfang) [![Telegram-channel](https://img.shields.io/badge/Telegram-%E9%A2%91%E9%81%93-blue)](https://t.me/legado_channels)
+### Android
 
-#### Discord
-[![Discord](https://img.shields.io/discord/560731361414086666?color=%235865f2&label=Discord)](https://discord.gg/VtUfRyzRXn)
+```bash
+cd android
+./gradlew assembleAppDebug -PWANXIANG_BACKEND_URL=https://www.wxsw.app
+# 产物: app/build/outputs/apk/app/debug/app-app-debug.apk
+```
 
-#### Other
-https://www.yuque.com/legado/wiki/community
+### iOS
 
-<a href="#readme">
-    <img src="https://img.shields.io/badge/-返回顶部-orange.svg" alt="#" align="right">
-</a>
+```bash
+cd ios
+~/dev-tools/xcodegen/bin/xcodegen generate
+open WanxiangBook.xcodeproj
+# Xcode 选 iPhone 15 模拟器 → ⌘R
+```
 
-# API [![](https://img.shields.io/badge/-API-F5F5F5.svg)](#API-)
-* 阅读3.0 提供了2种方式的API：`Web方式`和`Content Provider方式`。您可以在[这里](api.md)根据需要自行调用。 
-* 可通过url唤起阅读进行一键导入,url格式: legado://import/{path}?src={url}
-* path类型: bookSource,rssSource,replaceRule,textTocRule,httpTTS,theme,readConfig,dictRule,[addToBookshelf](/app/src/main/java/io/legado/app/ui/association/AddToBookshelfDialog.kt)
-* path类型解释: 书源,订阅源,替换规则,本地txt小说目录规则,在线朗读引擎,主题,阅读排版,添加到书架
+### 后端
 
-<a href="#readme">
-    <img src="https://img.shields.io/badge/-返回顶部-orange.svg" alt="#" align="right">
-</a>
+```bash
+cd backend
+npm install
+npm run init-db
+npm run seed                # 从 App 内置 JSON 导入书源(可选)
+ADMIN_INITIAL_PASSWORD=<your_password> npm start
+# 管理面板: http://localhost:3000/admin.html
+```
 
-# Other-其他 [![](https://img.shields.io/badge/-Other-F5F5F5.svg)](#Other-其他-)
-##### 免责声明
-https://gedoor.github.io/Disclaimer
+详见 [backend/README.md](backend/README.md)。
 
-##### 阅读3.0
-* [书源规则](https://mgz0227.github.io/The-tutorial-of-Legado/)
-* [更新日志](/app/src/main/assets/updateLog.md)
-* [帮助文档](/app/src/main/assets/web/help/md/appHelp.md)
-* [web端书架](https://github.com/gedoor/legado_web_bookshelf)
-* [web端源编辑](https://github.com/gedoor/legado_web_source_editor)
+## 主要功能(继承自 legado)
 
-<a href="#readme">
-    <img src="https://img.shields.io/badge/-返回顶部-orange.svg" alt="#" align="right">
-</a>
+1. 自定义书源,自己设置规则,抓取网页数据,规则简单易懂
+2. 列表书架 / 网格书架自由切换
+3. 书源规则支持搜索及发现
+4. 订阅内容,可订阅任何想看的内容
+5. 替换净化,去除广告替换内容
+6. 本地 TXT、EPUB 阅读,手动浏览,智能扫描
+7. 高度自定义阅读界面(字体、颜色、背景、行距、段距、加粗、简繁转换)
+8. 多种翻页模式(覆盖、仿真、滑动、滚动)
 
-# Grateful-感谢 [![](https://img.shields.io/badge/-Grateful-F5F5F5.svg)](#Grateful-感谢-)
-> * org.jsoup:jsoup
-> * cn.wanghaomiao:JsoupXpath
-> * com.jayway.jsonpath:json-path
-> * com.github.gedoor:rhino-android
-> * com.squareup.okhttp3:okhttp
-> * com.github.bumptech.glide:glide
-> * org.nanohttpd:nanohttpd
-> * org.nanohttpd:nanohttpd-websocket
-> * cn.bingoogolapple:bga-qrcode-zxing
-> * com.jaredrummler:colorpicker
-> * org.apache.commons:commons-text
-> * io.noties.markwon:core
-> * io.noties.markwon:image-glide
-> * com.hankcs:hanlp
-> * com.positiondev.epublib:epublib-core
-<a href="#readme">
-    <img src="https://img.shields.io/badge/-返回顶部-orange.svg" alt="#" align="right">
-</a>
+## 万象书屋 增量
 
-# Interface-界面 [![](https://img.shields.io/badge/-Interface-F5F5F5.svg)](#Interface-界面-)
-<img src="https://github.com/gedoor/gedoor.github.io/blob/master/static/img/legado/%E9%98%85%E8%AF%BB%E7%AE%80%E4%BB%8B1.jpg" width="270"><img src="https://github.com/gedoor/gedoor.github.io/blob/master/static/img/legado/%E9%98%85%E8%AF%BB%E7%AE%80%E4%BB%8B2.jpg" width="270"><img src="https://github.com/gedoor/gedoor.github.io/blob/master/static/img/legado/%E9%98%85%E8%AF%BB%E7%AE%80%E4%BB%8B3.jpg" width="270">
-<img src="https://github.com/gedoor/gedoor.github.io/blob/master/static/img/legado/%E9%98%85%E8%AF%BB%E7%AE%80%E4%BB%8B4.jpg" width="270"><img src="https://github.com/gedoor/gedoor.github.io/blob/master/static/img/legado/%E9%98%85%E8%AF%BB%E7%AE%80%E4%BB%8B5.jpg" width="270"><img src="https://github.com/gedoor/gedoor.github.io/blob/master/static/img/legado/%E9%98%85%E8%AF%BB%E7%AE%80%E4%BB%8B6.jpg" width="270">
+1. **后端书源分发**:无需手动导入,App 启动时自动从 `/api/sources` 拉取
+2. **运营管理面板**:Web 端管理书源、查看在线人数、推送广告配置
+3. **激励广告解锁**:观看 30s 激励视频,解锁 30 分钟纯净阅读
+4. **多平台账号**:Android / iOS 共享设备身份,后端按 `X-Platform` 区分
+5. **崩溃上报**:自建 `/api/crash` 上报,后端面板可视化分析
 
-<a href="#readme">
-    <img src="https://img.shields.io/badge/-返回顶部-orange.svg" alt="#" align="right">
-</a>
+## 致谢
+
+万象书屋 在 [legado](https://github.com/gedoor/legado) 与如下开源组件之上构建:
+
+> org.jsoup:jsoup · cn.wanghaomiao:JsoupXpath · com.jayway.jsonpath:json-path · com.github.gedoor:rhino-android · com.squareup.okhttp3:okhttp · com.github.bumptech.glide:glide · org.nanohttpd:nanohttpd · com.github.bumptech.glide:glide · com.jaredrummler:colorpicker · org.apache.commons:commons-text · io.noties.markwon:core · com.hankcs:hanlp · com.positiondev.epublib:epublib-core
+
+完整第三方清单见 [docs/NOTICE.md](docs/NOTICE.md)。
+
+## License
+
+万象书屋 沿用 [GPL-3.0](LICENSE),**源代码必须保持开放**。任何基于本项目的衍生发布都需要遵守 GPL-3.0 第 5 节"修改版本必须以同样的协议发布完整源代码"的要求。

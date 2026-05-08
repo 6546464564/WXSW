@@ -1,6 +1,8 @@
 {
-  "name": "legado",
+  "name": "wxsw",
   "version": "1.0.0",
+  "description": "万象书屋 (Wanxiang Reader) — 基于 legado 二次开发的多端电子书阅读器,含 Android / iOS / 后端管理面板",
+  "private": true,
   "devDependencies": {
     "cz-conventional-changelog": "^3.1.0"
   },
@@ -9,20 +11,26 @@
       "path": "./node_modules/cz-conventional-changelog"
     }
   },
-  "description": "[![Commitizen friendly](https://img.shields.io/badge/commitizen-friendly-brightgreen.svg)](http://commitizen.github.io/cz-cli/)",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gedoor/legado.git"
+    "url": "git+https://github.com/6546464564/WXSW.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "wanxiang",
+    "reader",
+    "ebook",
+    "legado",
+    "android",
+    "ios"
+  ],
+  "author": "WXSW Contributors",
+  "license": "GPL-3.0",
   "bugs": {
-    "url": "https://github.com/gedoor/legado/issues"
+    "url": "https://github.com/6546464564/WXSW/issues"
   },
-  "homepage": "https://github.com/gedoor/legado#readme"
+  "homepage": "https://github.com/6546464564/WXSW#readme"
 }

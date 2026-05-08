@@ -2,7 +2,7 @@
 
 > 起点: 2026-05-04 · 状态: M0-I 脚手架完成 · 下一步: M1 书源引擎
 
-完整路线图见 [PLAN.md](./PLAN.md);全量功能矩阵见 [FEATURES.md](./FEATURES.md);进度跟踪见 [PROGRESS.md](./PROGRESS.md)。
+完整路线图见 [docs/PLAN.md](./docs/PLAN.md);全量功能矩阵见 [docs/FEATURES.md](./docs/FEATURES.md);进度跟踪见 [docs/PROGRESS.md](./docs/PROGRESS.md)。
 
 ## 30 秒快速跑
 
@@ -44,9 +44,12 @@ xcodebuild -project WanxiangBook.xcodeproj \
 
 ```
 ios/
-├── PLAN.md                     ← 路线图 (M0~M5)
-├── FEATURES.md                 ← 全量功能矩阵 (220+ 项)
-├── PROGRESS.md                 ← 进度跟踪 (190 task checkbox)
+├── docs/
+│   ├── PLAN.md                 ← 路线图 (M0~M5)
+│   ├── FEATURES.md             ← 全量功能矩阵 (220+ 项)
+│   ├── PROGRESS.md             ← 进度跟踪 (190 task checkbox)
+│   ├── M4_APPSTORE_COPY.md     ← App Store 元数据
+│   └── M4_RELEASE_CHECKLIST.md ← M4 上架检查清单
 ├── README.md                   ← 本文件
 ├── project.yml                 ← XcodeGen 工程描述 (源真理)
 ├── WanxiangBook.xcodeproj/     ← XcodeGen 生成 (也提交,方便 Xcode 直接打开)

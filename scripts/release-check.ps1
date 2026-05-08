@@ -108,13 +108,14 @@ foreach ($f in $legalFiles) {
 if (-not (Test-Path "LICENSE")) { Add-Blocker "missing LICENSE (GPL-3.0)" }
 elseif ((Get-Item "LICENSE").Length -lt 30000) { Add-Warning "LICENSE is small, may not be full GPL-3.0 text" }
 else { Add-Info "LICENSE present" }
-if (-not (Test-Path "NOTICE.md")) { Add-Warning "missing NOTICE.md" }
+$noticePath = "docs\NOTICE.md"
+if (-not (Test-Path $noticePath)) { Add-Warning "missing $noticePath" }
 
 # 9. NOTICE repo placeholder
-if (Test-Path "NOTICE.md") {
-    $notice = Get-Content "NOTICE.md" -Raw
+if (Test-Path $noticePath) {
+    $notice = Get-Content $noticePath -Raw
     if ($notice -match 'REPO_URL_PLACEHOLDER') {
-        Add-Blocker "NOTICE.md has REPO_URL_PLACEHOLDER not replaced with public Git repo"
+        Add-Blocker "$noticePath has REPO_URL_PLACEHOLDER not replaced with public Git repo"
     }
 }
 

@@ -20,7 +20,7 @@
 
 Full source code of the derivative is available at:
 
-> **REPO_URL_PLACEHOLDER** — please replace with your public Git repository before release.
+> **https://github.com/6546464564/WXSW**
 
 ## Third-Party Components
 
