@@ -16,7 +16,9 @@
     <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 万象书屋: 已移除 REQUEST_INSTALL_PACKAGES 权限. 原 legado 用它做"App 内 GitHub 自更新",
+         现已彻底删除 help/update/ 模块, 该权限失去用途. 国内应用商店禁止 App 内自更新, 上架前
+         必须不带此权限, 否则会被审核要求"无引用的高危权限请删除". -->
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
@@ -53,12 +55,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- 主界面 -->
+        <!-- 万象书屋: MainActivity 改为 exported=false. 它没有任何 intent-filter,
+             外部 App 没必要直接调起它(入口是 SplashAdActivity, 那里才有 LAUNCHER intent-filter).
+             保持 true 会让其他 App 知道完整组件名就能绕过开屏的隐私同意检查直接进主页. -->
         <activity
             android:name=".ui.main.MainActivity"
             android:alwaysRetainTaskState="true"
             android:configChanges="locale|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|uiMode"
-            android:exported="true"
+            android:exported="false"
             android:launchMode="singleTask" />
         <!-- 阅读界面 -->
         <activity

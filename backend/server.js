@@ -299,9 +299,21 @@ app.use(compression({ threshold: 1024 }));
 // admin API 也只能从 admin.html 同源访问. 想要跨域调用的人请自己在 nginx 加 origin allowlist.
 app.use('/api/', cors({ origin: false, credentials: false }));
 
-// 默认 1mb, 防匿名刷内存; 真正需要大 body 的接口单独挂 largeJson 中间件
-app.use(express.json({ limit: '1mb' }));
-const largeJson = express.json({ limit: '20mb' });
+// 万象书屋: 默认 1mb 防匿名刷内存; 个别需要大 body 的 admin 接口走 20mb.
+// 注: Express body-parser 是"先到先得", 一旦全局 1mb 这个 middleware 把 body 解析失败
+// 就 next(err) 给错误处理器, 后挂的路由级 largeJson 永远不会被触发. 因此必须在
+// 同一个 use 钩子里按路径分流, 而不是全局 1mb + 路由级 20mb 的顺序叠放.
+const largeBodyRoutes = new Set([
+  'POST /api/admin/sources',          // 导入/批量更新书源 (整包可能几 MB)
+  'POST /api/admin/bookstore-feed',   // 书城板块批量配置
+]);
+app.use((req, res, next) => {
+  const key = req.method + ' ' + req.path;
+  const limit = largeBodyRoutes.has(key) ? '20mb' : '1mb';
+  return express.json({ limit })(req, res, next);
+});
+// 兼容老代码: 仍导出 largeJson 给路由声明用 (空实现, 路径已在上面分流)
+const largeJson = (req, res, next) => next();
 app.use(cookieParser());
 
 // 万象书屋: OpenAPI 文档 /api/docs (开发/排障辅助, 不收录到搜索引擎)
@@ -1547,7 +1559,13 @@ async function _verifyAppleReceipt(receiptData, sandboxFirst = false) {
   return resp;
 }
 
+// 万象书屋: /api/iap/verify (iOS 内购验证) 已默认禁用.
+// 当前业务无内购需求, 路由暴露在外只增加攻击面 (Apple receipt 解析涉及外部 HTTPS 调用,
+// 大流量伪造请求可能造成 SSRF/慢请求问题). 实现保留在文件下方 _verifyAppleReceipt() 等
+// 私有函数里, 想启用只需把下面 if (true) return 404; 那一行删除.
 app.post('/api/iap/verify', _IAP_RATE, blockBlacklistedDevice, verifyDeviceToken, async (req, res) => {
+  if (true) return res.status(404).json({ ok: false, msg: 'not found' });
+  // eslint-disable-next-line no-unreachable
   if (req.platform !== 'ios') {
     return res.status(400).json({ ok: false, msg: 'iap is iOS-only' });
   }

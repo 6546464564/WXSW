@@ -60,3 +60,14 @@ backend/*.db
 backend/*.db-journal
 backend/*.db-wal
 backend/*.db-shm
+
+# ─── Android 签名 / 私钥 (绝不能进 git!!!) ───────────────
+# 历史教训: 早期 wanxiang.keystore 曾被 commit + 弱密码 'wanxiang',
+# 任何 clone 仓库的人都能伪造 App 升级. 现在所有 keystore + 密码备忘
+# 文件 + 旧 keystore 备份 都强制忽略.
+android/keystore/*.keystore
+android/keystore/*.jks
+android/keystore/.local-password.txt
+android/keystore/*.OLD*
+keystore/*.keystore
+keystore/*.jks

@@ -165,6 +165,39 @@ class MyFragment() : BaseFragment(R.layout.fragment_my_config), MainFragmentInte
                     true
                 }
             }
+
+            // 万象书屋: "我的" 页运营精简模式. 默认只保留 5 项:
+            //   themeMode  - 主题模式
+            //   theme_setting - 主题设置
+            //   bookmark   - 书签
+            //   readRecord - 阅读记录
+            //   legal_feedback - 意见反馈
+            //
+            // !! 上架合规警告: 下面这一份"隐藏列表"里的 5 个 legal_* 项是
+            //    《App 个人信息保护合规审核指南 2025》强制要求的入口,正式
+            //    提交国内应用商店审核前必须把对应行删掉/或全表清空, 否则
+            //    会以"未提供隐私政策入口/账号注销渠道"等理由被拒审.
+            //    legal_privacy / legal_user_agreement / legal_collect_list
+            //    / legal_sdk_list / legal_account_delete - 这 5 个一定要恢复.
+            val hiddenKeys = listOf(
+                "txtTocRuleManage",       // txt 目录规则
+                "replaceManage",          // 替换净化
+                "dictRuleManage",         // 词典规则
+                "setting",                // 其他设置
+                "fileManage",             // 文件管理
+                "legal_about",            // 关于
+                "legal_privacy",          // 隐私政策          [上架必备]
+                "legal_user_agreement",   // 用户协议          [上架必备]
+                "legal_collect_list",     // 个人信息收集清单  [上架必备]
+                "legal_sdk_list",         // 第三方 SDK 列表   [上架必备]
+                "legal_open_source",      // 开源信息
+                "legal_account_delete",   // 账号注销          [上架必备]
+            )
+            hiddenKeys.forEach { findPreference<Preference>(it)?.isVisible = false }
+
+            // legalCategory 现在只剩 legal_feedback 一项, 把分组标题清空,
+            // 视觉上跟"无分组"一致, 不显示孤零零的 "关于 / 法律" 标题.
+            findPreference<androidx.preference.PreferenceCategory>("legalCategory")?.title = ""
         }
 
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {

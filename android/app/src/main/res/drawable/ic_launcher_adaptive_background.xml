@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 铺满自适应图标底层，避免 center 缩放后留白透出渐变背景 -->
+<!-- 万象书屋自适应图标底层 (1024x1024 米白底 + 居中书本+万字印章 logo).
+     原 ic_launcher_cosmic_art 资源已不存在 (legado 上游清理后没补回来),
+     现指向 drawable-xxxhdpi/ic_launcher_logo_bg.png. foreground 仍为透明 (见
+     ic_launcher_foreground_empty.xml), 整张 logo 视觉都在 background 层. -->
 <bitmap xmlns:android="http://schemas.android.com/apk/res/android"
     android:gravity="fill"
-    android:src="@drawable/ic_launcher_cosmic_art" />
+    android:src="@drawable/ic_launcher_logo_bg" />

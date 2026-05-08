@@ -168,7 +168,76 @@ function validateShape(src) {
     }
   }
 
+  // 6. 万象书屋: 书源 JS 静态扫描.
+  //    所有字符串字段递归扫描, 命中危险模式则记 warn (不直接 error,
+  //    因为 legado 书源经常含 eval / Function 来反爬, 一刀切会误杀;
+  //    管理员看到 warn 后可人工判断是否要禁用该源).
+  scanJsContent(src, '', push);
+
   return { issues };
+}
+
+// 万象书屋: JS 静态扫描器
+// 扫描书源 JSON 所有字符串字段, 识别可疑模式. 命中只记 warn 不阻止保存.
+// 真正高危的 (远程 fetch http URL / 动态加载远程模块) 会标 error.
+const DANGEROUS_JS_PATTERNS = [
+  // 高危: 动态加载远程代码
+  { sev: 'error', re: /\bimport\s*\(\s*['"]https?:\/\//i,
+    msg: '动态 import 远程模块 (热更新/远程代码注入风险)' },
+  { sev: 'error', re: /\bfetch\s*\(\s*['"]https?:\/\/(?!example\.|localhost|127\.)/i,
+    msg: 'JS 内向第三方 URL 发起 fetch (可能是数据外发或上报)' },
+  { sev: 'error', re: /<script[\s>][^<]*src\s*=\s*['"]https?:\/\//i,
+    msg: '内嵌 <script src=远程地址> 标签' },
+
+  // 中危: 动态执行 (legado 书源常见, 不一定是恶意)
+  { sev: 'warn', re: /\beval\s*\(/,
+    msg: '使用 eval() (动态执行字符串)' },
+  { sev: 'warn', re: /\bnew\s+Function\s*\(/,
+    msg: '使用 new Function() (动态构造代码)' },
+  { sev: 'warn', re: /\bFunction\s*\(\s*['"][^'"]{20,}['"]\s*\)/,
+    msg: '使用 Function(longString) 形式动态执行' },
+
+  // 中危: 浏览器存储 / cookie 写入
+  { sev: 'warn', re: /document\.cookie\s*=[^=]/,
+    msg: '写入 document.cookie' },
+  { sev: 'warn', re: /\b(local|session)Storage\.setItem\s*\(/,
+    msg: '写入浏览器 localStorage / sessionStorage' },
+
+  // 提示: 网络通讯 API (本身合法但管理员应知情)
+  { sev: 'info', re: /\bXMLHttpRequest\b/,
+    msg: '使用 XMLHttpRequest (规则用于跨域抓取常见)' },
+];
+
+function scanJsContent(value, path, push) {
+  if (value == null) return;
+  if (typeof value === 'string') {
+    if (value.length < 8) return;
+    for (const p of DANGEROUS_JS_PATTERNS) {
+      if (p.re.test(value)) {
+        push(p.sev, 'js:' + (path || '_root'), 'JS 静态扫描: ' + p.msg);
+        // 同一字段只报最严重一次, 防止 issues 列表爆炸
+        return;
+      }
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      scanJsContent(value[i], path ? path + '[' + i + ']' : '[' + i + ']', push);
+    }
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const k of Object.keys(value)) {
+      // 跳过明显非 JS 字段 (URL / 名称 / 时间戳), 减小误报和扫描成本
+      if (k === 'bookSourceUrl' || k === 'bookSourceName' ||
+          k === 'lastUpdateTime' || k === 'customOrder' ||
+          k === 'enabled' || k === 'enabledExplore' || k === 'enabledCookieJar' ||
+          k === 'bookSourceType' || k === 'bookSourceComment' ||
+          k === 'weight') continue;
+      scanJsContent(value[k], path ? path + '.' + k : k, push);
+    }
+  }
 }
 
 /** 取 issues 中最严重的级别. error > warn > info > ok */

@@ -433,7 +433,8 @@
                 <span class="inline-block w-3 h-3 rounded-full bg-amber-400 ml-1"></span> 警告
                 <span class="inline-block w-3 h-3 rounded-full bg-red-400 ml-1"></span> 异常
                 <div class="flex-1"></div>
-                <button id="btnDisableAllErrors" onclick="disableAllErrorSources()" class="hidden text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded">一键停用所有异常</button>
+                <button id="btnDisableAllErrors" onclick="disableAllErrorSources()" class="hidden text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded">一键停用所有异常</button>
+                <button id="btnDeleteAllErrors" onclick="deleteAllErrorSources()" class="hidden text-xs bg-red-700 hover:bg-red-800 text-white px-3 py-1.5 rounded ring-1 ring-red-300" title="物理删除,不可恢复">一键删除所有异常</button>
             </div>
         </div>
     </div>
@@ -459,8 +460,21 @@
                 <button onclick="closeAdd()" class="text-stone-500 hover:text-stone-800">✕</button>
             </div>
             <div class="px-6 py-4 space-y-3 overflow-y-auto">
-                <p class="text-sm text-stone-600">把单个或多个 Legado 书源 JSON 粘进来（数组或对象都行），保存后立刻覆盖到 App 端。</p>
-                <textarea id="addJson" class="w-full h-72 p-3 border border-stone-300 rounded font-mono text-xs"
+                <p class="text-sm text-stone-600">支持 <b>文件导入</b>（点击 / 拖拽 .json 文件）或手动粘贴 Legado 书源 JSON（数组或对象都行）。</p>
+
+                <!-- 万象书屋: 文件导入区 (拖拽 + 选择) -->
+                <div id="addDrop"
+                    class="border-2 border-dashed border-stone-300 rounded-lg px-4 py-6 text-center cursor-pointer hover:border-amber-700 hover:bg-amber-50 transition">
+                    <input id="addFile" type="file" accept=".json,.txt,application/json" class="hidden" multiple />
+                    <div class="text-sm text-stone-700">
+                        <span class="font-medium text-amber-800">点击选择 .json 文件</span>
+                        <span class="text-stone-500"> 或拖拽到此处（支持多文件）</span>
+                    </div>
+                    <div class="text-xs text-stone-400 mt-1">最大 20 MB / 文件,自动合并去重</div>
+                    <div id="addFileInfo" class="text-xs text-emerald-700 mt-2 hidden"></div>
+                </div>
+
+                <textarea id="addJson" class="w-full h-64 p-3 border border-stone-300 rounded font-mono text-xs"
                     placeholder='[{"bookSourceName":"xxx","bookSourceUrl":"https://xxx",...}]'></textarea>
                 <div id="addErr" class="text-red-600 text-sm hidden"></div>
             </div>
@@ -863,6 +877,7 @@
             const body = document.getElementById('validateBody');
             const summary = document.getElementById('validateSummary');
             const btnDisable = document.getElementById('btnDisableAllErrors');
+            const btnDelete = document.getElementById('btnDeleteAllErrors');
             // 万象书屋: 不再立刻打开结果 modal, 改先全屏进度条; 完成后才弹 modal
             const total = (_allSources && _allSources.length) || 30;
             // 估算: 浅 ~1.5s/条 (并发 8), 深 ~3s/条; 加固定 1s 网络延迟
@@ -873,6 +888,7 @@
                 estimatedMs
             );
             btnDisable.classList.add('hidden');
+            btnDelete.classList.add('hidden');
             try {
                 const r = await apiGet('/api/admin/sources/validate-all' + (deep ? '?search=1' : ''));
                 hideProgress();
@@ -886,6 +902,8 @@
                 if (lastValidateErrorUrls.length > 0) {
                     btnDisable.textContent = `一键停用所有异常 (${lastValidateErrorUrls.length})`;
                     btnDisable.classList.remove('hidden');
+                    btnDelete.textContent = `一键删除所有异常 (${lastValidateErrorUrls.length})`;
+                    btnDelete.classList.remove('hidden');
                 }
             } catch (e) {
                 hideProgress();
@@ -906,6 +924,55 @@
             }
             alert(`完成: 停用 ${ok} 条, 失败 ${fail} 条`);
             document.getElementById('modalValidate').classList.add('hidden');
+            loadSources();
+        }
+
+        // 万象书屋: 一键物理删除所有异常书源 (跟"停用"互补,这个不可恢复).
+        // 强制两道确认 + 输入"删除"二字才执行,防止误点击导致数据丢失.
+        // 删除时并发 5,边删边在按钮上显示进度.
+        async function deleteAllErrorSources() {
+            const urls = lastValidateErrorUrls.slice();
+            if (!urls.length) return;
+            const n = urls.length;
+            if (!confirm(`即将永久删除 ${n} 个异常书源,操作不可撤销!\n\n建议先用"导出 JSON"备份当前书源,再继续。\n\n确认要删除吗?`)) return;
+            const ack = prompt(`这是物理删除,无法恢复。\n如果确定要删除这 ${n} 个书源,请输入 "删除" 两个字继续:`);
+            if (ack !== '删除') { alert('取消(输入不匹配)'); return; }
+
+            const btn = document.getElementById('btnDeleteAllErrors');
+            const btnDis = document.getElementById('btnDisableAllErrors');
+            btn.disabled = true; btnDis.disabled = true;
+            const origText = btn.textContent;
+
+            let ok = 0, fail = 0, done = 0;
+            const failedUrls = [];
+            const concurrency = 5;
+            let cursor = 0;
+            async function worker() {
+                while (cursor < urls.length) {
+                    const i = cursor++;
+                    const url = urls[i];
+                    try {
+                        const resp = await fetch('/api/admin/sources?url=' + encodeURIComponent(url),
+                            { method: 'DELETE', credentials: 'same-origin' });
+                        const j = await resp.json().catch(() => ({}));
+                        if (resp.ok && j.ok) ok++; else { fail++; failedUrls.push(url); }
+                    } catch { fail++; failedUrls.push(url); }
+                    done++;
+                    btn.textContent = `删除中... ${done}/${n}`;
+                }
+            }
+            await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
+
+            btn.disabled = false; btnDis.disabled = false;
+            btn.textContent = origText;
+
+            const failedSummary = failedUrls.length
+                ? `\n\n失败的 URL:\n` + failedUrls.slice(0, 10).join('\n') +
+                  (failedUrls.length > 10 ? `\n... (其余 ${failedUrls.length - 10} 条略)` : '')
+                : '';
+            alert(`完成: 已删除 ${ok} 条, 失败 ${fail} 条${failedSummary}`);
+            document.getElementById('modalValidate').classList.add('hidden');
+            lastValidateErrorUrls = [];
             loadSources();
         }
 
@@ -936,8 +1003,85 @@
             w.document.write('<pre style="font:12px monospace;white-space:pre-wrap;padding:20px">' + escapeHtml(JSON.stringify(JSON.parse(t), null, 2)) + '</pre>');
         }
 
-        function openAdd() { document.getElementById('modalAdd').classList.remove('hidden'); document.getElementById('addJson').value = ''; document.getElementById('addErr').classList.add('hidden'); }
+        function openAdd() {
+            document.getElementById('modalAdd').classList.remove('hidden');
+            document.getElementById('addJson').value = '';
+            document.getElementById('addErr').classList.add('hidden');
+            const info = document.getElementById('addFileInfo');
+            info.classList.add('hidden'); info.textContent = '';
+            const f = document.getElementById('addFile');
+            if (f) f.value = '';
+        }
         function closeAdd() { document.getElementById('modalAdd').classList.add('hidden'); }
+
+        // 万象书屋: 读取一个或多个 .json 文件,合并到 textarea (自动按 bookSourceUrl 去重)
+        async function _readJsonFiles(files) {
+            const err = document.getElementById('addErr');
+            const info = document.getElementById('addFileInfo');
+            err.classList.add('hidden'); err.textContent = '';
+
+            const all = [];
+            const names = [];
+            for (const f of files) {
+                if (f.size > 20 * 1024 * 1024) {
+                    err.textContent = `文件 ${f.name} 超过 20 MB,后端不接受`;
+                    err.classList.remove('hidden'); return;
+                }
+                names.push(f.name);
+                let txt;
+                try { txt = await f.text(); }
+                catch (e) {
+                    err.textContent = '读取文件失败: ' + e.message;
+                    err.classList.remove('hidden'); return;
+                }
+                let data;
+                try { data = JSON.parse(txt); }
+                catch (e) {
+                    err.textContent = `${f.name} JSON 解析失败: ${e.message}`;
+                    err.classList.remove('hidden'); return;
+                }
+                if (Array.isArray(data)) all.push(...data);
+                else if (data && typeof data === 'object') all.push(data);
+                else {
+                    err.textContent = `${f.name} 内容不是 JSON 对象/数组`;
+                    err.classList.remove('hidden'); return;
+                }
+            }
+
+            // 按 bookSourceUrl 去重 (后导入的覆盖前面的)
+            const map = new Map();
+            for (const it of all) {
+                const k = it && it.bookSourceUrl;
+                if (!k) continue;
+                map.set(k, it);
+            }
+            const merged = Array.from(map.values());
+
+            document.getElementById('addJson').value = JSON.stringify(merged, null, 2);
+            info.innerHTML = `已读取 <b>${names.length}</b> 个文件,共 <b>${all.length}</b> 条记录,去重后 <b>${merged.length}</b> 条。点击「保存」入库,或在下方继续编辑。`;
+            info.classList.remove('hidden');
+        }
+
+        function _bindAddDropzone() {
+            const drop = document.getElementById('addDrop');
+            const file = document.getElementById('addFile');
+            if (!drop || !file || drop._bound) return;
+            drop._bound = true;
+
+            drop.addEventListener('click', () => file.click());
+            file.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files.length) _readJsonFiles(Array.from(e.target.files));
+            });
+            ['dragenter', 'dragover'].forEach(ev =>
+                drop.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); drop.classList.add('border-amber-700', 'bg-amber-50'); }));
+            ['dragleave', 'drop'].forEach(ev =>
+                drop.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); drop.classList.remove('border-amber-700', 'bg-amber-50'); }));
+            drop.addEventListener('drop', (e) => {
+                const fs = e.dataTransfer && e.dataTransfer.files;
+                if (fs && fs.length) _readJsonFiles(Array.from(fs));
+            });
+        }
+        document.addEventListener('DOMContentLoaded', _bindAddDropzone);
         async function submitAdd() {
             const txt = document.getElementById('addJson').value.trim();
             const err = document.getElementById('addErr');

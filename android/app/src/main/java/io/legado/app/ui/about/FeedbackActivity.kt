@@ -1,8 +1,10 @@
 package io.legado.app.ui.about
 
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.Toolbar
 import androidx.lifecycle.lifecycleScope
 import io.legado.app.R
 import io.legado.app.databinding.ActivityFeedbackBinding
@@ -14,16 +16,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 万象书屋: 反馈与举报页.
- * 国内应用商店硬性要求所有 App 必须提供"用户内容投诉/举报"渠道, 这里走自建后端.
+ * 万象书屋: 意见反馈页 (双 tab: 我要反馈 / 反馈历史)
  *
- * 类型:
- *   - bug: 应用 bug
- *   - content: 内容举报 (盗版 / 违规 / 色情 / 政治敏感)
- *   - suggest: 功能建议
- *   - other: 其他
+ * 国内应用商店硬性要求所有 App 必须提供"用户内容投诉/举报"渠道,
+ * 这里走自建后端 POST /api/feedback (deviceId + content + contact + type).
  *
- * 不收集您的真实身份信息. 您可以选填邮箱用于回复, 不填我们也会在后台处理但无法回复您.
+ * 历史 tab 目前为占位,等后端 GET /api/feedback/mine 上线后再补 RecyclerView.
+ *
+ * type 字段后端兼容 bug/content/suggest/other; 新版 UI 不再让用户选,统一用 "suggest".
  */
 class FeedbackActivity : AppCompatActivity() {
 
@@ -32,39 +32,64 @@ class FeedbackActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
-        setSupportActionBar(binding.toolbar as Toolbar)
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = getString(R.string.about_feedback)
 
+        binding.btnBack.setOnClickListener { finish() }
+        binding.tabSubmit.setOnClickListener { selectTab(submit = true) }
+        binding.tabHistory.setOnClickListener { selectTab(submit = false) }
         binding.btnSubmit.setOnClickListener { submit() }
+
+        binding.etContent.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                binding.tvCount.text = "${s?.length ?: 0}/$MAX_CONTENT"
+            }
+        })
+
+        selectTab(submit = true)
+    }
+
+    private fun selectTab(submit: Boolean) {
+        binding.pageSubmit.visibility = if (submit) View.VISIBLE else View.GONE
+        binding.pageHistory.visibility = if (submit) View.GONE else View.VISIBLE
+
+        val activeColor = 0xFF222222.toInt()
+        val inactiveColor = 0xFF888888.toInt()
+        val indicator = 0xFF1E88FF.toInt()
+        val transparent = 0x00000000
+
+        binding.tabSubmitText.setTextColor(if (submit) activeColor else inactiveColor)
+        binding.tabSubmitIndicator.setBackgroundColor(if (submit) indicator else transparent)
+        binding.tabHistoryText.setTextColor(if (!submit) activeColor else inactiveColor)
+        binding.tabHistoryIndicator.setBackgroundColor(if (!submit) indicator else transparent)
+
+        binding.tabSubmitText.paint.isFakeBoldText = submit
+        binding.tabHistoryText.paint.isFakeBoldText = !submit
     }
 
     private fun submit() {
-        // 万象书屋: 立即 disable, 防止用户在校验弹 toast 的几十毫秒内连点多次发请求
         if (!binding.btnSubmit.isEnabled) return
-        binding.btnSubmit.isEnabled = false
 
-        val type = when (binding.radioGroupType.checkedRadioButtonId) {
-            R.id.radioContent -> "content"
-            R.id.radioSuggest -> "suggest"
-            R.id.radioOther -> "other"
-            else -> "bug"
-        }
         val content = binding.etContent.text.toString().trim()
         val contact = binding.etContact.text.toString().trim()
-        if (content.length < 5) {
-            toastOnUi(R.string.feedback_too_short)
-            binding.btnSubmit.isEnabled = true
+
+        if (content.isEmpty()) {
+            toastOnUi(R.string.feedback_content_required)
             return
         }
-        if (content.length > 2000) {
+        if (content.length > MAX_CONTENT) {
             toastOnUi(R.string.feedback_too_long)
-            binding.btnSubmit.isEnabled = true
             return
         }
+        if (contact.isEmpty()) {
+            toastOnUi(R.string.feedback_contact_required)
+            return
+        }
+
+        binding.btnSubmit.isEnabled = false
         lifecycleScope.launch {
             val ok = withContext(Dispatchers.IO) {
-                WanxiangBackend.submitFeedback(type, content, contact)
+                WanxiangBackend.submitFeedback("suggest", content, contact)
             }
             if (ok) {
                 toastOnUi(R.string.feedback_thanks)
@@ -76,5 +101,7 @@ class FeedbackActivity : AppCompatActivity() {
         }
     }
 
-    override fun onSupportNavigateUp(): Boolean { finish(); return true }
+    companion object {
+        private const val MAX_CONTENT = 120
+    }
 }

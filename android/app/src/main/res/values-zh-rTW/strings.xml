@@ -72,7 +72,7 @@
     <string name="menu_restore">復原</string>
     <string name="menu_import_old">匯入閱讀資料</string>
     <string name="webdav_cache_backup">離線快取書籍備份</string>
-    <string name="webdav_cache_backup_s">匯出本機同時備份到legado資料夾下exports目錄</string>
+    <string name="webdav_cache_backup_s">匯出本機同時備份到萬象書屋資料夾下exports目錄</string>
     <string name="backup_path">備份路徑</string>
     <string name="select_backup_path">請選擇備份路徑</string>
     <string name="menu_import_old_version">匯入舊版資料</string>
@@ -749,7 +749,7 @@
     <string name="contributors">開發人員</string>
     <string name="contact">聯繫我們</string>
     <string name="other">其它</string>
-    <string name="official_account">legado-top</string>
+    <string name="official_account">萬象書屋</string>
     <string name="follow_official_account">關注公眾號</string>
     <string name="wechat">微信</string>
     <string name="thanks">您的支援是我更新的動力</string>
@@ -793,7 +793,7 @@
     <string name="starting_download">正在啟動下載</string>
     <string name="already_in_download">該書已在下載列表</string>
     <string name="click_to_open">點擊打開</string>
-    <string name="follow_public_account_summary">關注[legado-top]點擊廣告支持我</string>
+    <string name="follow_public_account_summary">關注[萬象書屋]獲取最新動態</string>
     <string name="weChat_appreciation_code">微信讚賞碼</string>
     <string name="alipay">支付寶</string>
     <string name="alipay_red_envelope_search_code">支付寶紅包搜尋碼</string>
