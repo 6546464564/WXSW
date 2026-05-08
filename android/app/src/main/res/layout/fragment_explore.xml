@@ -19,22 +19,46 @@
         android:id="@+id/rv_find"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        app:layout_constraintTop_toBottomOf="@+id/title_bar"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/title_bar"
         tools:listitem="@layout/item_find_book" />
 
-    <TextView
+    <!-- 万象书屋: 友好空态. tv_empty_msg ID 保留供 Fragment 切换 visibility (代码用 isGone) -->
+    <LinearLayout
         android:id="@+id/tv_empty_msg"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
+        android:layout_margin="20dp"
         android:gravity="center"
+        android:orientation="vertical"
         android:visibility="gone"
-        android:text="@string/explore_empty"
-        app:layout_constraintTop_toBottomOf="@+id/title_bar"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
-        tools:text="TextView" />
+        app:layout_constraintTop_toBottomOf="@+id/title_bar">
+
+        <ImageView
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:contentDescription="@string/explore_empty"
+            android:src="@drawable/ic_empty_bookshelf" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/explore_empty"
+            android:textColor="@color/wanxiang_text_primary"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:text="@string/explore_empty_hint"
+            android:textColor="@color/wanxiang_text_secondary"
+            android:textSize="13sp" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -47,6 +47,11 @@ ios/**/DerivedData/
 scratch/
 .tools/
 
+# ─── 审计 / 临时调试工件 (本机产物, 含 cookie / 截图) ────
+.audit-tmp/
+.audit-*.png
+.audit-*.json
+
 # ─── 本地 IDE / AI 工具配置 ──────────────────────────────
 .claude/
 .cursor/

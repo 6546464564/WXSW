@@ -13,13 +13,31 @@
         android:layout_weight="1"
         tools:ignore="SpeakableTextPresentCheck" />
 
+    <!-- 万象书屋: 底部导航统一品牌色调. background 改为 wanxiang_card 乳白,
+         上方加一条 1dp 米色分割线让 nav 跟 ViewPager 内容有清晰分层. -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="@color/wanxiang_divider" />
+
+    <!-- 万象书屋 D-21 (#UI-NAV-1): 底部导航舒适化升级 — 参考 QQ 阅读
+         "慢节奏、留白、品质" 设计原则:
+           - minHeight 56dp -> 60dp: 加大点击热区 + 视觉透气
+           - paddingTop/Bottom 4dp: tab 内容上下留白, 不再贴边
+           - elevation 4dp: 微抬升, 让 nav 与内容形成层级
+           - itemTextAppearance: label 字号 12sp 精细化 (BNV 默认 10sp 偏小) -->
     <io.legado.app.lib.theme.view.ThemeBottomNavigationVIew
         android:id="@+id/bottom_navigation_view"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/background"
-        android:minHeight="50dp"
+        android:background="@color/wanxiang_card"
+        android:elevation="4dp"
+        android:minHeight="60dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
         app:itemActiveIndicatorStyle="@color/transparent"
+        app:itemTextAppearanceActive="@style/WanxiangBnvLabelActive"
+        app:itemTextAppearanceInactive="@style/WanxiangBnvLabel"
         app:labelVisibilityMode="labeled"
         app:menu="@menu/main_bnv" />
 

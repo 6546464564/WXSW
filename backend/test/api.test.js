@@ -642,6 +642,262 @@ test('admin source-health summary + static check', async () => {
   assert.ok('checked' in r.body);
 });
 
+// =====================================================================
+// 万象书屋 D-15 P0 修复回归测试 (B-1 / B-2 / B-3 / A-1).
+// 这一批用于验证报告里指出的 P0 问题已被根治, 防止未来回归.
+// =====================================================================
+
+test('D-15 (B-1): _DUMMY_PWD_HASH valid → ghost-user login takes ≈ same time as real-user wrong-pw', async () => {
+  // 这是 timing-safe 防御的本质回归测试: 不存在的 username 必须跟 "存在但密码错" 跑同样的 bcrypt.compare.
+  //
+  // 修复前 (旧 dummy 非法): ghost ≈ 0ms (bcrypt 立即 throw 被 catch), real ≈ N ms (cost=4 ~1-5ms).
+  //                       ratio real/ghost 趋于无穷, timing 攻击可枚举用户名.
+  // 修复后 (启动 hashSync):  ghost 与 real 都跑同样一次 bcrypt.compare, 时间应大致相等.
+  //
+  // 阈值: ghost 至少为 real 的 30% (real * 0.3). 修复前比值 ~0%, 修复后 ~95%.
+  // 不用绝对时间是因为不同机器 bcrypt.compare(cost=4) 从 0.3ms (Apple M3) 到 10ms (低端 VPS) 浮动很大.
+
+  // 1) 准备一个真实 admin_user 当 baseline (注意: 用 super 角色避免误改 RBAC)
+  const victim = 'b1-timing-victim-' + Date.now();
+  await db.createAdminUser({
+    username: victim,
+    password: 'long-enough-test-password-123',
+    role: 'cs',
+    creator: 'p0-regression-test'
+  });
+
+  // 2) 各做 N 次, 使总耗时足够大避免抖动 (50 次, cost=4 时累计 ~50-500ms)
+  const N = 50;
+  async function timeit(username) {
+    const t0 = process.hrtime.bigint();
+    for (let i = 0; i < N; i++) {
+      await db.verifyAdminUser(username, 'wrong-password-' + i);
+    }
+    return Number(process.hrtime.bigint() - t0) / 1e6;  // ms
+  }
+
+  // 万象书屋: 跑两轮取平均, 避免 V8 JIT/GC 抖动. 各 100 次.
+  const realT  = (await timeit(victim) + await timeit(victim)) / 2;
+  const ghostT = (await timeit('ghost-' + Date.now()) + await timeit('ghost2-' + Date.now())) / 2;
+
+  // 清理
+  db.deleteAdminUser(victim);
+
+  // 3) 关键断言: ghost 至少得花 real 的 30%, 否则说明 dummy hash 没在跑 bcrypt
+  const ratio = ghostT / Math.max(realT, 0.001);
+  assert.ok(ratio >= 0.3,
+    `B-1 regression: ghost user verify took ${ghostT.toFixed(2)}ms, real-but-wrong-pw took ${realT.toFixed(2)}ms (ratio=${ratio.toFixed(3)}). ghost should be >=30% of real to prove _DUMMY_PWD_HASH is valid bcrypt and bcrypt.compare actually runs.`);
+});
+
+test('D-15 (B-2): /metrics emits real wanxiang_active_devices_today and heartbeats_24h', async () => {
+  // 修复前: server.js 用 stats.activeDevices / stats.heartbeats 但 db.statsToday() 返回 number,
+  //         两个 metric 永远输出 0, 监控告警全部失灵.
+  // 修复后: 直接消费 db.statsToday() 数值 + 单独 query heartbeats 24h.
+  // 准备一条 heartbeat 让 metric 至少非零
+  const did = 'metrics-test-' + Date.now();
+  db.recordPing(did);
+
+  const res = await request(app).get('/metrics').expect(200);
+  // 验证三个指标都存在且为整数
+  const m1 = res.text.match(/^wanxiang_active_devices_today (\d+)$/m);
+  assert.ok(m1, 'metric wanxiang_active_devices_today missing — check /metrics handler');
+  assert.ok(Number(m1[1]) >= 1,
+    `active_devices_today should be >=1 after recordPing, got ${m1[1]} — likely back to "永远 0" bug`);
+
+  // 修复同时引入 heartbeats_24h (替换原 heartbeats_today 错误命名) 和 online_5m
+  assert.match(res.text, /^wanxiang_heartbeats_24h \d+$/m);
+  assert.match(res.text, /^wanxiang_online_5m \d+$/m);
+  assert.match(res.text, /^# HELP wanxiang_active_devices_today /m,
+    'HELP comment should describe the metric meaningfully');
+});
+
+test('D-15 (B-3 / PIPL): wipeUserData deletes events / iap_receipts / source_error_events', async () => {
+  // 修复前: tables 数组只有 7 个表, events / iap_receipts / source_error_events 三张含 device_id 的
+  //         表被遗漏, 注销账号后仍留存 30~90 天 → 违反 PIPL 第 47 条 "应当主动删除".
+  // 修复后: 这三张表加入清理列表.
+  const did = 'wipe-pipl-test-' + Date.now();
+
+  // 1. events: 直接 db.recordEvent 插入两条
+  db.recordEvent({ deviceId: did, type: 'pv', name: 'test_page' });
+  db.recordEvent({ deviceId: did, type: 'click', name: 'test_btn' });
+  const eventsBefore = db.__db
+    .prepare('SELECT COUNT(*) AS n FROM events WHERE device_id = ?').get(did).n;
+  assert.equal(eventsBefore, 2, `should have 2 events before wipe, got ${eventsBefore}`);
+
+  // 2. iap_receipts: 直接 saveIapReceipt 插一条
+  db.saveIapReceipt({
+    deviceId: did,
+    productId: 'com.wanxiang.test.product',
+    transactionId: 'tx-' + did,
+    receiptData: 'fake-receipt-data',
+    expiresAt: Date.now() + 86400000,
+    sandbox: true,
+    status: 'active',
+    rawResponse: '{}'
+  });
+  const iapBefore = db.__db
+    .prepare('SELECT COUNT(*) AS n FROM iap_receipts WHERE device_id = ?').get(did).n;
+  assert.equal(iapBefore, 1);
+
+  // 3. wipe
+  const stats = db.wipeUserData(did);
+  assert.ok(stats, 'wipeUserData should return stats object');
+  assert.equal(stats.events, 2, `should report 2 events deleted: ${JSON.stringify(stats)}`);
+  assert.equal(stats.iap_receipts, 1, `should report 1 iap_receipt deleted: ${JSON.stringify(stats)}`);
+  assert.ok('source_error_events' in stats,
+    `source_error_events must be in the wipe target list: ${JSON.stringify(stats)}`);
+
+  // 4. 校验数据库中确实清空
+  const eventsAfter = db.__db
+    .prepare('SELECT COUNT(*) AS n FROM events WHERE device_id = ?').get(did).n;
+  assert.equal(eventsAfter, 0, 'events table must be empty for this device after wipe');
+  const iapAfter = db.__db
+    .prepare('SELECT COUNT(*) AS n FROM iap_receipts WHERE device_id = ?').get(did).n;
+  assert.equal(iapAfter, 0, 'iap_receipts table must be empty for this device after wipe');
+});
+
+test('D-15 (B-3): /api/me/wipe-data E2E removes events table records', async () => {
+  // 走完整 HTTP 路径, 防 server 层路由把 db.wipeUserData 返回值改坏.
+  const did = 'wipe-events-e2e-' + Date.now();
+  const reg = await request(app)
+    .post('/api/device/register')
+    .send({ device_id: did })
+    .expect(200);
+  const token = reg.body.token;
+
+  // 上报一条 event 走 HTTP (顺便覆盖 /api/events 接口)
+  await request(app)
+    .post('/api/events')
+    .set('X-Device-Id', did)
+    .set('X-Device-Token', token)
+    .send({ events: [{ ts: Date.now(), type: 'pv', name: 'page_main' }] })
+    .expect(200);
+
+  const before = db.__db
+    .prepare('SELECT COUNT(*) AS n FROM events WHERE device_id = ?').get(did).n;
+  assert.ok(before >= 1);
+
+  // wipe
+  const wipeRes = await request(app)
+    .delete('/api/me/wipe-data')
+    .set('X-Device-Id', did)
+    .set('X-Device-Token', token)
+    .expect(200);
+  assert.equal(wipeRes.body.ok, true);
+  // 关键断言: deleted 字典里必须有 events 字段且 >=1
+  assert.ok(wipeRes.body.deleted.events >= 1,
+    `wipe response must report events count: ${JSON.stringify(wipeRes.body.deleted)}`);
+
+  const after = db.__db
+    .prepare('SELECT COUNT(*) AS n FROM events WHERE device_id = ?').get(did).n;
+  assert.equal(after, 0, 'events should be 0 after wipe E2E');
+});
+
+test('D-16 (BACKEND-1): bookSourceUrl rejects non-http(s) schemes', async () => {
+  // 修复前: db.upsertSource 仅校验 url 非空, javascript:/file://data:ftp:// 全部 200 OK 入库,
+  //         下发到客户端后, admin.html 虽已 escape, 但 iOS WKWebView / 其它消费方直接 load
+  //         仍可能触发协议级 XSS 或本地文件读取.
+  // 修复后: 必须以 http:// 或 https:// 开头, URL.parse 必须通过, 否则 400.
+  const agent = request.agent(app);
+  await agent.post('/api/admin/login')
+    .send({ password: process.env.ADMIN_INITIAL_PASSWORD })
+    .expect(200);
+
+  const badUrls = [
+    'javascript:alert(document.cookie)',
+    'file:///etc/passwd',
+    'data:text/html,<script>x</script>',
+    'ftp://x.com/',
+    'JAVASCRIPT:alert(1)',         // 大写绕过尝试
+    'http\\://faketrick.com',      // 非法字符绕过尝试
+    'https://',                    // 仅 scheme
+    '',                            // 空字符串
+  ];
+  for (const bad of badUrls) {
+    const r = await agent.post('/api/admin/sources')
+      .send({ bookSourceUrl: bad, bookSourceName: 'evil' });
+    assert.equal(r.status, 400, `expected 400 for url='${bad}', got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.match(String(r.body.msg || ''), /(http|invalid|required|valid URL)/i,
+      `error msg should mention scheme/validity for '${bad}', got: ${r.body.msg}`);
+  }
+
+  // 反向: 合法 https/http 仍接受
+  for (const ok of ['https://good.example.com/path?q=1', 'HTTP://Example.Com/']) {
+    await agent.post('/api/admin/sources')
+      .send({ bookSourceUrl: ok, bookSourceName: 'ok' })
+      .expect(200);
+  }
+
+  // 批量场景: 数组里掺杂一个非法 URL → 整批应失败 (transaction 回滚)
+  const before = (await agent.get('/api/admin/sources').expect(200)).body.length;
+  const r = await agent.post('/api/admin/sources').send([
+    { bookSourceUrl: 'https://bulk-ok.example.com', bookSourceName: 'ok' },
+    { bookSourceUrl: 'javascript:alert(1)', bookSourceName: 'evil' },
+  ]);
+  assert.equal(r.status, 400, 'bulk with invalid scheme must reject');
+  const after = (await agent.get('/api/admin/sources').expect(200)).body.length;
+  assert.equal(after, before, 'transaction must rollback so good item not persisted');
+});
+
+test('D-16 (B-4 RBAC): cs role cannot modify book sources / ad config', async () => {
+  // 修复前: POST/DELETE /api/admin/sources, PATCH .../enabled, .../platforms, .../platforms/bulk,
+  //         .../group-enabled, POST /api/admin/bookstore-feed, POST /api/admin/ad-config 都仅
+  //         requireAdmin (登录态), 没 requireRole, cs 客服可破坏运营数据.
+  // 修复后: 上述全部加 requireRole(['super', 'operator']), cs 只能 GET / 看反馈处理反馈.
+  //
+  // 测试流程: super 创建 cs 用户 → cs 登录 → 尝试修改 → 全部 403
+
+  // 1) super (legacy admin) 登录, 创建 cs 用户
+  const superAgent = request.agent(app);
+  await superAgent.post('/api/admin/login')
+    .send({ password: process.env.ADMIN_INITIAL_PASSWORD })
+    .expect(200);
+  // legacy admin 是 super → 可调 super-only 创建用户
+  const csUsername = 'b4-cs-user-' + Date.now();
+  const csPassword = 'cs-test-pw-' + Date.now();
+  await superAgent.post('/api/admin/users')
+    .send({ username: csUsername, password: csPassword, role: 'cs' })
+    .expect(200);
+
+  // 2) cs 用户登录, 拿独立 cookie
+  const csAgent = request.agent(app);
+  await csAgent.post('/api/admin/login')
+    .send({ username: csUsername, password: csPassword })
+    .expect(200);
+
+  // 3) 验证 cs 角色 GET 接口仍可访问 (查反馈/查源都允许看)
+  await csAgent.get('/api/admin/sources').expect(200);
+
+  // 4) 验证 cs 角色全部写接口被 403
+  const writeAttempts = [
+    ['POST',   '/api/admin/sources',                  { bookSourceUrl: 'https://b4.example.com', bookSourceName: 'evil' }],
+    ['DELETE', '/api/admin/sources?url=https://x.com', null],
+    ['PATCH',  '/api/admin/sources/enabled',          { url: 'https://x.com', enabled: false }],
+    ['PATCH',  '/api/admin/sources/platforms',        { url: 'https://x.com', platforms: ['ios'] }],
+    ['PATCH',  '/api/admin/sources/platforms/bulk',   { urls: ['https://x.com'], platform: 'ios', op: 'add' }],
+    ['PATCH',  '/api/admin/sources/group-enabled',    { group: 'g', enabled: false }],
+    ['POST',   '/api/admin/bookstore-feed',           { channel: 'male', name: 'x', target_url: 'http://x' }],
+    ['POST',   '/api/admin/ad-config',                { placements: {} }],
+  ];
+  for (const [method, path, body] of writeAttempts) {
+    let req = csAgent[method.toLowerCase()](path);
+    if (body) req = req.send(body);
+    const r = await req;
+    assert.equal(r.status, 403, `cs should be denied on ${method} ${path}, got ${r.status}: ${JSON.stringify(r.body).slice(0, 120)}`);
+    assert.match(String(r.body.msg || ''), /role denied|deny/i,
+      `expected 'role denied' message, got ${JSON.stringify(r.body)}`);
+  }
+
+  // 5) 反向验证 super 可以
+  await superAgent.post('/api/admin/sources')
+    .send({ bookSourceUrl: 'https://super-can.example.com', bookSourceName: 'super-ok' })
+    .expect(200);
+
+  // 清理
+  await superAgent.delete('/api/admin/sources?url=' + encodeURIComponent('https://super-can.example.com')).expect(200);
+  await superAgent.delete('/api/admin/users/' + csUsername).expect(200);
+});
+
 // 万象书屋: 这条会消耗 admin login 限速预算, 必须放在所有需要 admin 登录的测试之后.
 test('rate limit on /api/admin/login eventually triggers', async () => {
   // 连续打 12 次坏密码, 应在某次开始 429

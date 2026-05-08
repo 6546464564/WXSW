@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  万象书屋 D-22.1: 完整榜单 list item.
+  排名徽章 (左) + 大封面 (中) + 文字信息 (右纵向)
+-->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true"
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="10dp">
+
+    <!-- 排名徽章 -->
+    <TextView
+        android:id="@+id/tvRank"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_marginTop="2dp"
+        android:background="@drawable/bs_rank_badge_n"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:text="1" />
+
+    <!-- 封面 -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="80dp"
+        android:layout_height="108dp"
+        android:layout_marginStart="8dp"
+        app:cardCornerRadius="6dp"
+        app:cardElevation="2dp"
+        app:layout_constraintStart_toEndOf="@id/tvRank"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:id="@+id/ivCover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bs_cover_placeholder"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+    </androidx.cardview.widget.CardView>
+
+    <!-- 万象书屋 D-22.3 修复: tvName 必须 start 到 coverEnd guideline (135dp 处) 之后,
+         之前直接 start 到 tvRank 导致被封面盖住. -->
+
+    <!-- 占位让书名/作者/分类等文字不和封面重叠 -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/coverEnd"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        app:layout_constraintGuide_begin="135dp" />
+
+    <!-- 书名 -->
+    <TextView
+        android:id="@+id/tvName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/wanxiang_text_primary"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="@id/coverEnd"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:text="玄鉴仙族" />
+
+    <TextView
+        android:id="@+id/tvAuthor"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/wanxiang_text_secondary"
+        android:textSize="13sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="@id/coverEnd"
+        app:layout_constraintTop_toBottomOf="@id/tvName"
+        tools:text="季越人" />
+
+    <LinearLayout
+        android:id="@+id/llMeta"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="@id/coverEnd"
+        app:layout_constraintTop_toBottomOf="@id/tvAuthor">
+
+        <TextView
+            android:id="@+id/tvCategory"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bs_tag_chip"
+            android:includeFontPadding="false"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="2dp"
+            android:textColor="@color/wanxiang_text_secondary"
+            android:textSize="11sp"
+            tools:text="修真文明" />
+
+        <TextView
+            android:id="@+id/tvWordCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:includeFontPadding="false"
+            android:textColor="@color/wanxiang_text_secondary"
+            android:textSize="11sp"
+            tools:text="569.44万字" />
+
+        <TextView
+            android:id="@+id/tvRankCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:includeFontPadding="false"
+            android:textColor="@color/wanxiang_accent"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            tools:text="12.04万月票" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvIntro"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:ellipsize="end"
+        android:lineSpacingExtra="2dp"
+        android:maxLines="2"
+        android:textColor="@color/wanxiang_text_secondary"
+        android:textSize="12sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="@id/coverEnd"
+        app:layout_constraintTop_toBottomOf="@id/llMeta"
+        tools:text="陆江仙熬夜猝死，残魂却附在了一面满是裂痕的青灰色铜镜上..." />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

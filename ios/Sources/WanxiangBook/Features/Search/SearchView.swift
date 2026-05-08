@@ -60,6 +60,8 @@ struct SearchView: View {
             .background(WanxiangColors.background.ignoresSafeArea())
             .navigationTitle("搜索")
             .navigationBarTitleDisplayMode(.inline)
+            // 万象书屋: PV 埋点 (跟 Android `SearchActivity` 自动 trackPageName 等价)
+            .trackPageView("page_search")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { dismiss() }

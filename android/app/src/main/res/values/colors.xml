@@ -11,10 +11,25 @@
 
     <color name="wanxiang_theme_bg_day">#F5EFE6</color>
     <color name="wanxiang_theme_nav_day">#EDE6DC</color>
-    <color name="wanxiang_theme_primary_night">#C9A86C</color>
-    <color name="wanxiang_theme_accent_night">#B8956B</color>
+    <!--
+      万象书屋 D-17 (THEME-2): 旧金色 #C9A86C 在暗色背景下过亮刺眼.
+      改为深褐 #7A6440 — 仍保留品牌识别度但跟暗色内容更和谐.
+      ThemeConfig.applyTheme 会做老用户 SP 一次性迁移把 #C9A86C 替换成新色.
+    -->
+    <color name="wanxiang_theme_primary_night">#7A6440</color>
+    <color name="wanxiang_theme_accent_night">#9C7B4D</color>
     <color name="wanxiang_theme_bg_night">#2C261F</color>
     <color name="wanxiang_theme_nav_night">#3A3329</color>
+    <!-- 旧金色, 仅供迁移逻辑识别 (不再使用) -->
+    <color name="wanxiang_theme_primary_night_legacy">#C9A86C</color>
+
+    <!-- 万象书屋 D-17 (THEME-1): 书城页面色板, values-night 提供暗色变体让 Dark 模式自动响应 -->
+    <color name="bs_bg_gradient_start">#FAF6EF</color>
+    <color name="bs_bg_gradient_end">#EDE4D6</color>
+    <color name="bs_topbar_solid">#CCF9F6F0</color>
+    <color name="bs_topbar_stroke">#55C9A86C</color>
+    <color name="bs_banner_rank">#F6EBD7</color>
+    <color name="bs_banner_library">#FCF3E1</color>
 
     <color name="primary">#6D5B45</color>
     <color name="primaryDark">#5A4A38</color>

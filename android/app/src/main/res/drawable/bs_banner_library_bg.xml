@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 万象书屋 D-17 (THEME-1): 完本书库卡片底色, values-night 切深色 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#FCF3E1" />
+    <solid android:color="@color/bs_banner_library" />
     <corners android:radius="14dp" />
 </shape>

@@ -77,6 +77,156 @@
                 </div>
             </section>
 
+            <!-- 万象书屋: 行为分析 (自建埋点) -->
+            <section>
+                <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <h2 class="text-lg font-bold text-stone-700">行为分析
+                        <span class="text-xs text-stone-400 ml-2">来自 /api/events 自建埋点</span>
+                    </h2>
+                    <button onclick="loadAnalytics()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-2 rounded">刷新</button>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <div class="stat-card bg-white rounded-xl shadow p-5">
+                        <div class="text-xs text-stone-500">今日事件</div>
+                        <div id="ev-today" class="text-3xl font-bold text-amber-800 mt-1">-</div>
+                        <div id="ev-today-diff" class="text-xs text-stone-400 mt-1"></div>
+                    </div>
+                    <div class="stat-card bg-white rounded-xl shadow p-5">
+                        <div class="text-xs text-stone-500">今日活跃设备</div>
+                        <div id="ev-devices" class="text-3xl font-bold text-stone-800 mt-1">-</div>
+                    </div>
+                    <div class="stat-card bg-white rounded-xl shadow p-5">
+                        <div class="text-xs text-stone-500">PV 今日</div>
+                        <div id="ev-pv" class="text-3xl font-bold text-stone-800 mt-1">-</div>
+                    </div>
+                    <div class="stat-card bg-white rounded-xl shadow p-5">
+                        <div class="text-xs text-stone-500">点击 今日</div>
+                        <div id="ev-click" class="text-3xl font-bold text-stone-800 mt-1">-</div>
+                    </div>
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div class="bg-white rounded-xl shadow p-5">
+                        <div class="text-sm text-stone-600 mb-3">近 7 天事件 Top 20</div>
+                        <table class="w-full text-sm">
+                            <thead class="text-xs text-stone-500 border-b">
+                                <tr>
+                                    <th class="text-left py-1">事件名</th>
+                                    <th class="text-left py-1">类型</th>
+                                    <th class="text-right py-1">次数</th>
+                                    <th class="text-right py-1">独立设备</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ev-top-tbody">
+                                <tr><td colspan="4" class="text-stone-400 text-center py-3">加载中…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow p-5">
+                        <div class="text-sm text-stone-600 mb-3">近 14 天 DAU 趋势</div>
+                        <div id="ev-dau-chart" style="height:240px"></div>
+                    </div>
+                </div>
+
+                <!-- 万象书屋: Cohort 留存矩阵 (热力表格) -->
+                <div class="bg-white rounded-xl shadow p-5 mt-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div>
+                            <span class="text-sm text-stone-600">Cohort 留存矩阵</span>
+                            <span class="text-xs text-stone-400 ml-2">同日新增设备在后续 N 天内的留存率</span>
+                        </div>
+                        <select id="ev-retention-days" onchange="loadRetention()"
+                            class="text-xs px-2 py-1 border border-stone-300 rounded">
+                            <option value="7">7 天窗口</option>
+                            <option value="14" selected>14 天窗口</option>
+                            <option value="30">30 天窗口</option>
+                        </select>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table id="ev-retention-table" class="text-xs tabular-nums">
+                            <thead><tr><td colspan="2" class="text-stone-400 py-3">加载中…</td></tr></thead>
+                        </table>
+                    </div>
+                    <div class="mt-3 flex items-center gap-2 text-xs text-stone-500">
+                        <span>留存率梯度:</span>
+                        <span style="background:#FFFFFF" class="px-3 py-0.5 border border-stone-200">0%</span>
+                        <span style="background:#FAEAD6;color:#5C4830" class="px-3 py-0.5">25%</span>
+                        <span style="background:#E5C28C;color:#3D2812" class="px-3 py-0.5">50%</span>
+                        <span style="background:#B8956B;color:#FFF" class="px-3 py-0.5">75%</span>
+                        <span style="background:#6D5B45;color:#FFF" class="px-3 py-0.5">100%</span>
+                    </div>
+                </div>
+
+                <!-- 万象书屋: 自定义漏斗分析 -->
+                <div class="bg-white rounded-xl shadow p-5 mt-4">
+                    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                        <div>
+                            <span class="text-sm text-stone-600">漏斗分析</span>
+                            <span class="text-xs text-stone-400 ml-2">输入 2-6 步事件名,看每步剩多少独立设备</span>
+                        </div>
+                        <div class="flex gap-2 items-center">
+                            <select id="funnel-days" class="text-xs px-2 py-1 border border-stone-300 rounded">
+                                <option value="1">最近 1 天</option>
+                                <option value="7" selected>最近 7 天</option>
+                                <option value="14">最近 14 天</option>
+                                <option value="30">最近 30 天</option>
+                            </select>
+                            <button onclick="addFunnelStep()" class="text-xs bg-white border border-stone-300 hover:bg-stone-50 px-2 py-1 rounded" title="添加一步">+</button>
+                            <button onclick="loadFunnel()" class="text-xs bg-amber-800 hover:bg-amber-900 text-white px-3 py-1 rounded">分析</button>
+                        </div>
+                    </div>
+                    <div id="funnel-steps" class="space-y-2 mb-3">
+                        <!-- 默认 4 步, 由 JS 初始化 -->
+                    </div>
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div id="funnel-chart" style="height:280px"></div>
+                        <div>
+                            <table class="w-full text-xs">
+                                <thead class="text-stone-500 border-b">
+                                    <tr>
+                                        <th class="text-left py-1.5">#</th>
+                                        <th class="text-left py-1.5">事件名</th>
+                                        <th class="text-right py-1.5">独立设备</th>
+                                        <th class="text-right py-1.5">总转化</th>
+                                        <th class="text-right py-1.5">单步转化</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="funnel-tbody">
+                                    <tr><td colspan="5" class="text-stone-400 text-center py-3">点"分析"开始</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl shadow p-5 mt-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="text-sm text-stone-600">最近事件流(最新 50 条)</div>
+                        <input id="ev-filter-name" placeholder="按事件名过滤"
+                            class="text-xs px-2 py-1 border border-stone-300 rounded w-48"
+                            onchange="loadRecentEvents()" />
+                    </div>
+                    <div class="max-h-[400px] overflow-y-auto">
+                        <table class="w-full text-xs">
+                            <thead class="text-stone-500 sticky top-0 bg-white border-b">
+                                <tr>
+                                    <th class="text-left py-1">时间</th>
+                                    <th class="text-left py-1">类型</th>
+                                    <th class="text-left py-1">事件</th>
+                                    <th class="text-left py-1">设备</th>
+                                    <th class="text-left py-1">参数</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ev-recent-tbody">
+                                <tr><td colspan="5" class="text-stone-400 text-center py-3">加载中…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
             <!-- Sources -->
             <section>
                 <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -151,6 +301,60 @@
                             </tr>
                         </thead>
                         <tbody id="feedTbody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 万象书屋 D-23 (012): 书城 Mirror 监控 -->
+            <section>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold text-stone-700">
+                        书城 Mirror
+                        <span id="mirrorStatusLabel" class="text-sm font-normal text-stone-500"></span>
+                    </h2>
+                    <div class="flex gap-2">
+                        <button onclick="loadMirrorStatus()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-2 rounded">刷新状态</button>
+                        <button onclick="openMirrorPreview()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-2 rounded">预览 JSON</button>
+                        <button onclick="triggerMirrorRefresh()" class="text-sm bg-amber-800 hover:bg-amber-900 text-white px-3 py-2 rounded">立即手动抓取</button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow p-4 mb-3">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                            <div class="text-stone-500 text-xs mb-1">最新版本</div>
+                            <div id="mirrorVersion" class="font-mono text-stone-700">-</div>
+                        </div>
+                        <div>
+                            <div class="text-stone-500 text-xs mb-1">抓取时间</div>
+                            <div id="mirrorFetchedAt" class="text-stone-700">-</div>
+                        </div>
+                        <div>
+                            <div class="text-stone-500 text-xs mb-1">payload 大小</div>
+                            <div id="mirrorPayloadSize" class="text-stone-700">-</div>
+                        </div>
+                        <div>
+                            <div class="text-stone-500 text-xs mb-1">下次自动抓取</div>
+                            <div id="mirrorNextRun" class="text-stone-700 text-xs">-</div>
+                        </div>
+                    </div>
+                    <div class="mt-3 text-xs text-stone-500">
+                        策略: 每天 0:00-7:00 随机时间自动抓 m.qidian.com (起点低峰段). 失败时旧 cache 仍可用,
+                        App 端有降级直抓兜底.
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow overflow-hidden">
+                    <div class="px-4 py-2 text-xs text-stone-500 border-b border-stone-100">最近 24 次抓取记录</div>
+                    <table class="w-full text-sm">
+                        <thead class="bg-stone-100 text-stone-600 text-xs">
+                            <tr>
+                                <th class="px-3 py-2 text-left">时间</th>
+                                <th class="px-3 py-2 text-left">来源</th>
+                                <th class="px-3 py-2 text-center">状态</th>
+                                <th class="px-3 py-2 text-right">payload</th>
+                                <th class="px-3 py-2 text-left">错误</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mirrorRecentTbody"></tbody>
                     </table>
                 </div>
             </section>
@@ -524,8 +728,13 @@
             document.getElementById('login-page').classList.add('hidden');
             document.getElementById('main-page').classList.remove('hidden');
             loadStats();
+            loadAnalytics();
+            loadRecentEvents();
+            loadRetention();
+            renderFunnelSteps(['page_main', 'page_bookshelf', 'page_book_info', 'page_book_read']);
             loadSources();
             loadFeed();
+            loadMirrorStatus();
             loadAdConfig();
             loadAdFunnel();
             loadCrashes();
@@ -533,6 +742,7 @@
             loadAuditLog();
             // 自动刷新统计
             setInterval(loadStats, 30 * 1000);
+            setInterval(loadAnalytics, 60 * 1000);
         }
 
         async function login() {
@@ -558,6 +768,252 @@
                 document.getElementById('s-week').textContent = s.week;
                 document.getElementById('s-month').textContent = s.month;
                 renderChart(s.daily || []);
+            } catch (e) { /* ignore */ }
+        }
+
+        // 万象书屋: 行为分析加载
+        let dauChart = null;
+        async function loadAnalytics() {
+            try {
+                const [overview, top, dau] = await Promise.all([
+                    apiGet('/api/admin/events/overview'),
+                    apiGet('/api/admin/events/top?days=7&limit=20'),
+                    apiGet('/api/admin/events/dau?days=14'),
+                ]);
+                if (overview.ok) {
+                    document.getElementById('ev-today').textContent = overview.today;
+                    document.getElementById('ev-devices').textContent = overview.devicesToday;
+                    document.getElementById('ev-pv').textContent = overview.pvToday;
+                    document.getElementById('ev-click').textContent = overview.clickToday;
+                    const diff = overview.today - overview.yesterday;
+                    const sign = diff > 0 ? '+' : '';
+                    document.getElementById('ev-today-diff').textContent =
+                        `vs 昨日 ${sign}${diff}`;
+                }
+                if (top.ok) {
+                    const tbody = document.getElementById('ev-top-tbody');
+                    if (!top.items.length) {
+                        tbody.innerHTML = '<tr><td colspan="4" class="text-stone-400 text-center py-3">暂无事件,埋点客户端尚未上报</td></tr>';
+                    } else {
+                        tbody.innerHTML = top.items.map(e => `
+                            <tr class="border-b last:border-0">
+                                <td class="py-1.5 truncate max-w-[160px]" title="${escapeHtml(e.event_name)}">${escapeHtml(e.event_name)}</td>
+                                <td class="py-1.5 text-stone-500">${escapeHtml(e.event_type)}</td>
+                                <td class="py-1.5 text-right tabular-nums">${e.count}</td>
+                                <td class="py-1.5 text-right tabular-nums text-stone-500">${e.uv}</td>
+                            </tr>
+                        `).join('');
+                    }
+                }
+                if (dau.ok) renderDauChart(dau.daily || []);
+            } catch (e) { console.warn('loadAnalytics fail', e); }
+        }
+
+        function renderDauChart(daily) {
+            if (!dauChart) dauChart = echarts.init(document.getElementById('ev-dau-chart'));
+            dauChart.setOption({
+                grid: { top: 20, right: 20, bottom: 30, left: 36 },
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', data: daily.map(d => d.date.slice(5)) },
+                yAxis: [
+                    { type: 'value', minInterval: 1, name: 'DAU', nameTextStyle: { color: '#888', fontSize: 10 } }
+                ],
+                series: [{
+                    name: 'DAU', type: 'line', smooth: true, symbol: 'circle', symbolSize: 6,
+                    lineStyle: { color: '#B8956B', width: 2.5 },
+                    itemStyle: { color: '#8B6F47' },
+                    areaStyle: {
+                        color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                            colorStops: [{ offset: 0, color: 'rgba(184,149,107,.25)' }, { offset: 1, color: 'rgba(184,149,107,0)' }] }
+                    },
+                    data: daily.map(d => d.dau)
+                }]
+            });
+        }
+
+        // 万象书屋: cohort 留存矩阵渲染
+        async function loadRetention() {
+            const days = document.getElementById('ev-retention-days')?.value || 14;
+            try {
+                const r = await apiGet('/api/admin/events/retention?days=' + days);
+                const table = document.getElementById('ev-retention-table');
+                if (!r.ok || !r.cohorts.length) {
+                    table.innerHTML = '<thead><tr><td colspan="2" class="text-stone-400 py-3">暂无数据</td></tr></thead>';
+                    return;
+                }
+                const W = r.windowDays;
+                let html = '<thead><tr class="border-b">';
+                html += '<th class="text-left px-2 py-1.5 sticky left-0 bg-white">日期</th>';
+                html += '<th class="text-right px-2 py-1.5">新增</th>';
+                for (let d = 0; d < W; d++) {
+                    html += `<th class="text-center px-2 py-1.5 text-stone-500">D${d}</th>`;
+                }
+                html += '</tr></thead><tbody>';
+                for (const c of r.cohorts) {
+                    html += '<tr class="border-b hover:bg-stone-50">';
+                    html += `<td class="px-2 py-1.5 sticky left-0 bg-white text-stone-700 whitespace-nowrap">${c.date}</td>`;
+                    html += `<td class="text-right px-2 py-1.5 font-medium">${c.size}</td>`;
+                    for (let d = 0; d < W; d++) {
+                        const cnt = c.retention[d];
+                        const pct = c.retentionPct[d];
+                        if (cnt === null) {
+                            html += '<td class="text-center px-2 py-1.5 text-stone-300">·</td>';
+                        } else {
+                            const bg = retentionColor(pct);
+                            const fg = pct >= 60 ? '#FFFFFF' : '#3D2812';
+                            const title = `${cnt} / ${c.size} = ${pct}%`;
+                            html += `<td class="text-center px-2 py-1.5" title="${title}"
+                                style="background:${bg};color:${fg}">${pct}%</td>`;
+                        }
+                    }
+                    html += '</tr>';
+                }
+                html += '</tbody>';
+                table.innerHTML = html;
+            } catch (e) { console.warn('loadRetention fail', e); }
+        }
+
+        // 留存率 -> 颜色 (五段琥珀棕渐变, 跟品牌色一致)
+        function retentionColor(pct) {
+            if (pct == null || pct === 0) return '#FFFFFF';
+            if (pct < 25)  return '#FFF7EC';
+            if (pct < 50)  return '#FAEAD6';
+            if (pct < 75)  return '#E5C28C';
+            if (pct < 100) return '#B8956B';
+            return '#6D5B45';
+        }
+
+        // 万象书屋: 漏斗分析 ===========================================
+        const FUNNEL_PLACEHOLDERS = [
+            'page_main', 'page_bookshelf', 'page_book_read', 'read_chapter_open',
+            'btn_search', 'page_book_info'
+        ];
+
+        function renderFunnelSteps(values = ['', '', '', '']) {
+            const wrap = document.getElementById('funnel-steps');
+            wrap.innerHTML = values.map((v, i) => `
+                <div class="flex items-center gap-2" data-step-row="${i}">
+                    <span class="text-xs text-stone-400 w-6">${i + 1}.</span>
+                    <input type="text" value="${escapeHtml(v)}"
+                        placeholder="${FUNNEL_PLACEHOLDERS[i] || '事件名'}"
+                        class="flex-1 text-sm px-2 py-1 border border-stone-300 rounded font-mono" />
+                    ${values.length > 2 ? `<button onclick="removeFunnelStep(${i})"
+                        class="text-xs text-stone-400 hover:text-red-600 px-2"
+                        title="删除这一步">×</button>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function getFunnelSteps() {
+            return Array.from(document.querySelectorAll('#funnel-steps input'))
+                .map(el => el.value.trim())
+                .filter(Boolean);
+        }
+
+        function addFunnelStep() {
+            const cur = Array.from(document.querySelectorAll('#funnel-steps input')).map(el => el.value);
+            if (cur.length >= 6) { alert('最多 6 步'); return; }
+            cur.push('');
+            renderFunnelSteps(cur);
+        }
+
+        function removeFunnelStep(idx) {
+            const cur = Array.from(document.querySelectorAll('#funnel-steps input')).map(el => el.value);
+            if (cur.length <= 2) { alert('至少 2 步'); return; }
+            cur.splice(idx, 1);
+            renderFunnelSteps(cur);
+        }
+
+        let funnelChart = null;
+        async function loadFunnel() {
+            const steps = getFunnelSteps();
+            if (steps.length < 2) { alert('请填写至少 2 步事件名'); return; }
+            const days = document.getElementById('funnel-days').value;
+            const url = '/api/admin/events/funnel?days=' + days +
+                '&steps=' + encodeURIComponent(steps.join(','));
+            try {
+                const r = await apiGet(url);
+                if (!r.ok) { alert(r.msg || '查询失败'); return; }
+                renderFunnelChart(r.steps);
+                renderFunnelTable(r.steps);
+            } catch (e) { alert('请求失败: ' + e.message); }
+        }
+
+        function renderFunnelChart(steps) {
+            if (!funnelChart) funnelChart = echarts.init(document.getElementById('funnel-chart'));
+            const maxUv = Math.max(...steps.map(s => s.uv), 1);
+            funnelChart.setOption({
+                tooltip: {
+                    trigger: 'item',
+                    formatter: (p) => {
+                        const s = steps[p.dataIndex];
+                        return `<b>${s.name}</b><br/>UV: ${s.uv}<br/>` +
+                               `从首步: ${s.conversionFromFirst}%<br/>` +
+                               `从上步: ${s.conversionFromPrev}%`;
+                    }
+                },
+                series: [{
+                    type: 'funnel',
+                    left: '8%', right: '8%', top: 20, bottom: 20,
+                    sort: 'none',     // 按输入顺序, 不按数值排
+                    gap: 4,
+                    label: { show: true, position: 'inside',
+                        formatter: '{b}\n{c}', fontSize: 12,
+                        color: '#fff', fontWeight: 'bold' },
+                    data: steps.map((s, i) => ({
+                        name: s.name,
+                        value: maxUv ? Math.max(s.uv, 1) : 1,  // 防 0 值导致条目消失
+                        itemStyle: { color: funnelColor(i, steps.length) }
+                    }))
+                }]
+            });
+        }
+
+        function funnelColor(idx, total) {
+            // 琥珀棕渐变, 第一步最深, 后续逐步变浅
+            const colors = ['#5A4A38', '#6D5B45', '#8B6F47', '#A6855B', '#B8956B', '#D5B585'];
+            return colors[Math.min(idx, colors.length - 1)];
+        }
+
+        function renderFunnelTable(steps) {
+            const tbody = document.getElementById('funnel-tbody');
+            tbody.innerHTML = steps.map((s, i) => `
+                <tr class="border-b last:border-0">
+                    <td class="py-1.5 text-stone-500">${s.step}</td>
+                    <td class="py-1.5 truncate max-w-[160px]" title="${escapeHtml(s.name)}">
+                        <code class="text-stone-700">${escapeHtml(s.name)}</code></td>
+                    <td class="py-1.5 text-right tabular-nums font-medium">${s.uv}</td>
+                    <td class="py-1.5 text-right tabular-nums ${s.conversionFromFirst >= 50 ? 'text-green-700' : 'text-stone-500'}">${s.conversionFromFirst}%</td>
+                    <td class="py-1.5 text-right tabular-nums ${i === 0 ? 'text-stone-300' : (s.conversionFromPrev >= 70 ? 'text-green-700' : 'text-amber-700')}">${i === 0 ? '—' : s.conversionFromPrev + '%'}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function loadRecentEvents() {
+            const filterName = document.getElementById('ev-filter-name')?.value?.trim() || '';
+            const url = '/api/admin/events/recent?limit=50' +
+                (filterName ? '&name=' + encodeURIComponent(filterName) : '');
+            try {
+                const r = await apiGet(url);
+                const tbody = document.getElementById('ev-recent-tbody');
+                if (!r.ok || !r.items.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-stone-400 text-center py-3">暂无事件</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = r.items.map(e => {
+                    const t = new Date(e.ts).toLocaleTimeString('zh-CN', { hour12: false });
+                    const did = (e.device_id || '').slice(0, 8);
+                    const params = e.params ? escapeHtml(e.params).slice(0, 80) : '';
+                    return `
+                        <tr class="border-b last:border-0 hover:bg-stone-50">
+                            <td class="py-1.5 text-stone-500 tabular-nums">${t}</td>
+                            <td class="py-1.5 text-stone-500">${escapeHtml(e.event_type)}</td>
+                            <td class="py-1.5 truncate max-w-[180px]" title="${escapeHtml(e.event_name)}">${escapeHtml(e.event_name)}</td>
+                            <td class="py-1.5 text-stone-400 font-mono">${did}</td>
+                            <td class="py-1.5 text-stone-500 truncate max-w-[260px]" title="${params}">${params}</td>
+                        </tr>
+                    `;
+                }).join('');
             } catch (e) { /* ignore */ }
         }
 
@@ -686,6 +1142,73 @@
         async function toggleEnabled(url, enabled) {
             await apiSend('/api/admin/sources/enabled', 'PATCH', { url, enabled });
             loadSources();
+        }
+
+        // 万象书屋 D-23: 书城 Mirror 监控
+        async function loadMirrorStatus() {
+            const r = await apiGet('/api/admin/bookstore-mirror/status').catch(() => null);
+            if (!r) {
+                document.getElementById('mirrorStatusLabel').textContent = '加载失败';
+                return;
+            }
+            const fmt = (ms) => ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false }) : '-';
+            const fmtIso = (s) => s ? new Date(s).toLocaleString('zh-CN', { hour12: false }) : '-';
+            const sizeKB = (n) => n ? `${(n / 1024).toFixed(1)} KB` : '-';
+            if (r.latest) {
+                document.getElementById('mirrorVersion').textContent = String(r.latest.version);
+                document.getElementById('mirrorFetchedAt').textContent = fmt(r.latest.fetched_at);
+                document.getElementById('mirrorPayloadSize').textContent = sizeKB(r.latest.payload_size);
+                document.getElementById('mirrorStatusLabel').innerHTML =
+                    '<span class="text-emerald-700">✓ 已就绪</span>';
+            } else {
+                document.getElementById('mirrorVersion').textContent = '(暂无)';
+                document.getElementById('mirrorFetchedAt').textContent = '-';
+                document.getElementById('mirrorPayloadSize').textContent = '-';
+                document.getElementById('mirrorStatusLabel').innerHTML =
+                    '<span class="text-amber-700">⚠ 暂无 cache, App 走直抓 fallback</span>';
+            }
+            document.getElementById('mirrorNextRun').textContent = fmtIso(r.nextScheduledAt);
+            const tbody = document.getElementById('mirrorRecentTbody');
+            tbody.innerHTML = (r.recent || []).map(row => `
+                <tr class="border-t border-stone-100">
+                    <td class="px-3 py-2 text-stone-700">${fmt(row.fetched_at)}</td>
+                    <td class="px-3 py-2 text-stone-500">${row.source || ''}</td>
+                    <td class="px-3 py-2 text-center">
+                        ${row.ok
+                            ? '<span class="text-emerald-700 text-xs">✓ 成功</span>'
+                            : '<span class="text-red-600 text-xs">✗ 失败</span>'}
+                    </td>
+                    <td class="px-3 py-2 text-right text-stone-600 font-mono text-xs">${sizeKB(row.payload_size)}</td>
+                    <td class="px-3 py-2 text-red-600 text-xs">${row.err_msg || ''}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="5" class="px-4 py-6 text-center text-stone-400">暂无抓取记录</td></tr>';
+        }
+
+        async function triggerMirrorRefresh() {
+            const btn = event.target;
+            const oldText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '抓取中...';
+            try {
+                const r = await fetch('/api/admin/bookstore-mirror/refresh',
+                    { method: 'POST', credentials: 'same-origin' }).then(r => r.json());
+                if (r.ok) {
+                    alert(`抓取成功 ✓\n书目: ${r.totalBooks}\nversion: ${r.version}`);
+                    loadMirrorStatus();
+                } else {
+                    alert('抓取失败: ' + (r.msg || '未知错误'));
+                    loadMirrorStatus();
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = oldText;
+            }
+        }
+
+        function openMirrorPreview() {
+            window.open('/api/admin/bookstore-mirror/preview', '_blank');
         }
 
         // 万象书屋 v2 (008): 书城 Feed 管理

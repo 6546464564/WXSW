@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 万象书屋: 空书架插画 - 一摞简洁书脊 + 上方一颗"+"号. 用品牌琥珀棕 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+    <path
+        android:pathData="M30,40 L30,82 Q30,86 34,86 L42,86 Q46,86 46,82 L46,40 Q46,36 42,36 L34,36 Q30,36 30,40 Z"
+        android:fillColor="#B8956B"
+        android:fillAlpha="0.85" />
+    <path
+        android:pathData="M50,46 L50,82 Q50,86 54,86 L62,86 Q66,86 66,82 L66,46 Q66,42 62,42 L54,42 Q50,42 50,46 Z"
+        android:fillColor="#A69374"
+        android:fillAlpha="0.85" />
+    <path
+        android:pathData="M70,52 L70,82 Q70,86 74,86 L82,86 Q86,86 86,82 L86,52 Q86,48 82,48 L74,48 Q70,48 70,52 Z"
+        android:fillColor="#C9A86C"
+        android:fillAlpha="0.85" />
+    <path
+        android:pathData="M58,18 L62,18 L62,28 L72,28 L72,32 L62,32 L62,42 L58,42 L58,32 L48,32 L48,28 L58,28 Z"
+        android:fillColor="#8B7E6F"
+        android:fillAlpha="0.6" />
+    <path
+        android:pathData="M22,90 L98,90"
+        android:strokeWidth="1"
+        android:strokeColor="#E8DED0" />
+</vector>

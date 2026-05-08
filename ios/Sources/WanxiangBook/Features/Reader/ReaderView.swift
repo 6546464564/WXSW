@@ -147,6 +147,8 @@ public struct ReaderView: View {
         .toolbar(.hidden, for: .navigationBar)
         // 万象书屋 (P0 fix): TabView 默认 push 时不隐藏底部 tabBar, 阅读器必须沉浸全屏
         .toolbar(.hidden, for: .tabBar)
+        // 万象书屋: 阅读器 PV (跟 Android `ReadBookActivity` 自动 trackPageName 等价)
+        .trackPageView("page_reader")
         .statusBarHidden(!menuVisible)
         .preferredColorScheme(config.theme.isDark ? .dark : .light)
         .sheet(isPresented: $styleSheet) {

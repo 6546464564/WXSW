@@ -19,6 +19,8 @@ import io.legado.app.service.CacheBookService
 import io.legado.app.utils.onEachParallel
 import io.legado.app.utils.postEvent
 import io.legado.app.utils.startService
+import io.legado.app.utils.toastOnUi
+import splitties.init.appCtx
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -432,6 +434,16 @@ object CacheBook {
                 ReadBook.downloadFailChapters[chapter.index] =
                     (ReadBook.downloadFailChapters[chapter.index] ?: 0) + 1
                 downloadFinish(chapter, "获取正文失败\n${it.localizedMessage}", resetPageOffset)
+                // 万象书屋 D-16 (UX-1): 当前章下载失败时弹 toast, 让用户立即感知"网络异常"
+                // 而不是只看到阅读器里几行错误文本误以为正文就这样.
+                // 仅对**当前正在阅读**的章节弹 toast (chapter.index == ReadBook.durChapterIndex),
+                // 后台预取邻近章失败不打扰用户.
+                if (ReadBook.book?.bookUrl == book.bookUrl &&
+                    chapter.index == ReadBook.durChapterIndex
+                ) {
+                    val msg = it.localizedMessage?.take(80) ?: "网络异常"
+                    appCtx.toastOnUi("章节加载失败: $msg")
+                }
             }.onCancel {
                 onCancel(chapter.index)
                 downloadFinish(chapter, "download canceled", resetPageOffset, true)

@@ -1,21 +1,28 @@
 //
 //  BookshelfView.swift
-//  万象书屋 iOS · 书架 Tab (M2.2 P0 部分)
+//  万象书屋 iOS · 书架 Tab — 1:1 对齐 Android `BookshelfFragment1`
 //
-//  M2.2 P0 交付:
-//   - M2.2.1 网格视图 (3 / 4 列, 偏好持久)
-//   - M2.2.3 6 种排序 (跟 Android 对齐)
-//   - M2.2.4 进度条角标
-//   - M2.2.7 长按菜单 (置顶 / 删除)
-//   - M2.2.10 拉本地 SQLite + 实时进度更新
-//   - 工具栏: 搜索 + 排序 + 切换列数
+//  对应 Android: io.legado.app.ui.main.bookshelf.style1.BookshelfFragment1
+//                + io.legado.app.ui.main.bookshelf.style1.books.BooksFragment
+//                + main_bookshelf.xml (D-17 隐藏后菜单)
 //
-//  待补 (M2.2.x):
-//   - 列表视图 (P1)
-//   - 缓存状态角标 (P1)
-//   - 阅读状态筛选 (P1)
-//   - 完整工具栏 11 项菜单 (M2.2.8)
-//   - 分组系统 (M2.2.9)
+//  Toolbar 菜单 (与 Android `main_bookshelf.xml` D-17 当前可见 5 项一致):
+//   - 搜索 (always action)
+//   - 三点菜单:
+//     · 更新目录   (R.id.menu_update_toc)
+//     · 添加本地   (R.id.menu_add_local)
+//     · 书架管理   (R.id.menu_bookshelf_manage)
+//     · 分组管理   (R.id.menu_group_manage)     ← Sheet
+//     · 书架布局   (R.id.menu_bookshelf_layout) ← Sheet (configBookshelf)
+//
+//  Android 当前隐藏 (visible=false), iOS 同步藏起来不再放主菜单:
+//   - menu_add_url        (网址添加书源, 易踩黄站)
+//   - menu_download       (批量下载)
+//   - menu_export_bookshelf
+//   - menu_import_bookshelf
+//   - menu_log
+//
+//  布局 / 排序 / 显示开关全部走 BookshelfLayoutConfigView (集中弹窗).
 //
 
 import SwiftUI
@@ -24,129 +31,116 @@ struct BookshelfView: View {
 
     @StateObject private var vm = BookshelfViewModel()
     @StateObject private var downloader = BookDownloader.shared
+
+    // 万象书屋: 跟 Android `MainViewModel.saveTabPosition` 对齐, 切回书架记住上次 group
     @State private var selectedGroupId: Int64 = BookGroup.allId
+
+    // sheets
+    @State private var searchPresented = false
+    @State private var showLayoutConfig = false
+    @State private var showGroupManage = false
     @State private var showCreateGroup = false
     @State private var newGroupName = ""
+
+    @State private var deleteConfirm: ShelfBook?
+    @State private var renamingGroup: BookGroup?
+    @State private var renameInput = ""
+
+    // 万象书屋: 持久化 — 跟 Android AppConfig.bookshelfLayout / bookshelfSort / 各 show* 对齐
+    @AppStorage("wanxiang.shelf.style") private var styleRaw: Int = 0       // 0=列表 1=网格
     @AppStorage("wanxiang.shelf.cols") private var cols: Int = 3
     @AppStorage("wanxiang.shelf.sort") private var sortRaw: Int = ShelfSort.latestRead.rawValue
-    @AppStorage("wanxiang.shelf.style") private var styleRaw: Int = 0  // 0 = 网格, 1 = 列表
-    @State private var searchPresented = false
-    @State private var deleteConfirm: ShelfBook? = nil
-    @State private var importPicker = false
-    @State private var exportSheet: ExportSheetItem? = nil
+    @AppStorage("wanxiang.shelf.show_unread") private var showUnread: Bool = true
+    @AppStorage("wanxiang.shelf.show_last_update") private var showLastUpdateTime: Bool = true
 
     private var sort: ShelfSort {
         ShelfSort(rawValue: sortRaw) ?? .latestRead
     }
 
-    private struct ExportSheetItem: Identifiable {
-        let id = UUID()
-        let url: URL
-    }
-
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // 万象书屋: 跟 Android TabLayout 等价 — 横向 capsule chip 展示分组
                 groupBar
                 Group {
                     if vm.books.isEmpty && !vm.isLoading {
                         emptyView
                     } else {
-                        gridView
+                        booksContainer
                     }
                 }
             }
             .background(WanxiangColors.background.ignoresSafeArea())
             .navigationTitle("书架")
-            // 万象书屋: 收紧 large 标题, 让书架网格更早可见
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Picker("视图", selection: $styleRaw) {
-                            Label("网格", systemImage: "square.grid.3x2").tag(0)
-                            Label("列表", systemImage: "list.bullet").tag(1)
-                        }
-                        Divider()
-                        Picker("排序", selection: $sortRaw) {
-                            ForEach(ShelfSort.allCases, id: \.rawValue) { s in
-                                Text(s.displayName).tag(s.rawValue)
-                            }
-                        }
-                        Divider()
-                        if styleRaw == 0 {
-                            Picker("列数", selection: $cols) {
-                                ForEach(3...5, id: \.self) { n in
-                                    Text("\(n) 列").tag(n)
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
-                    }
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        searchPresented = true
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-                    Menu {
-                        Button { Task { await vm.refresh(sort: sort) } } label: {
-                            Label("更新目录", systemImage: "arrow.clockwise")
-                        }
-                        NavigationLink {
-                            ImportLocalView()
-                        } label: { Label("添加本地", systemImage: "doc.badge.plus") }
-                        NavigationLink {
-                            BookshelfManageView()
-                        } label: { Label("书架管理", systemImage: "list.bullet.rectangle") }
-                        NavigationLink {
-                            CacheView()
-                        } label: { Label("缓存导出", systemImage: "arrow.down.circle") }
-                        Divider()
-                        Button {
-                            Task { await exportShelf() }
-                        } label: { Label("导出书架 JSON", systemImage: "square.and.arrow.up") }
-                        Button {
-                            importPicker = true
-                        } label: { Label("导入书架 JSON", systemImage: "square.and.arrow.down") }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
-            }
-            .fileImporter(
-                isPresented: $importPicker,
-                allowedContentTypes: [.json],
-                allowsMultipleSelection: false
-            ) { result in
-                Task { await importShelf(result: result) }
-            }
-            .sheet(item: $exportSheet) { item in
-                ShareSheet(items: [item.url])
-            }
+            .toolbar { toolbarContent }
             .task(id: sortRaw) {
                 await vm.loadGroups()
-                await vm.refresh(sort: sort)
+                await vm.refresh(sort: sort, groupId: selectedGroupId)
             }
-            .refreshable {
-                await vm.refresh(sort: sort)
-            }
+            .refreshable { await vm.refresh(sort: sort) }
+            // 搜索
             .sheet(isPresented: $searchPresented) {
                 SearchView()
-                    .onDisappear {
-                        // 从搜索回来,可能加了书,刷一次
-                        Task { await vm.refresh(sort: sort) }
-                    }
+                    .onDisappear { Task { await vm.refresh(sort: sort) } }
             }
+            // 书架布局 (configBookshelf)
+            .sheet(isPresented: $showLayoutConfig) {
+                BookshelfLayoutConfigView()
+                    .presentationDetents([.medium, .large])
+            }
+            // 分组管理 (GroupManageDialog)
+            .sheet(isPresented: $showGroupManage, onDismiss: {
+                Task {
+                    await vm.loadGroups()
+                    await vm.refresh(sort: sort, groupId: selectedGroupId)
+                }
+            }) {
+                GroupManageView()
+                    .presentationDetents([.medium, .large])
+            }
+            // 新建分组 (groupBar 末尾 + 按钮)
+            .alert("新建分组", isPresented: $showCreateGroup) {
+                TextField("分组名", text: $newGroupName)
+                Button("取消", role: .cancel) { newGroupName = "" }
+                Button("创建") {
+                    let name = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty else { return }
+                    Task {
+                        _ = try? await BookGroupRepository.shared.create(name: name)
+                        await vm.loadGroups()
+                        newGroupName = ""
+                    }
+                }
+            }
+            // 长按 Tab 重命名 (Android `tabLayout.tab.view.setOnLongClickListener` 等价)
+            .alert("重命名分组", isPresented: Binding(
+                get: { renamingGroup != nil },
+                set: { if !$0 { renamingGroup = nil } }
+            )) {
+                TextField("分组名", text: $renameInput)
+                Button("取消", role: .cancel) {}
+                Button("保存") {
+                    guard let g = renamingGroup else { return }
+                    let name = renameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty, name != g.name else { return }
+                    Task {
+                        try? await BookGroupRepository.shared.rename(id: g.id, newName: name)
+                        await vm.loadGroups()
+                    }
+                }
+            }
+            // 删除二次确认
             .confirmationDialog(
                 "确认删除「\(deleteConfirm?.name ?? "")」吗?",
-                isPresented: Binding(get: { deleteConfirm != nil }, set: { if !$0 { deleteConfirm = nil } }),
+                isPresented: Binding(
+                    get: { deleteConfirm != nil },
+                    set: { if !$0 { deleteConfirm = nil } }
+                ),
                 titleVisibility: .visible
             ) {
                 if let book = deleteConfirm {
-                    Button("删除", role: .destructive) {
+                    Button("从书架删除", role: .destructive) {
                         Task { await vm.remove(book) }
                     }
                     Button("取消", role: .cancel) {}
@@ -155,7 +149,222 @@ struct BookshelfView: View {
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - Toolbar (Android main_bookshelf.xml 对齐)
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        // 搜索 always 显示在 trailing
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                searchPresented = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                Button {
+                    Task { await vm.refresh(sort: sort) }
+                } label: { Label("更新目录", systemImage: "arrow.clockwise") }
+
+                NavigationLink {
+                    ImportLocalView()
+                } label: { Label("添加本地", systemImage: "doc.badge.plus") }
+
+                NavigationLink {
+                    BookshelfManageView()
+                } label: { Label("书架管理", systemImage: "list.bullet.rectangle") }
+
+                Button {
+                    showGroupManage = true
+                } label: { Label("分组管理", systemImage: "folder.badge.gearshape") }
+
+                Button {
+                    showLayoutConfig = true
+                } label: { Label("书架布局", systemImage: "rectangle.3.group") }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+        }
+    }
+
+    // MARK: - Group bar (Android TabLayout 等价)
+
+    private var groupBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(vm.groups, id: \.id) { g in
+                    Button {
+                        selectedGroupId = g.id
+                        Task { await vm.refresh(sort: sort, groupId: g.id) }
+                    } label: {
+                        let isSelected = selectedGroupId == g.id
+                        HStack(spacing: 4) {
+                            Text(g.name)
+                                .font(.caption.weight(isSelected ? .semibold : .regular))
+                            if g.bookCount > 0 {
+                                Text("\(g.bookCount)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Capsule().fill(isSelected
+                            ? WanxiangColors.primary.opacity(0.18)
+                            : Color.gray.opacity(0.12)))
+                        .foregroundStyle(isSelected ? WanxiangColors.primary : WanxiangColors.textPrimary)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        // 万象书屋: 跟 Android 长按 Tab 弹 GroupEditDialog 等价 — 重命名 / 删除
+                        if g.id != BookGroup.allId && g.id != BookGroup.ungroupedId {
+                            Button {
+                                renameInput = g.name
+                                renamingGroup = g
+                            } label: { Label("重命名", systemImage: "pencil") }
+                            Button(role: .destructive) {
+                                Task {
+                                    try? await BookGroupRepository.shared.delete(id: g.id)
+                                    await vm.loadGroups()
+                                }
+                            } label: { Label("删除分组", systemImage: "trash") }
+                        }
+                    }
+                }
+                Button {
+                    newGroupName = ""
+                    showCreateGroup = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.caption)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Capsule().stroke(Color.gray.opacity(0.4)))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - Books container
+
+    @ViewBuilder
+    private var booksContainer: some View {
+        if styleRaw == 1 {
+            gridView
+        } else {
+            listView
+        }
+    }
+
+    private var gridView: some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: cols)
+        return ScrollView {
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(vm.books) { book in
+                    NavigationLink {
+                        ReaderView(book: book, source: nil)
+                    } label: {
+                        BookCard(book: book, showLastUpdate: showLastUpdateTime)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { contextMenuFor(book) }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+        }
+    }
+
+    private var listView: some View {
+        List {
+            ForEach(vm.books) { book in
+                NavigationLink {
+                    ReaderView(book: book, source: nil)
+                } label: {
+                    bookListRow(book)
+                }
+                .contextMenu { contextMenuFor(book) }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+    }
+
+    private func bookListRow(_ book: ShelfBook) -> some View {
+        HStack(spacing: 12) {
+            BookCover(url: book.coverUrl, width: 50, height: 70)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(book.name).font(.subheadline.weight(.medium))
+                Text(book.author).font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if book.totalChapterNum > 0 {
+                        ProgressView(value: book.progress)
+                            .progressViewStyle(.linear)
+                            .tint(WanxiangColors.primary)
+                            .frame(width: 90)
+                    }
+                    Text(book.progressText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if showLastUpdateTime, book.latestChapterTime > 0 {
+                    Text("最后更新:\(formatRelative(book.latestChapterTime))")
+                        .font(.caption2)
+                        .foregroundStyle(WanxiangColors.textSecondary.opacity(0.85))
+                }
+            }
+            Spacer()
+        }
+    }
+
+    // MARK: - Context menu (跟 Android `BooksAdapter*` 长按等价)
+
+    @ViewBuilder
+    private func contextMenuFor(_ book: ShelfBook) -> some View {
+        Button { Task { await vm.pin(book) } } label: {
+            Label("置顶", systemImage: "pin")
+        }
+
+        let isDownloading = downloader.isDownloading(book.bookUrl)
+        if isDownloading {
+            Button(role: .destructive) {
+                downloader.cancel(bookUrl: book.bookUrl)
+            } label: {
+                Label("取消下载", systemImage: "stop.circle")
+            }
+        } else if !book.origin.hasPrefix("local://") {
+            Button {
+                let source = BookSourceRegistry.shared.find(origin: book.origin)
+                downloader.startDownload(book: book, source: source)
+            } label: {
+                Label("下载到本地", systemImage: "arrow.down.circle")
+            }
+        }
+
+        Menu {
+            Button {
+                Task { await vm.moveToGroup(book, groupId: BookGroup.ungroupedId, currentSort: sort) }
+            } label: { Label("未分组", systemImage: "tray") }
+            ForEach(vm.groups.filter { $0.id > 0 }, id: \.id) { g in
+                Button {
+                    Task { await vm.moveToGroup(book, groupId: g.id, currentSort: sort) }
+                } label: { Label(g.name, systemImage: "folder") }
+            }
+        } label: {
+            Label("移到分组", systemImage: "folder.badge.plus")
+        }
+
+        Button(role: .destructive) {
+            deleteConfirm = book
+        } label: {
+            Label("从书架删除", systemImage: "trash")
+        }
+    }
+
+    // MARK: - Empty state (Android `tv_empty_msg` LinearLayout 对齐)
 
     private var emptyView: some View {
         VStack(spacing: 16) {
@@ -186,279 +395,36 @@ struct BookshelfView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder
-    private var gridView: some View {
-        if styleRaw == 1 {
-            listStyleView
-        } else {
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: cols)
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(vm.books) { book in
-                        NavigationLink {
-                            ReaderView(book: book, source: nil)
-                        } label: {
-                            BookCard(book: book)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu { contextMenuFor(book) }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-            }
-        }
-    }
+    // MARK: - Helpers
 
-    private var listStyleView: some View {
-        List {
-            ForEach(vm.books) { book in
-                NavigationLink {
-                    ReaderView(book: book, source: nil)
-                } label: {
-                    HStack(spacing: 12) {
-                        BookCover(url: book.coverUrl, width: 40, height: 56)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(book.name).font(.subheadline.weight(.medium))
-                            Text(book.author).font(.caption2).foregroundStyle(.secondary)
-                            HStack {
-                                if book.totalChapterNum > 0 {
-                                    ProgressView(value: book.progress)
-                                        .progressViewStyle(.linear)
-                                        .tint(WanxiangColors.primary)
-                                        .frame(width: 100)
-                                }
-                                Text(book.progressText)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                    }
-                }
-                .contextMenu { contextMenuFor(book) }
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-    }
-
-    @ViewBuilder
-    private func contextMenuFor(_ book: ShelfBook) -> some View {
-        Button { Task { await vm.pin(book) } } label: {
-            Label("置顶", systemImage: "pin")
-        }
-        // 万象书屋: 下载到本地 (整书所有章节缓存到 SQLite)
-        let isDownloading = downloader.isDownloading(book.bookUrl)
-        if isDownloading {
-            Button(role: .destructive) {
-                downloader.cancel(bookUrl: book.bookUrl)
-            } label: {
-                Label("取消下载", systemImage: "stop.circle")
-            }
-        } else if !book.origin.hasPrefix("local://") {
-            Button {
-                let source = BookSourceRegistry.shared.find(origin: book.origin)
-                downloader.startDownload(book: book, source: source)
-            } label: {
-                Label("下载到本地", systemImage: "arrow.down.circle")
-            }
-        }
-        // 万象书屋: 移到分组
-        Menu {
-            Button {
-                Task { await vm.moveToGroup(book, groupId: BookGroup.ungroupedId, currentSort: sort) }
-            } label: { Label("未分组", systemImage: "tray") }
-            ForEach(vm.groups.filter { $0.id > 0 }, id: \.id) { g in
-                Button {
-                    Task { await vm.moveToGroup(book, groupId: g.id, currentSort: sort) }
-                } label: { Label(g.name, systemImage: "folder") }
-            }
-        } label: {
-            Label("移到分组", systemImage: "folder.badge.plus")
-        }
-        // 万象书屋: 导出 TXT/EPUB
-        Menu {
-            Button {
-                Task { await exportBook(book, format: .txt) }
-            } label: { Label("TXT", systemImage: "doc.text") }
-            Button {
-                Task { await exportBook(book, format: .epub) }
-            } label: { Label("EPUB", systemImage: "book.closed") }
-        } label: {
-            Label("导出", systemImage: "square.and.arrow.up")
-        }
-        Button(role: .destructive) {
-            deleteConfirm = book
-        } label: {
-            Label("从书架删除", systemImage: "trash")
-        }
-    }
-
-    /// 万象书屋: 顶部 group bar (分组切换 + 新建)
-    private var groupBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(vm.groups, id: \.id) { g in
-                    Button {
-                        selectedGroupId = g.id
-                        Task { await vm.refresh(sort: sort, groupId: g.id) }
-                    } label: {
-                        let isSelected = selectedGroupId == g.id
-                        HStack(spacing: 4) {
-                            Text(g.name).font(.caption.weight(isSelected ? .semibold : .regular))
-                            if g.bookCount > 0 {
-                                Text("\(g.bookCount)").font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Capsule().fill(isSelected
-                            ? WanxiangColors.primary.opacity(0.18)
-                            : Color.gray.opacity(0.12)))
-                        .foregroundStyle(isSelected ? WanxiangColors.primary : WanxiangColors.textPrimary)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        if g.id != BookGroup.allId && g.id != BookGroup.ungroupedId {
-                            Button(role: .destructive) {
-                                Task {
-                                    try? await BookGroupRepository.shared.delete(id: g.id)
-                                    await vm.loadGroups()
-                                }
-                            } label: { Label("删除分组", systemImage: "trash") }
-                        }
-                    }
-                }
-                Button {
-                    showCreateGroup = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.caption)
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Capsule().stroke(Color.gray.opacity(0.4)))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-        }
-        .alert("新建分组", isPresented: $showCreateGroup) {
-            TextField("分组名", text: $newGroupName)
-            Button("取消", role: .cancel) { newGroupName = "" }
-            Button("创建") {
-                let name = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty {
-                    Task {
-                        _ = try? await BookGroupRepository.shared.create(name: name)
-                        await vm.loadGroups()
-                        newGroupName = ""
-                    }
-                }
-            }
-        }
-    }
-
-    private enum ExportFormat { case txt, epub }
-    private func exportBook(_ book: ShelfBook, format: ExportFormat) async {
-        let chapters = (try? await ChapterRepository.shared.loadToc(bookUrl: book.bookUrl)) ?? []
-        guard !chapters.isEmpty else {
-            // TODO: 弹 toast 提示先下载
-            return
-        }
-        do {
-            let url: URL
-            switch format {
-            case .txt:  url = try await BookExporter.shared.exportTxt(book: book, chapters: chapters)
-            case .epub: url = try await BookExporter.shared.exportEpub(book: book, chapters: chapters)
-            }
-            // 弹分享 sheet
-            await MainActor.run { exportSheet = ExportSheetItem(url: url) }
-        } catch {
-            print("[Export] failed: \(error)")
-        }
-    }
-
-    // MARK: - 导入导出
-
-    private func exportShelf() async {
-        let books = vm.books
-        let arr = books.map { b -> [String: Any] in
-            return [
-                "bookUrl": b.bookUrl,
-                "name": b.name,
-                "author": b.author,
-                "origin": b.origin,
-                "originName": b.originName,
-                "coverUrl": b.coverUrl ?? "",
-                "intro": b.intro ?? "",
-                "kind": b.kind ?? "",
-                "tocUrl": b.tocUrl ?? "",
-            ]
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: arr, options: .prettyPrinted) else { return }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("wanxiang-shelf-\(Int(Date().timeIntervalSince1970)).json")
-        do {
-            try data.write(to: url)
-            exportSheet = ExportSheetItem(url: url)
-        } catch {
-            print("[Bookshelf] export failed: \(error)")
-        }
-    }
-
-    private func importShelf(result: Result<[URL], Error>) async {
-        switch result {
-        case .failure: return
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            let access = url.startAccessingSecurityScopedResource()
-            defer { if access { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url),
-                  let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
-            for dict in arr {
-                guard let bookUrl = dict["bookUrl"] as? String,
-                      let name = dict["name"] as? String else { continue }
-                var b = ShelfBook(
-                    bookUrl: bookUrl,
-                    name: name,
-                    author: dict["author"] as? String ?? "",
-                    origin: dict["origin"] as? String ?? "",
-                    originName: dict["originName"] as? String ?? "",
-                    coverUrl: dict["coverUrl"] as? String,
-                    intro: dict["intro"] as? String,
-                    kind: dict["kind"] as? String,
-                    tocUrl: dict["tocUrl"] as? String
-                )
-                b.canUpdate = true
-                try? await BookshelfRepository.shared.add(b)
-            }
-            await vm.refresh(sort: sort)
+    /// "1m 前 / 2h 前 / 3d 前 / yyyy-MM-dd"
+    private func formatRelative(_ ts: Int64) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(ts) / 1000)
+        let diff = Date().timeIntervalSince(date)
+        switch diff {
+        case ..<0: return "刚刚"
+        case 0..<60: return "\(Int(diff))秒前"
+        case 60..<3600: return "\(Int(diff/60))分钟前"
+        case 3600..<86400: return "\(Int(diff/3600))小时前"
+        case 86400..<(86400*30): return "\(Int(diff/86400))天前"
+        default:
+            let f = DateFormatter()
+            f.dateFormat = "yyyy-MM-dd"
+            return f.string(from: date)
         }
     }
 }
 
-// MARK: - Share Sheet (UIKit 包装)
-
-struct ShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
-
-// MARK: - 单个书卡片
+// MARK: - 单个书卡片 (网格)
 
 private struct BookCard: View {
     let book: ShelfBook
+    let showLastUpdate: Bool
     @ObservedObject private var downloader = BookDownloader.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .bottomLeading) {
-                // 万象书屋: 用 GeometryReader 控宽, BookCover 接受高度=宽 * 4.2/3
                 GeometryReader { geo in
                     let h = geo.size.width * 4.2 / 3
                     BookCover(url: book.coverUrl, width: geo.size.width, height: h)
@@ -473,7 +439,6 @@ private struct BookCard: View {
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
-                // 万象书屋: 下载状态角标 (右下角)
                 if let job = downloader.job(for: book.bookUrl), job.status == .running {
                     VStack {
                         Text("\(Int(job.progress * 100))%")
@@ -502,6 +467,28 @@ private struct BookCard: View {
                 .font(.caption2)
                 .foregroundStyle(WanxiangColors.textSecondary)
                 .lineLimit(1)
+            if showLastUpdate, book.latestChapterTime > 0 {
+                Text(BookCard.formatRelative(book.latestChapterTime))
+                    .font(.system(size: 9))
+                    .foregroundStyle(WanxiangColors.textSecondary.opacity(0.75))
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    static func formatRelative(_ ts: Int64) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(ts) / 1000)
+        let diff = Date().timeIntervalSince(date)
+        switch diff {
+        case ..<0: return "刚刚"
+        case 0..<60: return "\(Int(diff))s 前"
+        case 60..<3600: return "\(Int(diff/60))m 前"
+        case 3600..<86400: return "\(Int(diff/3600))h 前"
+        case 86400..<(86400*30): return "\(Int(diff/86400))d 前"
+        default:
+            let f = DateFormatter()
+            f.dateFormat = "MM-dd"
+            return f.string(from: date)
         }
     }
 }
@@ -538,7 +525,6 @@ final class BookshelfViewModel: ObservableObject {
 
     func moveToGroup(_ book: ShelfBook, groupId: Int64, currentSort: ShelfSort) async {
         try? await BookGroupRepository.shared.moveBook(bookUrl: book.bookUrl, toGroupId: groupId)
-        // bug #6 fix: 移动后必须 refresh, 否则当前 group 列表不更新
         await refresh(sort: currentSort)
     }
 

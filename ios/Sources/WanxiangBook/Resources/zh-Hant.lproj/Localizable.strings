@@ -1,0 +1,79 @@
+/*
+  Localizable.strings (zh-Hant)
+  万象书屋 iOS · 繁體中文 — 對應 Android `values-zh-rHK/strings.xml` + `values-zh-rTW/strings.xml`
+  
+  上架港台版本前補全; 當前簡轉繁基礎集 + 部分台式詞 (網絡 → 網路, 信息 → 訊息, 視頻 → 影片).
+*/
+
+// MARK: - Tab bar
+"tab.bookshelf" = "書架";
+"tab.bookstore" = "書城";
+"tab.my" = "我的";
+
+// MARK: - 我的頁
+"my.theme_follow_system" = "跟隨系統";
+"my.theme_follow_system_summary" = "開啟後隨系統自動切換日間/夜間";
+"my.eye_care_mode" = "護眼模式";
+"my.eye_care_mode_summary" = "全螢幕暖色濾鏡,長時間閱讀更舒適";
+"my.read_record" = "閱讀記錄";
+"my.read_record_summary" = "查看每日閱讀時長統計";
+"my.feedback" = "意見反饋";
+"my.feedback_summary" = "向我們提建議或回報問題";
+
+// MARK: - 解鎖卡
+"unlock_card_title" = "純淨閱讀";
+"unlock_card_remaining" = "剩餘 %@";
+"unlock_card_remaining_zero" = "暫無解鎖時長";
+"unlock_card_button_extend" = "看 1 次廣告 +%d 分鐘";
+"unlock_card_button_cooldown" = "廣告冷卻中 %@";
+"unlock_extended_toast" = "+%d 分鐘純淨閱讀(累計 %@)";
+
+// MARK: - 反饋
+"feedback.title" = "意見反饋";
+"feedback.intro" = "您好!歡迎您給我們提出使用中遇到的問題或意見!\n請詳細描述您遇到的問題:比如 哪本小說無法閱讀或者其他問題!\n請勿提交惡意謾罵以及反動詞語! 謝謝~";
+"feedback.section_content" = "我要反饋";
+"feedback.section_contact" = "聯絡方式";
+"feedback.required_suffix" = "(必填)";
+"feedback.content_hint" = "為更好解決您遇到的問題,請盡量將問題描述詳細";
+"feedback.contact_hint" = "請輸入手機號/QQ號";
+"feedback.submit" = "提交";
+"feedback.legal_notice" = "本反饋不收集您的真實身份訊息. 提交即表示您同意我們將所提供內容用於產品改進與內容審核.";
+"feedback.thanks" = "感謝您的反饋,我們會盡快處理。";
+"feedback.too_short" = "反饋內容太短(至少 5 字)";
+"feedback.too_long" = "反饋內容超長(最多 120 字)";
+"feedback.contact_required" = "請填寫聯絡方式,我們才能回覆您";
+"feedback.failed" = "伺服器拒絕,請稍後重試。";
+
+// MARK: - 書城
+"bs.male" = "男生";
+"bs.female" = "女生";
+"bs.publish" = "出版";
+"bs.banner_rank" = "熱門排行";
+"bs.banner_rank_subtitle" = "月票 TOP 50";
+"bs.banner_library" = "完本書庫";
+"bs.banner_library_subtitle" = "經典完結 50 本";
+"bs.swap_more" = "換一批";
+
+// MARK: - 書架
+"shelf.title" = "書架";
+"shelf.empty_title" = "書架還空著";
+"shelf.empty_hint" = "先去搜尋書籍新增吧!";
+"shelf.search_book" = "搜尋書籍";
+"shelf.menu_update_toc" = "更新目錄";
+"shelf.menu_add_local" = "新增本地";
+"shelf.menu_manage" = "書架管理";
+"shelf.menu_group_manage" = "分組管理";
+"shelf.menu_layout" = "書架佈局";
+
+// MARK: - 通用
+"common.cancel" = "取消";
+"common.confirm" = "確定";
+"common.done" = "完成";
+"common.delete" = "刪除";
+"common.rename" = "重新命名";
+"common.create" = "建立";
+"common.save" = "儲存";
+"common.retry" = "重試";
+"common.ok" = "好";
+"common.loading" = "載入中…";
+"common.network_error" = "網路錯誤";

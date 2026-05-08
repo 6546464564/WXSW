@@ -25,17 +25,31 @@
         android:title="@string/dict_rule"
         app:iconSpaceReserved="false" />
 
-    <io.legado.app.lib.prefs.NameListPreference
-        android:defaultValue="0"
-        android:entries="@array/theme_mode"
-        android:entryValues="@array/theme_mode_v"
+    <!--
+      万象书屋 D-18: 主题模式 UI 简化, 用"跟随系统"开关替代原 4 选项 (跟随/亮/暗/EInk).
+        开 -> themeMode=0 跟随系统
+        关 -> themeMode=1 强制亮色 (默认行为)
+      暗色 & EInk 旧值不删除, 老用户重启后由 MyFragment 监听器统一迁移到当前开关状态.
+    -->
+    <io.legado.app.lib.prefs.SwitchPreference
+        android:defaultValue="true"
         android:icon="@drawable/ic_cfg_theme"
-        android:key="themeMode"
-        android:summary="@string/theme_mode_desc"
-        android:title="@string/theme_mode"
+        android:key="themeFollowSystem"
+        android:summary="@string/theme_follow_system_summary"
+        android:title="@string/theme_follow_system"
+        app:iconSpaceReserved="false" />
+
+    <!-- 万象书屋 D-18: 护眼模式. 全屏暖色滤镜 (alpha 30, 浅琥珀色), BaseActivity 统一注入 -->
+    <io.legado.app.lib.prefs.SwitchPreference
+        android:defaultValue="false"
+        android:icon="@drawable/ic_brightness"
+        android:key="eyeCareMode"
+        android:summary="@string/eye_care_mode_summary"
+        android:title="@string/eye_care_mode"
         app:iconSpaceReserved="false" />
 
     <io.legado.app.lib.prefs.PreferenceCategory
+        android:key="settingCategory"
         android:title="@string/setting"
         app:allowDividerAbove="true"
         app:allowDividerBelow="false"
@@ -132,6 +146,7 @@
             app:iconSpaceReserved="false" />
 
         <io.legado.app.lib.prefs.Preference
+            android:icon="@drawable/ic_bug_report"
             android:key="legal_feedback"
             android:summary="@string/about_feedback_summary"
             android:title="@string/about_feedback"

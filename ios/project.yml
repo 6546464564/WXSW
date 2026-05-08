@@ -22,6 +22,8 @@ schemes:
       config: Debug
     test:
       config: Debug
+      targets:
+        - WanxiangBookTests
     profile:
       config: Release
     analyze:
@@ -61,12 +63,16 @@ targets:
           - "Resources/legal/**"
           - "Resources/PrivacyInfo.xcprivacy"
           - "Resources/Assets.xcassets/**"
+          - "Resources/*.lproj/**"
           - "Info.plist"
     resources:
       - path: Sources/WanxiangBook/Resources/legal
         type: folder
       - path: Sources/WanxiangBook/Resources/PrivacyInfo.xcprivacy
       - path: Sources/WanxiangBook/Resources/Assets.xcassets
+      # 万象书屋: 多语言 — XcodeGen 自动识别 *.lproj 目录, 编译进 .ipa 各语种 bundle
+      - path: Sources/WanxiangBook/Resources/zh-Hans.lproj
+      - path: Sources/WanxiangBook/Resources/zh-Hant.lproj
     info:
       path: Sources/WanxiangBook/Info.plist
       properties:
@@ -74,6 +80,12 @@ targets:
         CFBundleDisplayName: 万象书屋
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
+        # 万象书屋: 多语言 — Base 简体, 同步支持繁体 (港台 App Store)
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations:
+          - zh-Hans
+          - zh-Hant
+          - en   # 占位; 暂不维护英文翻译, 系统 fallback Base
         UILaunchScreen:
           UIImageName: "LaunchLogo"
           UIColorName: "LaunchBackground"
@@ -281,6 +293,25 @@ targets:
       - sdk: libz.tbd
       - sdk: libxml2.tbd
       - sdk: libbz2.tbd
+
+  # 万象书屋: iOS 单元测试 target. 跑命令: `xcodebuild test -scheme WanxiangBook -destination 'platform=iOS Simulator,name=iPhone 15'`
+  WanxiangBookTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/WanxiangBookTests
+    dependencies:
+      - target: WanxiangBook
+    settings:
+      base:
+        # 测试无需签名
+        CODE_SIGNING_ALLOWED: NO
+        SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+        # 万象书屋: 给测试 host App bundle id 后缀, 避免跟主 app 冲突
+        PRODUCT_BUNDLE_IDENTIFIER: com.wanxiang.reader.tests
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/WanxiangBook.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WanxiangBook"
 
 # SwiftPM 依赖
 packages:

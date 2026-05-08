@@ -5,6 +5,14 @@ object PreferKey {
     const val language = "language"
     const val fontScale = "fontScale"
     const val themeMode = "themeMode"
+    // 万象书屋 D-18: 主题模式 UI 简化为 "跟随系统" 开关 + 护眼模式开关.
+    //   themeFollowSystem 是 UI 层布尔, 转换到 themeMode 字符串:
+    //     true  -> themeMode="0" (跟随系统)
+    //     false -> themeMode="1" (强制亮色)
+    //   "暗色" 和 "EInk" 模式从 UI 中隐藏 (旧值仍然兼容, 直接 SP 改 themeMode 即可恢复).
+    const val themeFollowSystem = "themeFollowSystem"
+    // 护眼模式: 全屏暖色滤镜, 减少蓝光
+    const val eyeCareMode = "eyeCareMode"
     const val userAgent = "userAgent"
     const val showUnread = "showUnread"
     const val bookGroupStyle = "bookGroupStyle"

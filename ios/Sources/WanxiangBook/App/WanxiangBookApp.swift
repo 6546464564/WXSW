@@ -15,16 +15,30 @@ struct WanxiangBookApp: App {
     // 万象书屋: 监听 App 生命周期, 进/退后台时 send ping
     @Environment(\.scenePhase) private var scenePhase
 
+    /// 万象书屋: 跟 Android `SplashAdActivity` 对齐 — 启动先展开屏页, 完成后再进 RootView.
+    /// 进程级状态, 不做 UserDefaults 持久化 (每次冷启都展示一次, 跟 Android LAUNCHER 行为一致).
+    @State private var splashFinished = false
+
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environmentObject(appState)
-                .task {
-                    await appState.bootstrap()
+            ZStack {
+                RootView()
+                    .environmentObject(appState)
+                if !splashFinished {
+                    SplashAdView {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            splashFinished = true
+                        }
+                    }
+                    .transition(.opacity)
                 }
-                .onChange(of: scenePhase) { _, newPhase in
-                    Task { await appState.handleScenePhase(newPhase) }
-                }
+            }
+            .task {
+                await appState.bootstrap()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                Task { await appState.handleScenePhase(newPhase) }
+            }
         }
     }
 }
@@ -55,6 +69,8 @@ final class AppState: ObservableObject {
         try? await BookGroupRepository.shared.ensureSchema()
         // 万象书屋: 注入解析器健康上报 sink (BookSource 模块不直接依赖 WanxiangAPI)
         SourceHealthSinkRegistry.shared.register(WanxiangAPISourceHealthSink())
+        // 万象书屋: 启埋点 SDK (跟 Android `App.kt` `WanxiangAnalytics.init()` 等价)
+        await WanxiangAnalytics.shared.start()
         do {
             try await WanxiangAPI.shared.registerDeviceIfNeeded()
             await BookSourceRegistry.shared.bootstrap()
@@ -108,6 +124,9 @@ final class AppState: ObservableObject {
         case .background:
             heartbeatTimer?.cancel()
             heartbeatTimer = nil
+            // 万象书屋: 切后台时强制 flush 埋点队列, 避免事件留在内存里被进程回收丢掉
+            // (跟 Android `BaseActivity.onPause` 里 `WanxiangAnalytics.flush()` 等价)
+            await WanxiangAnalytics.shared.flush()
         case .inactive:
             break
         @unknown default:

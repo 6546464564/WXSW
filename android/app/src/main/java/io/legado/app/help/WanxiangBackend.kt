@@ -40,15 +40,27 @@ object WanxiangBackend {
     private val baseUrl: String? get() = BuildConfig.BACKEND_BASE_URL.takeIf { it.isNotBlank() }
 
     /**
-     * 设备唯一标识(Settings.Secure.ANDROID_ID),用于后端去重统计.
+     * 设备唯一标识 (Settings.Secure.ANDROID_ID), 用于后端去重统计.
      * 不上传任何其他设备信息.
+     *
+     * 万象书屋 D-16 (A-7): ANDROID_ID 拿不到时 fallback 走 anon ID, 持久化到 SP wanxiang_anon
+     * (与 WanxiangAnalytics 共用同一 KV, 保证两侧 deviceId 一致). 旧实现用 currentTimeMillis()
+     * 作 anon ID, 进程重启就换, 后端把同一台设备识别为多个新设备 → DAU 5-10x 虚高.
      */
     private val deviceId: String by lazy {
         @Suppress("HardwareIds")
-        runCatching {
+        val real = runCatching {
             Settings.Secure.getString(appCtx.contentResolver, Settings.Secure.ANDROID_ID)
                 ?.takeIf { it.isNotEmpty() && it != "9774d56d682e549c" }
-        }.getOrNull() ?: "anon-${System.currentTimeMillis() / 1000}"
+        }.getOrNull()
+        if (real != null) return@lazy real
+        val sp = appCtx.getSharedPreferences("wanxiang_anon", android.content.Context.MODE_PRIVATE)
+        sp.getString("anon_id", null)?.takeIf { it.isNotBlank() } ?: run {
+            val newId = "anon-" + java.util.UUID.randomUUID().toString().take(20)
+            sp.edit().putString("anon_id", newId).apply()
+            LogUtils.d(TAG, "generated new anon_id (ANDROID_ID unavailable)")
+            newId
+        }
     }
 
     /**
@@ -73,17 +85,46 @@ object WanxiangBackend {
             .edit().putString(DEVICE_TOKEN_KEY, token).commit()
     }
 
+    // 万象书屋 D-15 修复 (A-1): 持久化"上次拉到的远端 URL 集合", 用于 fetchAndApplySources 做精确 reconcile.
+    //
+    // 旧实现 BUG: 把所有"不在当前远端列表"的本地 enabled 源全部 disable, 包括用户自己导入的私人源.
+    // 用户每次冷启动后发现书架阅读源全失效, 必须手动逐个开启.
+    //
+    // 新实现: 只 disable "之前是远端推过的, 现在远端不再返回" (即"远端撤源")的源.
+    // 第一次启动 (SP 空) 永远不 disable 任何本地源, 安全降级.
+    // 升级用户的私人源不会被误关; 远端撤源仍能正确同步.
+    private const val REMOTE_URLS_SP = "wanxiang_remote_sources"
+    private const val REMOTE_URLS_KEY = "urls_v1"
+
+    private fun readPreviousRemoteUrls(): Set<String> {
+        return appCtx.getSharedPreferences(REMOTE_URLS_SP, android.content.Context.MODE_PRIVATE)
+            .getStringSet(REMOTE_URLS_KEY, emptySet()) ?: emptySet()
+    }
+
+    private fun savePreviousRemoteUrls(urls: Set<String>) {
+        // apply() 即可, 这个 SP 即使丢一两次写也只影响下次同步精确度, 不阻塞业务.
+        appCtx.getSharedPreferences(REMOTE_URLS_SP, android.content.Context.MODE_PRIVATE)
+            .edit().putStringSet(REMOTE_URLS_KEY, urls).apply()
+    }
+
     /**
      * 万象书屋: 设备首次启动时 (本地无 token) 调 /api/device/register 拿 HMAC token.
      * 失败不阻塞业务: 后端兼容老 App (token 表里没记录的设备允许通过), 拉到 token 是更强保护.
      * 已拿到 token 的设备每次启动只读 SP, 不重复 register (后端 409).
+     *
+     * 万象书屋 D-16 (B-6): 区分 4xx vs 5xx —
+     *   - 200: 成功
+     *   - 409: 已注册 (后端 device_tokens 里有 + App 本地 SP 没了, 走 reissue=1)
+     *   - 其它 4xx (400 invalid / 429 limit): 真错误, 不 reissue (浪费名额)
+     *   - 5xx / 网络: 服务端故障, 不 reissue (本次放弃, 下次启动再试)
+     *
+     * 万象书屋 D-16 (API-1): 用 GSON 解析 token, 替代脆弱的 Regex 提取.
      */
     private suspend fun registerDeviceIfNeeded(url: String) = withContext(Dispatchers.IO) {
         if (deviceToken != null) return@withContext  // 已注册过, 跳过
-        // 万象书屋: pm clear / 卸载重装 / SP 损坏会清掉本地 token, 但后端 device_tokens 仍有记录.
-        // 直接 register 会被后端 409 拒. 这种情况下加 ?reissue=1, 让后端重发新 token.
-        // 第一次先无 reissue 试 (新设备 200 OK), 失败 → 再用 reissue 重试 (重置场景 200 OK).
-        suspend fun tryRegister(reissue: Boolean): String? {
+
+        /** @return Pair(token?, httpCode). httpCode==-1 表示网络异常 / 0 表示成功. */
+        suspend fun tryRegister(reissue: Boolean): Pair<String?, Int> {
             return runCatching {
                 val body = """{"device_id":"$deviceId"}""".toRequestBody("application/json".toMediaType())
                 val urlStr = "$url/api/device/register" + if (reissue) "?reissue=1" else ""
@@ -92,24 +133,40 @@ object WanxiangBackend {
                     header("X-Platform", PLATFORM)
                     post(body)
                 }
-                if (resp.raw.code != 200) {
-                    LogUtils.d(TAG, "register http ${resp.raw.code} reissue=$reissue")
-                    return@runCatching null
+                val code = resp.raw.code
+                if (code != 200) {
+                    LogUtils.d(TAG, "register http $code reissue=$reissue")
+                    return@runCatching null to code
                 }
-                val raw = resp.body ?: return@runCatching null
-                Regex("\"token\"\\s*:\\s*\"([^\"]+)\"").find(raw)?.groupValues?.get(1)
-            }.getOrNull()
+                val raw = resp.body ?: return@runCatching null to code
+                val token = runCatching {
+                    GSON.fromJson(raw, com.google.gson.JsonObject::class.java)
+                        ?.get("token")?.takeIf { !it.isJsonNull }?.asString
+                }.getOrNull()
+                token to code
+            }.getOrElse { e ->
+                LogUtils.d(TAG, "register network err: ${e.message}")
+                null to -1
+            }
         }
-        var token = tryRegister(reissue = false)
-        if (token.isNullOrBlank()) {
-            // 第一次失败, 大概率是后端表里有这设备但 App 本地 token 没了 (重装 / pm clear)
-            token = tryRegister(reissue = true)
+
+        val (token1, code1) = tryRegister(reissue = false)
+        var finalToken = token1
+        if (finalToken.isNullOrBlank()) {
+            // B-6: 仅 409 (Conflict — 后端表已存) 才 reissue; 4xx/5xx/网络错全部放弃, 不浪费限速.
+            if (code1 == 409) {
+                LogUtils.d(TAG, "register got 409, retrying with reissue=1")
+                val (token2, _) = tryRegister(reissue = true)
+                finalToken = token2
+            } else {
+                LogUtils.d(TAG, "register code=$code1, skip reissue (only 409 retries)")
+            }
         }
-        if (!token.isNullOrBlank()) {
-            saveDeviceToken(token)
-            LogUtils.d(TAG, "device registered, token=${token.take(8)}***")
+        if (!finalToken.isNullOrBlank()) {
+            saveDeviceToken(finalToken)
+            LogUtils.d(TAG, "device registered, token=${finalToken.take(8)}***")
         } else {
-            LogUtils.d(TAG, "device register failed both tries, will fall back to no-token mode")
+            LogUtils.d(TAG, "device register failed (code=$code1), fall back to no-token mode")
         }
     }
 
@@ -152,34 +209,53 @@ object WanxiangBackend {
             LogUtils.d(TAG, "remote returned 0 sources, keep local. body sample: ${body.take(200)}")
             return@withContext
         }
-        // 万象书屋: 后端是书源权威源, 做完整 reconcile 而不是只 INSERT REPLACE.
+        // 万象书屋: 后端是书源权威源, 做精确 reconcile 而不是只 INSERT REPLACE.
         //
-        // 之前 BUG: 后端 disable 一个源后, /api/sources 不再返回该源, 但 App 端
-        // book_sources 表里**该源仍然存在且 enabled**, 用户搜索仍会调用它. 导致
-        // "后端 disable 的劣质源在 App 端继续生效".
+        // 旧 BUG #1 (已修): 后端 disable 一个源后, /api/sources 不再返回该源, 但 App 端
+        //   book_sources 表里**该源仍然存在且 enabled**, 用户搜索仍会调用它. 导致
+        //   "后端 disable 的劣质源在 App 端继续生效".
         //
-        // 修复: 拿到远端列表后, 把"远端有的"批量 upsert; 同时把 App 本地的"远端列表里没有"
-        // 但**之前是从远端来的**源标记 disable. 用户自己导入的源 (customOrder >= 0 / 来源标记)
-        // 不能动. 这里用一个简单策略: 只 disable 跟远端共享 url 但不在远端列表里的, 用户
-        // 自定义的 url 不在远端 → 不动.
-        val remoteUrls = sources.map { it.bookSourceUrl }.toHashSet()
+        // 旧 BUG #2 (D-15 / A-1 本次修复): 上一版补丁过激 — 把所有"不在当前远端列表"的本地
+        //   enabled 源都 disable 掉, 包括用户自己导入的私人源. 用户每次冷启动书架阅读源全失效,
+        //   必须手动逐个开启, 严重影响信任.
+        //
+        // 当前策略 (兼顾两个 BUG):
+        //   1. 读上次保存的"远端 URL 集合" prevRemoteUrls (首次启动为空集)
+        //   2. 把当前远端列表批量 upsert (覆盖名称/规则等, 但 enabled 字段以远端为准)
+        //   3. 仅 disable "url ∈ prevRemoteUrls AND url ∉ currentRemoteUrls" 的源 →
+        //      只命中"之前由远端推过, 现在远端撤回"的源, 用户自定义源 (从未在 prev 集合)
+        //      永远不动.
+        //   4. 把 currentRemoteUrls 持久化, 给下次比对.
+        //
+        // 首次启动 / 升级首次跑: prevRemoteUrls = ∅ → 不 disable 任何本地源, 安全降级.
+        // 升级用户先前被错误 disable 的源: 仍是 disabled, 但本次不会再误伤新源. 用户手动
+        //   启用即可. 后续不再受影响.
+        val remoteUrls: Set<String> = sources.map { it.bookSourceUrl }.toHashSet()
+        val previousRemoteUrls = readPreviousRemoteUrls()
         appDb.bookSourceDao.insert(*sources.toTypedArray())
-        // 找出"曾经从远端来的, 现在远端不再返回的"源 → disable.
-        // 区分用户自定义: 我们没存"来源"字段, 所以用一个保守策略 — 只 disable 那些
-        // 之前 enabled 的源 (用户拿到后没自己 disable 过), 假定用户是正常使用流量.
-        val allLocal = appDb.bookSourceDao.allEnabled
+
         var disabledCount = 0
-        for (local in allLocal) {
-            if (local.bookSourceUrl !in remoteUrls) {
-                // 远端不再有这个源, 但 App 本地有 → 大概率是后端刚刚 disable 的劣质源.
-                // 直接关掉 enabled 标志, 用户想用可手动启用 (legado 已有"显示禁用源"开关).
-                // 注: 不删行, 保留用户的"分组 / 排序" 等本地编辑.
-                local.enabled = false
-                appDb.bookSourceDao.update(local)
-                disabledCount++
+        if (previousRemoteUrls.isNotEmpty()) {
+            // 求差集: 之前远端推过, 现在远端不再返回 = 后端撤源
+            val withdrawn = previousRemoteUrls - remoteUrls
+            if (withdrawn.isNotEmpty()) {
+                // 万象书屋: 只对**当前 enabled** 的撤源做 disable, 已 disable 的不重复写库
+                val allLocal = appDb.bookSourceDao.allEnabled
+                for (local in allLocal) {
+                    if (local.bookSourceUrl in withdrawn) {
+                        local.enabled = false
+                        appDb.bookSourceDao.update(local)
+                        disabledCount++
+                    }
+                }
             }
         }
-        LogUtils.d(TAG, "applied ${sources.size} remote sources, disabled ${disabledCount} stale local")
+        savePreviousRemoteUrls(remoteUrls)
+        LogUtils.d(
+            TAG,
+            "applied ${sources.size} remote sources, " +
+                "disabled $disabledCount withdrawn (prev=${previousRemoteUrls.size})"
+        )
     }
 
     private fun startHeartbeatLoop(url: String) {

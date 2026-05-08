@@ -66,13 +66,30 @@ object ThemeConfig {
         initNightMode()
     }
 
+    /**
+     * 万象书屋 D-21 (#THEME-FOLLOW-1): 主题跟随系统真正生效.
+     *
+     * 旧实现 bug:
+     *   只看 isNightTheme (布尔), 强设 MODE_NIGHT_NO/YES.
+     *   即使 themeMode="0" (跟随系统), 启动时只读了一次 sysConfiguration.isNightMode 决定明暗,
+     *   AppCompatDelegate 被锁死成固定值 → 系统运行时切换深色 App 不跟随,
+     *   只能靠 App.onConfigurationChanged 手动 recreate (闪屏 + 状态丢失).
+     *
+     * 新实现 (业界标准, 参考 Android 官方文档 + AppCompat 源码):
+     *   themeMode="0" -> MODE_NIGHT_FOLLOW_SYSTEM, 让 AppCompat 自己接管,
+     *     系统切换时它会自动应用 res-night/ 资源, 不需我们手动 recreate.
+     *   themeMode="1" -> MODE_NIGHT_NO  (用户固定亮色)
+     *   themeMode="2" -> MODE_NIGHT_YES (用户固定暗色, UI 已隐藏但保留旧值兼容)
+     *   themeMode="3" -> MODE_NIGHT_NO  (EInk 强制亮色)
+     */
     private fun initNightMode() {
-        val targetMode =
-            if (AppConfig.isNightTheme) {
-                AppCompatDelegate.MODE_NIGHT_YES
-            } else {
-                AppCompatDelegate.MODE_NIGHT_NO
-            }
+        val targetMode = when (AppConfig.themeMode) {
+            "0" -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+            "1" -> AppCompatDelegate.MODE_NIGHT_NO
+            "2" -> AppCompatDelegate.MODE_NIGHT_YES
+            "3" -> AppCompatDelegate.MODE_NIGHT_NO
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
         AppCompatDelegate.setDefaultNightMode(targetMode)
     }
 
@@ -251,18 +268,27 @@ object ThemeConfig {
             }
 
             AppConfig.isNightTheme -> {
-                val primary =
-                    getPrefInt(PreferKey.cNPrimary, getCompatColor(R.color.md_blue_grey_600))
+                // 万象书屋 D-17 (THEME-2): dark fallback 改用 wanxiang_theme_primary_night (深褐 #7A6440),
+                //   不再用 md_blue_grey_600 (蓝灰), 跟万象品牌色调一致.
+                // 一次性迁移: 老用户 SP 里如果是旧金色 #C9A86C, 强制覆盖为新深褐
+                //   (旧金色 + 黑色暗背景反差太大, 用户反馈"不和谐"; 这是 review 里的 #THEME-2).
+                val legacyGold = getCompatColor(R.color.wanxiang_theme_primary_night_legacy)
+                val newPrimary = getCompatColor(R.color.wanxiang_theme_primary_night)
+                var primary = getPrefInt(PreferKey.cNPrimary, newPrimary)
+                if (primary == legacyGold) {
+                    primary = newPrimary
+                    putPrefInt(PreferKey.cNPrimary, newPrimary)
+                }
                 val accent =
-                    getPrefInt(PreferKey.cNAccent, getCompatColor(R.color.md_deep_orange_800))
+                    getPrefInt(PreferKey.cNAccent, getCompatColor(R.color.wanxiang_theme_accent_night))
                 var background =
-                    getPrefInt(PreferKey.cNBackground, getCompatColor(R.color.md_grey_900))
+                    getPrefInt(PreferKey.cNBackground, getCompatColor(R.color.wanxiang_theme_bg_night))
                 if (ColorUtils.isColorLight(background)) {
-                    background = getCompatColor(R.color.md_grey_900)
+                    background = getCompatColor(R.color.wanxiang_theme_bg_night)
                     putPrefInt(PreferKey.cNBackground, background)
                 }
                 val bBackground =
-                    getPrefInt(PreferKey.cNBBackground, getCompatColor(R.color.md_grey_850))
+                    getPrefInt(PreferKey.cNBBackground, getCompatColor(R.color.wanxiang_theme_nav_night))
                 ThemeStore.editTheme(this)
                     .primaryColor(ColorUtils.withAlpha(primary, 1f))
                     .accentColor(ColorUtils.withAlpha(accent, 1f))

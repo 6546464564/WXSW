@@ -29,6 +29,8 @@ import io.legado.app.ui.file.FileManageActivity
 import io.legado.app.ui.main.MainFragmentInterface
 import io.legado.app.ui.replace.ReplaceRuleActivity
 import io.legado.app.utils.LogUtils
+import io.legado.app.utils.getPrefString
+import io.legado.app.utils.putPrefString
 import io.legado.app.utils.setEdgeEffectColor
 import io.legado.app.utils.startActivity
 import io.legado.app.utils.toastOnUi
@@ -159,17 +161,41 @@ class MyFragment() : BaseFragment(R.layout.fragment_my_config), MainFragmentInte
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             addPreferencesFromResource(R.xml.pref_main)
-            findPreference<NameListPreference>(PreferKey.themeMode)?.let {
-                it.setOnPreferenceChangeListener { _, _ ->
+
+            // 万象书屋 D-18: 主题模式 UI 简化为 "跟随系统" 开关.
+            //   开 -> themeMode = "0"  (跟随系统)
+            //   关 -> themeMode = "1"  (强制亮色)
+            //   旧 SP 里 themeMode == "2" 暗色 / "3" EInk 仍合法, 这里同步 UI 初始状态.
+            val themeFollowPref =
+                findPreference<androidx.preference.SwitchPreferenceCompat>(PreferKey.themeFollowSystem)
+            themeFollowPref?.let { sw ->
+                // 初始化 UI: 旧 themeMode 为 "0" 时默认开, 其它 ("1"/"2"/"3") 默认关
+                val curMode = requireContext().getPrefString(PreferKey.themeMode, "0")
+                sw.isChecked = curMode == "0"
+                sw.setOnPreferenceChangeListener { _, newValue ->
+                    val follow = newValue as Boolean
+                    requireContext().putPrefString(
+                        PreferKey.themeMode,
+                        if (follow) "0" else "1"
+                    )
                     view?.post { ThemeConfig.applyDayNight(requireContext()) }
                     true
                 }
             }
 
-            // 万象书屋: "我的" 页运营精简模式. 默认只保留 5 项:
+            // 万象书屋 D-18: 护眼模式开关. 切换时不需要 recreate, 直接重 apply 当前 Activity overlay
+            // 即可立即生效 (无闪屏). EyeCareHelper.apply 是幂等的, 读 SP 决定加/移除 overlay.
+            findPreference<androidx.preference.SwitchPreferenceCompat>(PreferKey.eyeCareMode)
+                ?.setOnPreferenceChangeListener { _, _ ->
+                    view?.post {
+                        // SwitchPreferenceCompat 在 listener return true 后才更新 SP, 这里 post 确保 SP 已写
+                        activity?.let { io.legado.app.help.EyeCareHelper.apply(it) }
+                    }
+                    true
+                }
+
+            // 万象书屋: "我的" 页运营精简模式. 默认只保留 3 项:
             //   themeMode  - 主题模式
-            //   theme_setting - 主题设置
-            //   bookmark   - 书签
             //   readRecord - 阅读记录
             //   legal_feedback - 意见反馈
             //
@@ -185,6 +211,8 @@ class MyFragment() : BaseFragment(R.layout.fragment_my_config), MainFragmentInte
                 "dictRuleManage",         // 词典规则
                 "setting",                // 其他设置
                 "fileManage",             // 文件管理
+                "theme_setting",          // 主题设置 (D-17: 用户要求隐藏, 主题模式已含核心切换功能)
+                "bookmark",               // 书签 (D-17: 用户要求隐藏)
                 "legal_about",            // 关于
                 "legal_privacy",          // 隐私政策          [上架必备]
                 "legal_user_agreement",   // 用户协议          [上架必备]
@@ -195,8 +223,10 @@ class MyFragment() : BaseFragment(R.layout.fragment_my_config), MainFragmentInte
             )
             hiddenKeys.forEach { findPreference<Preference>(it)?.isVisible = false }
 
-            // legalCategory 现在只剩 legal_feedback 一项, 把分组标题清空,
-            // 视觉上跟"无分组"一致, 不显示孤零零的 "关于 / 法律" 标题.
+            // 万象书屋: 三个分组标题全部清空, 视觉扁平化 (跟运营要求一致 - 5 项扁平排列,
+            // 不要"设置 / 其它 / 关于 法律"这种分类标签). 只保留分类内的 children 显示.
+            findPreference<androidx.preference.PreferenceCategory>("settingCategory")?.title = ""
+            findPreference<androidx.preference.PreferenceCategory>("aboutCategory")?.title = ""
             findPreference<androidx.preference.PreferenceCategory>("legalCategory")?.title = ""
         }
 

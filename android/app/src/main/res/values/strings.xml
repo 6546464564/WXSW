@@ -7,6 +7,7 @@
     <!--App-->
     <string name="app_name">万象书屋</string>
     <string name="app_name_a">万象书屋·A</string>
+    <string name="app_tagline">阅书千卷  · 万象皆书</string>
     <string name="receiving_shared_label">万象书屋·搜索</string>
     <string name="book_store">书城</string>
     <string name="bottom_nav_bookshelf">Bookshelf</string>
@@ -57,11 +58,16 @@
     <string name="bs_complete_zone">换一换 ↻</string>
     <string name="bs_recommend_rank">推荐榜</string>
     <string name="bs_full_rank">查看完整榜单 ›</string>
+    <!-- 万象书屋 D-22.2: section action 通用文案 -->
+    <string name="bs_swap_more">换一批 ↻</string>
+    <string name="bs_view_full">查看完整 ›</string>
     <string name="bs_badge_must_read">必读</string>
     <string name="bs_badge_member">会员</string>
     <string name="bs_badge_hot_count">10万</string>
     <string name="bs_badge_recommend">推荐</string>
-    <string name="bs_source_label">纵横中文</string>
+    <!-- 万象书屋 D-22: 真排名徽章 -->
+    <string name="bs_badge_no1">榜首</string>
+    <string name="bs_source_label">起点中文</string>
     <string name="bs_loading">加载中…</string>
     <string name="bs_load_failed">加载失败，下拉重试</string>
     <string name="bs_coming_soon">即将上线</string>
@@ -117,6 +123,7 @@
     <string name="recent_reading">Recent reading</string>
     <string name="last_read">Last reading</string>
     <string name="bookshelf_empty">The bookshelf is still empty. Search for books or add them from discovery!</string>
+    <string name="bookshelf_empty_hint">Find a few books in Discovery to start reading</string>
     <string name="action_search">Search</string>
     <string name="action_download">Download</string>
     <string name="layout_list">List</string>
@@ -538,6 +545,11 @@
     <string name="theme">Theme</string>
     <string name="theme_mode">Theme mode</string>
     <string name="theme_mode_desc">Select a theme you want</string>
+    <!-- 万象书屋 D-18 -->
+    <string name="theme_follow_system">Theme follows system</string>
+    <string name="theme_follow_system_summary">When enabled, switch light/dark with system settings</string>
+    <string name="eye_care_mode">Eye care mode</string>
+    <string name="eye_care_mode_summary">Warm tint overlay to reduce blue light, intensity auto-adjusts to ambient light</string>
     <string name="join_qq_group">Join QQ group</string>
     <string name="bg_image_per">Set the background image requires storage permission</string>
     <string name="input_book_source_url">Input book source address</string>
@@ -854,6 +866,7 @@
     <string name="search_content">Search content</string>
     <string name="rss_source_empty">Empty now!</string>
     <string name="explore_empty">Empty now!</string>
+    <string name="explore_empty_hint">Content is updating, check back soon</string>
     <string name="page_key_set_help">Focusing on the input box and pressing a physical key will automatically enter the value of the key, and multiple keys will be automatically separated by commas.</string>
     <string name="theme_name">Theme name</string>
     <string name="auto_clear_expired">"Clear expired search histories automatically "</string>
@@ -1290,8 +1303,6 @@
     <string name="about_open_source">开源许可与致谢</string>
     <string name="about_feedback">意见反馈</string>
     <string name="about_feedback_summary">您遇到的问题或意见,我们都在认真听</string>
-    <string name="feedback_tab_submit">我要反馈</string>
-    <string name="feedback_tab_history">反馈历史</string>
     <string name="feedback_intro">您好!欢迎您给我们提出使用中遇到的问题或意见!\n请详细描述您遇到的问题:比如 哪本小说无法阅读或者其他问题!\n请勿提交恶意谩骂以及反动词语! 谢谢~</string>
     <string name="feedback_section_content">我要反馈</string>
     <string name="feedback_section_contact">联系方式</string>
@@ -1300,8 +1311,6 @@
     <string name="feedback_contact_hint_v2">请输入手机号/QQ号</string>
     <string name="feedback_contact_required">请填写联系方式</string>
     <string name="feedback_content_required">请填写反馈内容</string>
-    <string name="feedback_history_empty">暂无反馈记录</string>
-    <string name="feedback_history_coming_soon">反馈历史功能即将上线,您之前提交的反馈我们都已收到。</string>
     <string name="about_account_delete">注销账号 / 清除全部本地数据</string>
     <string name="about_account_delete_summary">撤回授权并删除本机所有数据, 不可恢复</string>
 

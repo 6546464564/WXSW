@@ -45,4 +45,12 @@
     <color name="wanxiang_text_primary">#EDE6DC</color>
     <color name="wanxiang_text_secondary">#B5AA9E</color>
     <color name="wanxiang_divider">#554C41</color>
+
+    <!-- 万象书屋 D-17 (THEME-1): 书城页面色板暗色版 -->
+    <color name="bs_bg_gradient_start">#332D24</color>
+    <color name="bs_bg_gradient_end">#231E18</color>
+    <color name="bs_topbar_solid">#CC2C261F</color>
+    <color name="bs_topbar_stroke">#55C9A86C</color>
+    <color name="bs_banner_rank">#403628</color>
+    <color name="bs_banner_library">#48392A</color>
 </resources>

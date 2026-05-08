@@ -1,0 +1,81 @@
+/*
+  Localizable.strings (zh-Hans)
+  万象书屋 iOS · 简体中文 — Base 语言
+  
+  对应 Android `values-zh/strings.xml`
+  当前覆盖 P1 范围: 顶部 tab / 反馈 / 解锁卡 / 书城 banner
+  其它字符串先保留硬编码, 上架港台版前补全.
+*/
+
+// MARK: - Tab bar
+"tab.bookshelf" = "书架";
+"tab.bookstore" = "书城";
+"tab.my" = "我的";
+
+// MARK: - 我的页
+"my.theme_follow_system" = "跟随系统";
+"my.theme_follow_system_summary" = "开启后随系统自动切换日间/夜间";
+"my.eye_care_mode" = "护眼模式";
+"my.eye_care_mode_summary" = "全屏暖色滤镜,长时间阅读更舒适";
+"my.read_record" = "阅读记录";
+"my.read_record_summary" = "查看每日阅读时长统计";
+"my.feedback" = "意见反馈";
+"my.feedback_summary" = "向我们提建议或报告问题";
+
+// MARK: - 解锁卡 (跟 Android unlock_card_*)
+"unlock_card_title" = "纯净阅读";
+"unlock_card_remaining" = "剩余 %@";
+"unlock_card_remaining_zero" = "暂无解锁时长";
+"unlock_card_button_extend" = "看 1 次广告 +%d 分钟";
+"unlock_card_button_cooldown" = "广告冷却中 %@";
+"unlock_extended_toast" = "+%d 分钟纯净阅读(累计 %@)";
+
+// MARK: - 反馈 (跟 Android feedback_*)
+"feedback.title" = "意见反馈";
+"feedback.intro" = "您好!欢迎您给我们提出使用中遇到的问题或意见!\n请详细描述您遇到的问题:比如 哪本小说无法阅读或者其他问题!\n请勿提交恶意谩骂以及反动词语! 谢谢~";
+"feedback.section_content" = "我要反馈";
+"feedback.section_contact" = "联系方式";
+"feedback.required_suffix" = "(必填)";
+"feedback.content_hint" = "为更好解决您遇到的问题,请尽量将问题描述详细";
+"feedback.contact_hint" = "请输入手机号/QQ号";
+"feedback.submit" = "提交";
+"feedback.legal_notice" = "本反馈不收集您的真实身份信息. 提交即表示您同意我们将所提供内容用于产品改进与内容审核.";
+"feedback.thanks" = "感谢您的反馈,我们会尽快处理。";
+"feedback.too_short" = "反馈内容太短(至少 5 字)";
+"feedback.too_long" = "反馈内容超长(最多 120 字)";
+"feedback.contact_required" = "请填写联系方式,我们才能回复您";
+"feedback.failed" = "服务器拒绝,请稍后重试。";
+
+// MARK: - 书城
+"bs.male" = "男生";
+"bs.female" = "女生";
+"bs.publish" = "出版";
+"bs.banner_rank" = "热门排行";
+"bs.banner_rank_subtitle" = "月票 TOP 50";
+"bs.banner_library" = "完本书库";
+"bs.banner_library_subtitle" = "经典完结 50 本";
+"bs.swap_more" = "换一批";
+
+// MARK: - 书架
+"shelf.title" = "书架";
+"shelf.empty_title" = "书架还空着";
+"shelf.empty_hint" = "先去搜索书籍添加吧!";
+"shelf.search_book" = "搜索书籍";
+"shelf.menu_update_toc" = "更新目录";
+"shelf.menu_add_local" = "添加本地";
+"shelf.menu_manage" = "书架管理";
+"shelf.menu_group_manage" = "分组管理";
+"shelf.menu_layout" = "书架布局";
+
+// MARK: - 通用
+"common.cancel" = "取消";
+"common.confirm" = "确定";
+"common.done" = "完成";
+"common.delete" = "删除";
+"common.rename" = "重命名";
+"common.create" = "创建";
+"common.save" = "保存";
+"common.retry" = "重试";
+"common.ok" = "好";
+"common.loading" = "加载中…";
+"common.network_error" = "网络错误";

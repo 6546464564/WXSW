@@ -127,4 +127,17 @@
         <item name="android:layout_width">wrap_content</item>
     </style>
 
+    <!-- 万象书屋 D-21 (#UI-NAV-1): 底部导航 label 字号. BNV 默认 10sp 偏小,
+         参考 QQ 阅读 / 微信读书 12sp 视觉舒适基线. 选中态加粗 + 略大. -->
+    <style name="WanxiangBnvLabel" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">12sp</item>
+        <item name="android:fontFamily">sans-serif</item>
+    </style>
+
+    <style name="WanxiangBnvLabelActive" parent="TextAppearance.AppCompat">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
 </resources>

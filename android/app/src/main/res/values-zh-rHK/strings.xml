@@ -107,7 +107,8 @@
     <string name="all">全部</string>
     <string name="recent_reading">最近閲讀</string>
     <string name="last_read">最後閲讀</string>
-    <string name="bookshelf_empty">書架還空著，先去搜索書籍或從發現裏添加吧！</string>
+    <string name="bookshelf_empty">書架還空著</string>
+    <string name="bookshelf_empty_hint">去「發現」裡挑幾本喜歡的吧</string>
     <string name="action_search">搜尋</string>
     <string name="action_download">下載</string>
     <string name="layout_list">列表</string>
@@ -840,7 +841,8 @@
     <string name="sort_by_lastUpdateTime">更新時間排序</string>
     <string name="search_content">全文搜索</string>
     <string name="rss_source_empty">Empty now!</string>
-    <string name="explore_empty">目前沒有發現源!</string>
+    <string name="explore_empty">還沒有內容</string>
+    <string name="explore_empty_hint">內容更新中,稍後再來看看~</string>
     <string name="page_key_set_help">將焦點放到輸入框按下物理按鍵會自動輸入鍵值,多個按鍵會自動用英文逗號隔開.</string>
     <string name="theme_name">主題名</string>
     <string name="auto_clear_expired">自動清除過期搜尋資料</string>

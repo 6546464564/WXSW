@@ -470,6 +470,17 @@ function getSource(url) { return stmtGetSource.get(url); }
 function upsertSource(srcJson) {
   const url = srcJson.bookSourceUrl;
   if (!url) throw new Error('bookSourceUrl required');
+  // 万象书屋 D-16 (BACKEND-1): 拒绝非 http(s) 协议. 防 admin 误传 javascript: / file: / data: 等
+  // 被下发到客户端 (App admin.html 已 escape 但 iOS WKWebView 等其它消费方可能直接 load).
+  if (typeof url !== 'string' || url.length > 2048) {
+    throw new Error('bookSourceUrl invalid');
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error('bookSourceUrl must start with http:// or https://');
+  }
+  try { new URL(url); } catch {
+    throw new Error('bookSourceUrl is not a valid URL');
+  }
   const name = srcJson.bookSourceName || url;
   const now = Date.now();
   const existed = !!stmtCheckSourceExists.get(url);
@@ -852,6 +863,57 @@ function deleteBookstoreFeed(id) {
   return info.changes;
 }
 
+// === 万象书屋 D-23 (012): 书城 m.qidian.com mirror cache ===
+//
+// 后端定时 (每天 0:00-7:00 随机一次) 抓 m.qidian.com → 整理 JSON → 存这张表.
+// App 改为 GET /api/bookstore/mirror 拉这份 cache.
+// App 端原直抓代码保留作 fallback (后端挂了 / cache 全空时降级).
+
+const stmtMirrorInsert = db.prepare(
+  `INSERT INTO bookstore_mirror (version, payload, etag, fetched_at, source, ok, err_msg)
+   VALUES (?, ?, ?, ?, ?, ?, ?)`
+);
+const stmtMirrorLatestOk = db.prepare(
+  `SELECT id, version, payload, etag, fetched_at, source, overrides_json
+   FROM bookstore_mirror WHERE ok = 1 ORDER BY id DESC LIMIT 1`
+);
+const stmtMirrorRecent = db.prepare(
+  `SELECT id, version, etag, fetched_at, source, ok, err_msg, length(payload) AS payload_size
+   FROM bookstore_mirror ORDER BY id DESC LIMIT ?`
+);
+const stmtMirrorCleanup = db.prepare(
+  `DELETE FROM bookstore_mirror WHERE id NOT IN
+     (SELECT id FROM bookstore_mirror ORDER BY id DESC LIMIT ?)`
+);
+const stmtMirrorSetOverrides = db.prepare(
+  `UPDATE bookstore_mirror SET overrides_json = ? WHERE id = ?`
+);
+
+function insertBookstoreMirror({ version, payload, etag, fetched_at, source, ok, err_msg }) {
+  stmtMirrorInsert.run(version, payload, etag, fetched_at, source, ok ? 1 : 0, err_msg || null);
+}
+
+/**
+ * 万象书屋: 拿"最新 ok=1 的 cache 行", 给 /api/bookstore/mirror 客户端 endpoint 用.
+ * 返 null 表示从未抓成功过 (App 应降级到直抓).
+ */
+function getLatestBookstoreMirror() {
+  return stmtMirrorLatestOk.get() || null;
+}
+
+function listRecentBookstoreMirror(limit = 24) {
+  return stmtMirrorRecent.all(limit);
+}
+
+function cleanupOldBookstoreMirror(keepCount = 24) {
+  stmtMirrorCleanup.run(keepCount);
+}
+
+/** admin 面板加 / 改 / 删覆盖规则时调用 */
+function setBookstoreMirrorOverrides(id, overridesJson) {
+  stmtMirrorSetOverrides.run(overridesJson, id);
+}
+
 // === Heartbeat / Visit ===
 const heartbeatStmt = db.prepare(
   'INSERT OR REPLACE INTO heartbeats(device_id, ts) VALUES (?, ?)'
@@ -908,10 +970,23 @@ function statsWeek() {
 function statsMonth() {
   // 万象书屋: 之前用 LIKE 'YYYY-MM%' 默认不走 idx_visits_day 索引, 全表扫.
   // 改成范围查询, SQLite 字符串比较对 YYYY-MM-DD 自然序 = 日期序.
-  const m = monthKey();
-  const lo = m + '-00';                  // e.g. '2026-05-00' < '2026-05-01'
-  const hi = m + '-32';                  // e.g. '2026-05-32' > '2026-05-31'
-  return stmtStatsMonth.get(lo, hi).c;
+  //
+  // 万象书屋 D-16 (B-10): 边界用更直观的语义.
+  //   旧: lo='2026-05-00' (字面 < '2026-05-01'), hi='2026-05-32' (字面 > '2026-05-31')
+  //       字典序碰巧成立, 但 '-32' 是非法日期, 看代码的人需想几秒才理解.
+  //   新: 用 [本月-01, 下月-01) 半开区间. 可读性提升, 不依赖字符串字典序对非法日期的容忍.
+  const m = monthKey();                              // YYYY-MM
+  const [yyyy, mm] = m.split('-').map(Number);
+  // 计算下一个月的第一天 YYYY-MM-DD (12 月加 1 → 次年 1 月)
+  const nextMonth = mm === 12
+    ? `${yyyy + 1}-01-01`
+    : `${yyyy}-${String(mm + 1).padStart(2, '0')}-01`;
+  const lo = `${m}-01`;                              // e.g. '2026-05-01'
+  // stmtStatsMonth 是 day > lo AND day < hi (严格小于), 用 [lo, nextMonth) 等价
+  // lo 用 '00' 让 '2026-05-01' 严格 > '2026-05-00' 同样成立; 这里改成 '2026-04-31' 也行.
+  // 简化: 用 lo='YYYY-MM-00' (排除上月最后一天就 OK), hi=下月-01 (排除下月第一天 OK)
+  const loBoundary = `${m}-00`;
+  return stmtStatsMonth.get(loBoundary, nextMonth).c;
 }
 /**
  * 万象书屋: 统计近 N 天每日访问独立设备数曲线 (UTC+8)
@@ -1666,8 +1741,17 @@ async function createAdminUser({ username, password, role = 'operator', creator 
 // 万象书屋 D-8 修复: 防 timing attack 测 username 存在性.
 // 用一个固定 dummy bcrypt hash, 用户不存在时也跑一次 bcrypt.compare,
 // 让 "username 不存在" 跟 "username 存在但密码错" 的响应耗时一致 (~bcrypt cost).
-// hash 是 'invalid-dummy-password' 的 bcrypt cost=10 hash, 永远不会被任何真实密码匹配.
-const _DUMMY_PWD_HASH = '$2a$10$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZabcd';
+//
+// 万象书屋 D-15 修复 (B-1): 之前硬编码字符串不是合法 bcrypt hash —
+//   53 字符 (合法 bcrypt 是 60 字符) + base64 字符表违规 (含连续的 abc...XYZ 跨段).
+//   bcrypt.compare 会立即抛 'Invalid salt' 被 .catch(() => false) 吞掉, **耗时几乎为 0**,
+//   timing 防护完全失效, 用户名枚举仍然成立.
+// 修复: 启动时用同样 BCRYPT_COST 真实生成一次, 永远不会被任何真实密码匹配
+// (rand 32 字节作明文, 强度足够 — 任何攻击者都猜不到这个明文).
+const _DUMMY_PWD_HASH = bcrypt.hashSync(
+  'dummy-' + require('crypto').randomBytes(32).toString('hex'),
+  BCRYPT_COST
+);
 
 async function verifyAdminUser(username, password) {
   if (!username || !password) return null;
@@ -1972,6 +2056,12 @@ function wipeUserData(deviceId) {
   const stats = {};
   // 用 transaction 保证要么全删要么不删
   const tx = db.transaction(() => {
+    // 万象书屋 D-15 修复 (B-3 / PIPL 第 47 条): 注销账号必须删干净所有按 device_id 关联的个人数据.
+    // 旧版漏删:
+    //   - events:               自建埋点 (PV/click/留存), 留存 90 天, 含 device_id
+    //   - iap_receipts:         iOS 内购票据, 永久保留, 含 device_id
+    //   - source_error_events:  设备级解析错误事件, 留存 30 天, 含 device_id
+    // 这三张表都属于"按 device_id 可关联到自然人的个人信息", 注销时未删 ≡ 违规留存.
     const tables = [
       'heartbeats',
       'visits',
@@ -1979,7 +2069,10 @@ function wipeUserData(deviceId) {
       'crashes',
       'feedback',
       'redeem_uses',
-      'device_tokens'
+      'device_tokens',
+      'events',                  // D-15: 用户行为埋点
+      'iap_receipts',            // D-15: iOS 内购票据
+      'source_error_events',     // D-15: 设备级解析错误
     ];
     for (const t of tables) {
       try {
@@ -2023,6 +2116,241 @@ function cleanupOldData() {
   // 万象书屋: source_error_events 保留 30 天, source_health 是聚合表保留所有
   db.prepare('DELETE FROM source_error_events WHERE ts < ?')
     .run(Date.now() - 30 * 86400 * 1000);
+  // 万象书屋: events 表保留 90 天 (PV/click 量大, 90 天足够做留存分析)
+  db.prepare('DELETE FROM events WHERE ts < ?')
+    .run(Date.now() - 90 * 86400 * 1000);
+}
+
+// ==================== 万象书屋: 自建埋点 ====================
+
+const _insertEventStmt = db.prepare(`
+  INSERT INTO events (ts, client_ts, device_id, platform, app_ver,
+                      event_type, event_name, params, session_id, ip)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+/**
+ * 单条事件入库. 高频路径, 用 prepared statement.
+ * @param {object} e {clientTs, deviceId, platform, appVer, type, name, params, sessionId, ip}
+ */
+function recordEvent(e) {
+  const params = e.params != null
+    ? (typeof e.params === 'string' ? e.params : JSON.stringify(e.params))
+    : null;
+  _insertEventStmt.run(
+    Date.now(),
+    e.clientTs ? Number(e.clientTs) : null,
+    String(e.deviceId).slice(0, 80),
+    e.platform || null,
+    e.appVer || null,
+    String(e.type || 'custom').slice(0, 32),
+    String(e.name || '').slice(0, 80),
+    params ? params.slice(0, 4000) : null,
+    e.sessionId ? String(e.sessionId).slice(0, 64) : null,
+    e.ip || null,
+  );
+}
+
+/**
+ * 批量事件入库 (上报路径用, 减少 SQLite 事务开销).
+ * 在单事务里跑, 出错全部回滚.
+ */
+function recordEventsBulk(events, ip) {
+  if (!Array.isArray(events) || !events.length) return 0;
+  const tx = db.transaction((arr) => {
+    for (const e of arr) recordEvent({ ...e, ip: e.ip || ip });
+  });
+  tx(events);
+  return events.length;
+}
+
+/**
+ * 列出最近事件, 管理面板用.
+ * @param {object} opts {limit=200, eventName, deviceId, type, sinceTs}
+ */
+function listEvents(opts = {}) {
+  const limit = Math.min(parseInt(opts.limit, 10) || 200, 1000);
+  const conds = [];
+  const args = [];
+  if (opts.eventName) { conds.push('event_name = ?'); args.push(opts.eventName); }
+  if (opts.deviceId)  { conds.push('device_id = ?');  args.push(opts.deviceId); }
+  if (opts.type)      { conds.push('event_type = ?'); args.push(opts.type); }
+  if (opts.sinceTs)   { conds.push('ts >= ?');         args.push(Number(opts.sinceTs)); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  return db.prepare(
+    `SELECT id, ts, client_ts, device_id, platform, app_ver,
+            event_type, event_name, params, session_id, ip
+     FROM events ${where}
+     ORDER BY ts DESC LIMIT ?`
+  ).all(...args, limit);
+}
+
+/**
+ * 事件 Top 排行 (按 event_name 计数).
+ * @param {object} opts {sinceTs, limit=20, type}
+ */
+function eventTopList(opts = {}) {
+  const sinceTs = Number(opts.sinceTs) || (Date.now() - 7 * 86400 * 1000);
+  const limit = Math.min(parseInt(opts.limit, 10) || 20, 100);
+  const typeFilter = opts.type ? 'AND event_type = ?' : '';
+  const args = opts.type ? [sinceTs, opts.type, limit] : [sinceTs, limit];
+  return db.prepare(
+    `SELECT event_name, event_type, COUNT(*) AS count,
+            COUNT(DISTINCT device_id) AS uv
+     FROM events
+     WHERE ts >= ? ${typeFilter}
+     GROUP BY event_name
+     ORDER BY count DESC
+     LIMIT ?`
+  ).all(...args);
+}
+
+/**
+ * 按天统计 DAU (基于 events 表 distinct device_id).
+ * @param {number} days 默认 7 天
+ */
+function eventDailyDau(days = 7) {
+  const since = Date.now() - days * 86400 * 1000;
+  // SQLite 没有 date() 转毫秒的内置, 我们用 (ts/86400000)|0 取天数 epoch
+  const rows = db.prepare(
+    `SELECT CAST((ts + 28800000) / 86400000 AS INTEGER) AS day_idx,
+            COUNT(DISTINCT device_id) AS dau,
+            COUNT(*) AS events
+     FROM events WHERE ts >= ?
+     GROUP BY day_idx ORDER BY day_idx ASC`
+  ).all(since);
+  // 把 day_idx 转回 yyyy-mm-dd (北京时区已通过 +28800000 偏移)
+  return rows.map(r => {
+    const d = new Date(r.day_idx * 86400000 - 28800000);
+    return {
+      date: d.toISOString().slice(0, 10),
+      dau: r.dau,
+      events: r.events,
+    };
+  });
+}
+
+/**
+ * 简单漏斗分析: 给定一组 event_name 序列, 返回每个步骤的去重设备数 + 转化率.
+ * @param {string[]} steps 例 ['app_open', 'page_main', 'page_bookshelf', 'read_chapter_open']
+ * @param {number} sinceTs 默认最近 7 天
+ */
+function eventFunnel(steps, sinceTs) {
+  if (!Array.isArray(steps) || !steps.length) return [];
+  const since = sinceTs || (Date.now() - 7 * 86400 * 1000);
+  return steps.map((name, idx) => {
+    const uv = db.prepare(
+      `SELECT COUNT(DISTINCT device_id) AS uv FROM events
+       WHERE ts >= ? AND event_name = ?`
+    ).get(since, name).uv;
+    return { step: idx + 1, name, uv };
+  });
+}
+
+/**
+ * Cohort 留存矩阵分析.
+ *
+ * 定义:
+ *   cohort = 同一天首次出现在 events 表里的设备集合 (即"新增用户")
+ *   day_N retention = cohort 在第 N 天还活跃的设备数 (events 里有任何事件)
+ *   day_0 = 当天本身, 一定等于 cohort_size
+ *   day_1 = 第二天还回来的设备, day_2 = 第三天, 以此类推
+ *
+ * 性能:
+ *   单查询取所有 events (device_id, ts), 在 Node 里建两层 Map 聚合,
+ *   时间复杂度 O(events_count). events 表 90 天内 SQLite 单 ms 取几万行没问题.
+ *
+ * @param {number} windowDays cohort 窗口大小, 默认 14 (最近 14 天形成的 cohort, 每个看
+ *   后续 14 天的留存; 早于 2*windowDays 之前的不查).
+ * @returns {{ windowDays, cohorts: [{ date, size, retention: number[], retentionPct: number[] }] }}
+ */
+function eventRetentionMatrix(windowDays = 14) {
+  const W = Math.max(2, Math.min(60, parseInt(windowDays, 10) || 14));
+  const DAY = 86_400_000;
+  const TZ_OFFSET = 8 * 3600_000;  // UTC+8 北京时区
+  const now = Date.now();
+  // 取 2*W 天内的事件: 最早形成的 cohort 是 W 天前, 它最多还能再观察 W-1 天
+  const since = now - (2 * W) * DAY;
+
+  const rows = db.prepare(
+    'SELECT device_id, ts FROM events WHERE ts >= ? ORDER BY ts ASC'
+  ).all(since);
+
+  // device -> first day index (按 device_id ASC 不能直接拿首次时间,
+  //  ORDER BY ts ASC 后第一次见到该 device_id 就是 first time)
+  const firstDay = new Map();        // device_id -> dayIdx
+  const activeDays = new Map();      // device_id -> Set<dayIdx>
+  for (const r of rows) {
+    const dayIdx = Math.floor((r.ts + TZ_OFFSET) / DAY);
+    if (!firstDay.has(r.device_id)) firstDay.set(r.device_id, dayIdx);
+    let s = activeDays.get(r.device_id);
+    if (!s) { s = new Set(); activeDays.set(r.device_id, s); }
+    s.add(dayIdx);
+  }
+
+  // 按 cohort_day 分组所有 device
+  const cohortDevices = new Map();   // dayIdx -> string[]
+  for (const [dev, day] of firstDay) {
+    let arr = cohortDevices.get(day);
+    if (!arr) { arr = []; cohortDevices.set(day, arr); }
+    arr.push(dev);
+  }
+
+  const todayIdx = Math.floor((now + TZ_OFFSET) / DAY);
+  const cohorts = [];
+  // 窗口: 从 W-1 天前的 cohort 到今天的 cohort
+  for (let off = W - 1; off >= 0; off--) {
+    const cohortDay = todayIdx - off;
+    const devices = cohortDevices.get(cohortDay) || [];
+    const retention = new Array(W).fill(null);
+    const retentionPct = new Array(W).fill(null);
+    for (let dN = 0; dN < W; dN++) {
+      const dayIdx = cohortDay + dN;
+      if (dayIdx > todayIdx) break;       // 未来日期不计入
+      let count = 0;
+      for (const dev of devices) {
+        if (activeDays.get(dev)?.has(dayIdx)) count++;
+      }
+      retention[dN] = count;
+      retentionPct[dN] = devices.length ? +(count / devices.length * 100).toFixed(1) : 0;
+    }
+    cohorts.push({
+      date: new Date(cohortDay * DAY - TZ_OFFSET).toISOString().slice(0, 10),
+      size: devices.length,
+      retention,
+      retentionPct,
+    });
+  }
+
+  return { windowDays: W, cohorts };
+}
+
+/** 总览统计: 给管理面板首页用 */
+function eventOverview() {
+  const day = 86400 * 1000;
+  const now = Date.now();
+  const r = (q, ...args) => db.prepare(q).get(...args);
+  return {
+    today: r('SELECT COUNT(*) AS c FROM events WHERE ts >= ?', now - day).c,
+    yesterday: r(
+      'SELECT COUNT(*) AS c FROM events WHERE ts >= ? AND ts < ?',
+      now - 2 * day, now - day
+    ).c,
+    week: r('SELECT COUNT(*) AS c FROM events WHERE ts >= ?', now - 7 * day).c,
+    devicesToday: r(
+      'SELECT COUNT(DISTINCT device_id) AS c FROM events WHERE ts >= ?',
+      now - day
+    ).c,
+    totalEvents: r('SELECT COUNT(*) AS c FROM events').c,
+    pvToday: r(
+      "SELECT COUNT(*) AS c FROM events WHERE ts >= ? AND event_type = 'pv'",
+      now - day
+    ).c,
+    clickToday: r(
+      "SELECT COUNT(*) AS c FROM events WHERE ts >= ? AND event_type = 'click'",
+      now - day
+    ).c,
+  };
 }
 
 module.exports = {
@@ -2036,6 +2364,9 @@ module.exports = {
   listBookstoreFeed, getBookstoreFeedEtag, listAllBookstoreFeed,
   upsertBookstoreFeed, setBookstoreFeedEnabled, deleteBookstoreFeed,
   invalidateFeedCache,
+  // 万象书屋 D-23 (012): bookstore mirror cache
+  insertBookstoreMirror, getLatestBookstoreMirror, listRecentBookstoreMirror,
+  cleanupOldBookstoreMirror, setBookstoreMirrorOverrides,
   // source health / parser observability
   recordSourceHealth, recordSourceErrorEvent, listSourceHealth,
   sourceHealthSummary, runSourceStaticCheck,
@@ -2071,6 +2402,9 @@ module.exports = {
   createRedeemCodes, redeemCode, listRedeemCodes, revokeRedeemBatch,
   listAlertRules, upsertAlertRule, deleteAlertRule, markAlertFired,
   cleanupOldData,
+  // 万象书屋: 自建埋点
+  recordEvent, recordEventsBulk, listEvents, eventTopList,
+  eventDailyDau, eventFunnel, eventOverview, eventRetentionMatrix,
   // db instance (用于 graceful shutdown close + 自动备份)
   __db: db,
 };

@@ -4,6 +4,19 @@
     xmlns:tools="http://schemas.android.com/tools"
     tools:ignore="AlwaysShowAction">
 
+    <!--
+    万象书屋 D-17: 书架顶部菜单运营精简模式. 保留 5 项核心:
+      menu_search          - 搜索
+      menu_update_toc      - 更新目录
+      menu_add_local       - 添加本地
+      menu_bookshelf_manage- 书架管理
+      menu_group_manage    - 分组管理
+      menu_bookshelf_layout- 书架布局
+
+    隐藏 5 项 (visible=false), 上架前如需恢复, 把对应行的 android:visible 删掉即可.
+    不删除 item 是为了保留对应 R.id 引用 + 上游合并方便.
+    -->
+
     <item
         android:id="@+id/menu_search"
         android:icon="@drawable/ic_search"
@@ -22,10 +35,12 @@
         android:title="@string/book_local"
         app:showAsAction="never" />
 
+    <!-- 万象书屋 D-17: 隐藏 (用户从网址添加书源易踩黄站, 简化运营) -->
     <item
         android:id="@+id/menu_add_url"
         android:icon="@drawable/ic_add_online"
         android:title="@string/add_url"
+        android:visible="false"
         app:showAsAction="never" />
 
     <item
@@ -34,10 +49,12 @@
         android:title="@string/bookshelf_management"
         app:showAsAction="never" />
 
+    <!-- 万象书屋 D-17: 隐藏 (批量下载/导出超出普通用户认知, 隐藏避免误操作) -->
     <item
         android:id="@+id/menu_download"
         android:icon="@drawable/ic_download_line"
         android:title="@string/cache_export"
+        android:visible="false"
         app:showAsAction="never" />
 
     <item
@@ -52,22 +69,27 @@
         android:title="@string/bookshelf_layout"
         app:showAsAction="never" />
 
+    <!-- 万象书屋 D-17: 隐藏 (导出/导入书单是高级功能, 普通用户不需要) -->
     <item
         android:id="@+id/menu_export_bookshelf"
         android:icon="@drawable/ic_export"
         android:title="@string/export_bookshelf"
+        android:visible="false"
         app:showAsAction="never" />
 
     <item
         android:id="@+id/menu_import_bookshelf"
         android:icon="@drawable/ic_import"
         android:title="@string/import_bookshelf"
+        android:visible="false"
         app:showAsAction="never" />
 
+    <!-- 万象书屋 D-17: 隐藏 (调试日志面向开发者, release 版用户不需要; debug 版仍可通过 ADB logcat 查看) -->
     <item
         android:id="@+id/menu_log"
         android:icon="@drawable/ic_cfg_about"
         android:title="@string/log"
+        android:visible="false"
         app:showAsAction="never" />
 
 </menu>

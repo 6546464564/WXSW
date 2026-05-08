@@ -12,6 +12,7 @@ struct RootView: View {
 
     @EnvironmentObject private var appState: AppState
     @StateObject private var theme = ThemeManager.shared
+    @StateObject private var eyeCare = EyeCareModeManager.shared
 
     /// 跟 Android `default_home_page` 偏好对齐 (默认书架)
     /// 万象书屋: launch argument `-DefaultTab male/female/my` 可在 App Store 截图脚本里指定
@@ -43,16 +44,21 @@ struct RootView: View {
     var body: some View {
         mainContent
             .modifier(SystemDialogsModifier(appState: appState))
+            // 万象书屋: 跟 Android `EyeCareLifecycleCallback` 给所有 Activity 注入 overlay 等价.
+            // 放在最外层 — 所有子页面 / sheet / fullScreenCover 都被这层暖色覆盖.
+            .wanxiangEyeCareOverlay(eyeCare)
     }
 
     @ViewBuilder
     private var mainContent: some View {
         VStack(spacing: 0) {
             Group {
+                // 万象书屋: 跟 Android `BaseActivity.trackPageName` 自动 PV 埋点等价.
+                // 命名跟 Android 同步使用 snake_case (page_*).
                 switch selectedTab {
-                case .bookshelf: BookshelfView()
-                case .bookStore: BookStoreView()
-                case .my:        MyView()
+                case .bookshelf: BookshelfView().trackPageView("page_bookshelf")
+                case .bookStore: BookStoreView().trackPageView("page_bookstore")
+                case .my:        MyView().trackPageView("page_my")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -17,16 +17,40 @@
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-    <TextView
+    <!-- 万象书屋: 友好空态. 默认 ID tv_empty_msg 仍保留 (legado Adapter 会切换它的可见性);
+         整段空态包在一个 LinearLayout 里, 同步 visibility -->
+    <LinearLayout
         android:id="@+id/tv_empty_msg"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:layout_margin="16dp"
+        android:layout_margin="20dp"
         android:gravity="center"
-        android:text="@string/bookshelf_empty"
-        android:visibility="gone"
-        tools:text="TextView" />
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="120dp"
+            android:layout_height="120dp"
+            android:contentDescription="@string/bookshelf_empty"
+            android:src="@drawable/ic_empty_bookshelf" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/bookshelf_empty"
+            android:textColor="@color/wanxiang_text_primary"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:text="@string/bookshelf_empty_hint"
+            android:textColor="@color/wanxiang_text_secondary"
+            android:textSize="13sp" />
+    </LinearLayout>
 
 </FrameLayout>
-

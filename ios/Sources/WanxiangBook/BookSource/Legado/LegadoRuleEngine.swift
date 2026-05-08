@@ -386,8 +386,14 @@ public actor LegadoRuleEngine {
         }
 
         // 4. ##regex##replace[##]
+        // 万象书屋: 走 SafeRegex 做 ReDoS 保护 (LRU 缓存 + 长输入 timeout)
         if !rule.replaceRegex.isEmpty {
-            midResult = midResult.map { applyReplace(value: $0, rule: rule) }
+            var newResult: [String] = []
+            newResult.reserveCapacity(midResult.count)
+            for v in midResult {
+                newResult.append(await applyReplaceSafe(value: v, rule: rule))
+            }
+            midResult = newResult
         }
 
         // 5. listMode=false 只取第一条
@@ -608,26 +614,19 @@ public actor LegadoRuleEngine {
 
     // MARK: - ## regex 链处理
 
-    private func applyReplace(value: String, rule: LegadoSourceRule) -> String {
-        guard let regex = try? NSRegularExpression(pattern: rule.replaceRegex) else {
-            return value
-        }
-        let nsstr = value as NSString
-        // 万象书屋: 跟 legado Android 行为对齐
-        // 1. `##regex##replace` → 全部替换 (replace="" 即"删除")
-        // 2. `##regex##replace##` (4 个 ##, replaceFirst) → 只替换首个
-        if rule.replaceFirst {
-            guard let m = regex.firstMatch(in: value, range: NSRange(0..<nsstr.length)) else {
-                return ""
-            }
-            let matched = nsstr.substring(with: m.range)
-            let mns = matched as NSString
-            return regex.stringByReplacingMatches(in: matched,
-                range: NSRange(0..<mns.length), withTemplate: rule.replacement)
-        }
-        return regex.stringByReplacingMatches(in: value,
-            range: NSRange(0..<nsstr.length), withTemplate: rule.replacement)
+    /// 万象书屋 D-16 (PARSE-1/2): 走 SafeRegex 做 ReDoS 保护 + LRU 缓存. 跟 Android
+    /// `AnalyzeRule.replaceRegex` 行为对齐: 短输入快速路径 / 长输入 2s timeout / 编译缓存.
+    private func applyReplaceSafe(value: String, rule: LegadoSourceRule) async -> String {
+        await SafeRegex.shared.replace(
+            in: value,
+            pattern: rule.replaceRegex,
+            replacement: rule.replacement,
+            replaceFirst: rule.replaceFirst
+        )
     }
+
+    // 万象书屋 D-16: 旧同步 applyReplace 已迁到 SafeRegex.shared.replace (走 LRU + timeout).
+    // 上层 applyRule 改用 applyReplaceSafe (async) 调用 — 章节正文长文本不再裸跑 NSRegularExpression.
 
     // MARK: - util
 

@@ -3,117 +3,188 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="#FFFFFF"
     android:orientation="vertical">
 
-    <androidx.appcompat.widget.Toolbar
-        android:id="@+id/toolbar"
+    <!-- 万象书屋: 顶部栏 (返回 + 居中标题) -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="?attr/colorPrimary"
-        android:theme="?attr/actionBarTheme"
-        app:contentInsetStartWithNavigation="0dp" />
+        android:background="#FFFFFF">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="?attr/actionBarSize"
+            android:layout_height="match_parent"
+            android:layout_gravity="start|center_vertical"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/cancel"
+            android:scaleType="center"
+            android:src="@drawable/ic_arrow_back" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="@string/about_feedback"
+            android:textColor="#222222"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+    </FrameLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="#EEEEEE" />
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:paddingHorizontal="20dp"
+            android:paddingTop="20dp"
+            android:paddingBottom="28dp">
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/feedback_type_label"
-                android:textStyle="bold" />
+                android:lineSpacingExtra="4dp"
+                android:text="@string/feedback_intro"
+                android:textColor="#555555"
+                android:textSize="13sp" />
 
-            <RadioGroup
-                android:id="@+id/radioGroupType"
+            <!-- 我要反馈 (必填) -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="vertical">
+                android:layout_marginTop="28dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-                <RadioButton
-                    android:id="@+id/radioBug"
-                    android:layout_width="match_parent"
+                <TextView
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="@string/feedback_type_bug" />
+                    android:text="@string/feedback_section_content"
+                    android:textColor="#222222"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
 
-                <RadioButton
-                    android:id="@+id/radioContent"
-                    android:layout_width="match_parent"
+                <TextView
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/feedback_type_content" />
+                    android:layout_marginStart="4dp"
+                    android:text="@string/feedback_required_suffix"
+                    android:textColor="#999999"
+                    android:textSize="12sp" />
+            </LinearLayout>
 
-                <RadioButton
-                    android:id="@+id/radioSuggest"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/feedback_type_suggest" />
-
-                <RadioButton
-                    android:id="@+id/radioOther"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/feedback_type_other" />
-            </RadioGroup>
-
-            <TextView
+            <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/feedback_content_label"
-                android:textStyle="bold" />
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_feedback_input">
 
-            <EditText
-                android:id="@+id/etContent"
+                <EditText
+                    android:id="@+id/etContent"
+                    android:layout_width="match_parent"
+                    android:layout_height="170dp"
+                    android:autofillHints="no"
+                    android:background="@android:color/transparent"
+                    android:gravity="top|start"
+                    android:hint="@string/feedback_content_hint_v2"
+                    android:inputType="textMultiLine"
+                    android:lineSpacingExtra="3dp"
+                    android:maxLength="120"
+                    android:paddingStart="14dp"
+                    android:paddingTop="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="34dp"
+                    android:textColor="#222222"
+                    android:textColorHint="#A0A0A0"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/tvCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|end"
+                    android:layout_marginEnd="14dp"
+                    android:layout_marginBottom="10dp"
+                    android:text="0/120"
+                    android:textColor="#A0A0A0"
+                    android:textSize="12sp" />
+            </FrameLayout>
+
+            <!-- 联系方式 (必填) -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:autofillHints="no"
-                android:gravity="top|start"
-                android:hint="@string/feedback_content_hint"
-                android:inputType="textMultiLine"
-                android:lines="6"
-                android:maxLength="2000"
-                android:padding="8dp" />
+                android:layout_marginTop="28dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/feedback_contact_label"
-                android:textStyle="bold" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/feedback_section_contact"
+                    android:textColor="#222222"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:text="@string/feedback_required_suffix"
+                    android:textColor="#999999"
+                    android:textSize="12sp" />
+            </LinearLayout>
 
             <EditText
                 android:id="@+id/etContact"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:autofillHints="emailAddress"
-                android:hint="@string/feedback_contact_hint"
-                android:inputType="textEmailAddress"
-                android:maxLength="100" />
+                android:layout_height="50dp"
+                android:layout_marginTop="12dp"
+                android:autofillHints="phone"
+                android:background="@drawable/bg_feedback_input"
+                android:gravity="center_vertical"
+                android:hint="@string/feedback_contact_hint_v2"
+                android:inputType="text"
+                android:maxLength="50"
+                android:paddingHorizontal="14dp"
+                android:textColor="#222222"
+                android:textColorHint="#A0A0A0"
+                android:textSize="14sp" />
 
             <Button
                 android:id="@+id/btnSubmit"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/feedback_submit" />
+                android:layout_height="50dp"
+                android:layout_marginTop="36dp"
+                android:background="@drawable/bg_feedback_submit"
+                android:stateListAnimator="@null"
+                android:text="@string/feedback_submit"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="20dp"
+                android:gravity="center"
+                android:lineSpacingExtra="2dp"
+                android:paddingHorizontal="20dp"
                 android:text="@string/feedback_legal_notice"
-                android:textColor="?android:attr/textColorSecondary"
-                android:textSize="12sp" />
+                android:textColor="#B0B0B0"
+                android:textSize="11sp" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

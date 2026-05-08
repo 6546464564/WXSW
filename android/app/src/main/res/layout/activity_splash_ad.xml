@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  万象书屋开屏广告容器.
-  下层是品牌 Logo (作为冷启动占位 + 广告无下发时的 fallback 视觉),
+  万象书屋开屏容器.
+  下层是品牌 Logo + 副标题 (作为冷启动占位 + 广告无下发时的 fallback 视觉),
   上层 ad_container 由 AdProvider 注入真实开屏广告 View.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -13,22 +13,39 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:gravity="center"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:paddingHorizontal="40dp">
 
         <ImageView
-            android:layout_width="96dp"
-            android:layout_height="96dp"
+            android:layout_width="112dp"
+            android:layout_height="112dp"
             android:contentDescription="@string/app_name"
             android:src="@mipmap/ic_launcher" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="20dp"
+            android:letterSpacing="0.05"
             android:text="@string/app_name"
             android:textColor="@color/wanxiang_text_primary"
-            android:textSize="20sp"
+            android:textSize="24sp"
             android:textStyle="bold" />
+
+        <View
+            android:layout_width="40dp"
+            android:layout_height="2dp"
+            android:layout_marginTop="14dp"
+            android:background="@color/wanxiang_primary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:letterSpacing="0.15"
+            android:text="@string/app_tagline"
+            android:textColor="@color/wanxiang_text_secondary"
+            android:textSize="13sp" />
     </LinearLayout>
 
     <FrameLayout

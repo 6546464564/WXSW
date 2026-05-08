@@ -76,6 +76,9 @@ class App : Application() {
         oldConfig = Configuration(resources.configuration)
         applyDayNightInit(this)
         registerActivityLifecycleCallbacks(LifecycleHelp)
+        // 万象书屋 D-19: 护眼模式 Application 级覆盖 — Activity 进 onResume 时统一调 EyeCareHelper.apply,
+        //   覆盖所有 Activity (含 SplashAdActivity / 任何第三方库 Activity), 不漏 corner case.
+        registerActivityLifecycleCallbacks(io.legado.app.help.EyeCareLifecycleCallback)
         defaultSharedPreferences.registerOnSharedPreferenceChangeListener(AppConfig)
         // 万象书屋: 在 Application.onCreate 同步隐私同意态.
         //
@@ -107,6 +110,8 @@ class App : Application() {
             ShortCuts.buildShortCuts(this@App)
             // 万象书屋: 启动远程书源同步 + 心跳上报 (后端 URL 在 BuildConfig.BACKEND_BASE_URL)
             WanxiangBackend.start()
+            // 万象书屋: 自建埋点 SDK 启动 (内存队列 + 30s 定时 flush)
+            io.legado.app.help.WanxiangAnalytics.init()
             AppFreezeMonitor.init(this@App)
             DispatchersMonitor.init()
             URL.setURLStreamHandlerFactory(ObsoleteUrlFactory(okHttpClient))
@@ -147,7 +152,21 @@ class App : Application() {
         super.onConfigurationChanged(newConfig)
         val diff = newConfig.diff(oldConfig)
         if ((diff and ActivityInfo.CONFIG_UI_MODE) != 0) {
-            applyDayNight(this)
+            // 万象书屋 D-21 (#THEME-FOLLOW-2): 系统切换 dark/light 时:
+            //
+            // themeMode="0" (跟随系统):
+            //   1. AppCompatDelegate 已是 MODE_NIGHT_FOLLOW_SYSTEM, AppCompat 会自动 recreate Activity
+            //      (manifest 已不拦截 uiMode)
+            //   2. 但 ThemeStore (基于 SP 的动态主题色) 不会自动切换 — 它保存的是用户 day/night 各自的偏好色,
+            //      需要进程级重算: 调用 applyTheme(this) 让 ThemeConfig 根据新的 isNightTheme 写入对应 SP 值,
+            //      Activity recreate 后读 SP 拿到 night 主题色, 颜色全切换.
+            //   3. BookCover 默认封面也跟主题相关, 一并刷新.
+            //
+            // themeMode="1"/"2"/"3" (用户固定模式): AppCompat 已锁定 NO/YES, 系统变化跟用户选择无关, 完全 ignore.
+            if (AppConfig.themeMode == "0") {
+                io.legado.app.help.config.ThemeConfig.applyTheme(this)
+                BookCover.upDefaultCover()
+            }
         }
         oldConfig = Configuration(newConfig)
     }

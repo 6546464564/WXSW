@@ -64,9 +64,9 @@ public actor ContentParser {
                 }
             }
 
-            // 2. 净化替换
+            // 2. 净化替换 (走 SafeRegex 做 ReDoS 保护 + LRU 编译缓存)
             if let pattern = rule.replaceRegex, !pattern.isEmpty {
-                pageText = applyReplaceRegex(pageText, pattern: pattern)
+                pageText = await applyReplaceRegex(pageText, pattern: pattern)
             }
 
             // 3. 提取图片 (含 src 后 ,{...} headers 选项)
@@ -113,7 +113,11 @@ public actor ContentParser {
     // MARK: - 净化与转换
 
     /// legado replaceRegex 格式: "regex##replacement##regex2##replacement2"
-    private func applyReplaceRegex(_ text: String, pattern: String) -> String {
+    ///
+    /// 跟 Android `AnalyzeRule.replaceRegex` (D-16 PARSE-1/2) 行为对齐:
+    ///   - 用 SafeRegex 做 LRU 缓存 + 长输入 timeout (避免 ReDoS 烂书源 hang 阅读流程)
+    ///   - 短输入 (< 1000 字) 走快速路径无 timeout 开销
+    private func applyReplaceRegex(_ text: String, pattern: String) async -> String {
         let pairs = pattern.components(separatedBy: "##")
         var result = text
         var i = 0
@@ -121,13 +125,9 @@ public actor ContentParser {
             let regex = pairs[i]
             let replacement = (i + 1 < pairs.count) ? pairs[i + 1] : ""
             i += 2
-            guard !regex.isEmpty,
-                  let r = try? NSRegularExpression(pattern: regex, options: []) else { continue }
-            let nsstr = result as NSString
-            result = r.stringByReplacingMatches(
-                in: result,
-                range: NSRange(0..<nsstr.length),
-                withTemplate: replacement
+            guard !regex.isEmpty else { continue }
+            result = await SafeRegex.shared.replace(
+                in: result, pattern: regex, replacement: replacement
             )
         }
         return result

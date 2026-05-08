@@ -452,6 +452,9 @@ const rateLimitAdConfig = makeRateLimit({ windowMs: 5_000, max: 3, keyPrefix: 'a
 // 广告事件 / 崩溃上报: 每设备每 3 秒最多 5 条, 防止 App 端 bug 刷爆
 const rateLimitAdEvent = makeRateLimit({ windowMs: 3_000, max: 5, keyPrefix: 'e:' });
 const rateLimitCrash = makeRateLimit({ windowMs: 60_000, max: 3, keyPrefix: 'c:' });
+// 万象书屋: 自建埋点 /api/events 上报. 客户端会内存队列 5s 或 50 条触发, 单设备每 5s 1 次窗.
+// 留 3 次 burst 容忍 App 切后台一次性 flush + 5s 后下个窗又上报.
+const rateLimitEvents = makeRateLimit({ windowMs: 5_000, max: 3, keyPrefix: 'ev:' });
 // 用户反馈: 每 IP 每 5 分钟 5 条, 防恶意提交骚扰
 const rateLimitFeedback = makeRateLimit({ windowMs: 5 * 60_000, max: 5, keyPrefix: 'f:' });
 // 万象书屋: 解析失败上报频率本质比 feedback 高得多 (一次搜索 79 源都可能 fail).
@@ -653,10 +656,17 @@ app.get('/metrics', (req, res) => {
   metric('wanxiang_memory_heap_used_bytes', 'V8 heap used in bytes', 'gauge', mem.heapUsed);
 
   // 业务指标 (从 db 拉取, 已被 prepared statement 优化)
+  // 万象书屋 D-15 修复 (B-2): db.statsToday() 返回 number (今日访问 device 去重数), 不是
+  //   { activeDevices, heartbeats } 对象. 之前 stats.activeDevices 永远 undefined → metric 永远输出 0,
+  //   监控告警全部失灵. 改成直接消费 number, 心跳数另起一条 SELECT.
   try {
-    const stats = db.statsToday();
-    metric('wanxiang_active_devices_today', 'Active devices today', 'gauge', stats.activeDevices || 0);
-    metric('wanxiang_heartbeats_today', 'Heartbeats today', 'gauge', stats.heartbeats || 0);
+    metric('wanxiang_active_devices_today', 'Distinct devices visited today (UTC+8)', 'gauge',
+      Number(db.statsToday()) || 0);
+    const hb = db.__db.prepare('SELECT COUNT(*) AS n FROM heartbeats WHERE ts > ?')
+      .get(Date.now() - 86400_000).n;
+    metric('wanxiang_heartbeats_24h', 'Heartbeats received in last 24h', 'gauge', Number(hb) || 0);
+    metric('wanxiang_online_5m', 'Distinct devices with heartbeat in last 5 minutes', 'gauge',
+      Number(db.statsOnline()) || 0);
   } catch (_) { /* 业务指标允许失败 */ }
 
   try {
@@ -940,7 +950,8 @@ app.get('/api/admin/sources/raw', requireAdmin, (req, res) => {
 });
 
 // 导入书源可能整包传几 MB, 单独挂 largeJson 中间件 (20mb)
-app.post('/api/admin/sources', largeJson, requireAdmin, (req, res) => {
+// 万象书屋 D-16 (B-4 RBAC): 写接口加角色限制, cs 客服角色不能改书源, 仅 super/operator 可
+app.post('/api/admin/sources', largeJson, requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const body = req.body;
   try {
     if (Array.isArray(body)) {
@@ -959,7 +970,8 @@ app.post('/api/admin/sources', largeJson, requireAdmin, (req, res) => {
   }
 });
 
-app.delete('/api/admin/sources', requireAdmin, (req, res) => {
+// 万象书屋 D-16 (B-4): 删源是高危操作, 仅 super/operator
+app.delete('/api/admin/sources', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ ok: false });
   const n = db.deleteSource(url);
@@ -994,17 +1006,23 @@ app.post('/api/admin/sources/check', requireAdmin, requireRole(['super', 'operat
       sampleKeyword: req.body?.sampleKeyword || req.query.sampleKeyword || '斗破苍穹',
       url: req.body?.url || req.query.url || null
     });
-    db.recordAudit({ ip: req.ip, action: 'source.staticCheck', target: r.platform, detail: { checked: r.checked, error: r.error } });
+    // 万象书屋 D-16 (B-7): audit detail 的 'error' 字段是数字 (失败源数), 不是错误对象,
+    // 在 audit 面板里看到 'error: 3' 容易误读为 "出了 3 个错误". 改名 errorCount 消歧义.
+    db.recordAudit({
+      ip: req.ip, action: 'source.staticCheck', target: r.platform,
+      detail: { checked: r.checked, okCount: r.ok, errorCount: r.error }
+    });
     // 万象书屋: r 自带 { platform, checked, ok, error, results } — 把数字 ok 改名 okCount,
-    // 否则 spread 后 `ok: true` 会被覆盖.
-    const { ok: okCount, ...rest } = r;
-    res.json({ ok: true, okCount, ...rest });
+    // 否则 spread 后 `ok: true` 会被覆盖. 同步把 error 改名 errorCount.
+    const { ok: okCount, error: errorCount, ...rest } = r;
+    res.json({ ok: true, okCount, errorCount, ...rest });
   } catch (e) {
     res.status(400).json({ ok: false, msg: e.message || 'check failed' });
   }
 });
 
-app.patch('/api/admin/sources/enabled', requireAdmin, (req, res) => {
+// 万象书屋 D-16 (B-4): 切换 enabled 只 super/operator
+app.patch('/api/admin/sources/enabled', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const { url, enabled } = req.body || {};
   if (!url) return res.status(400).json({ ok: false });
   db.setEnabled(url, !!enabled);
@@ -1014,7 +1032,8 @@ app.patch('/api/admin/sources/enabled', requireAdmin, (req, res) => {
 
 // 万象书屋 v2 (007): admin 改某个源对哪些平台可见
 // body: { url, platforms: ['android', 'ios'] }   (空数组 = 该源对所有平台不可见, 实质禁用)
-app.patch('/api/admin/sources/platforms', requireAdmin, (req, res) => {
+// 万象书屋 D-16 (B-4): 平台过滤是 admin 运营操作, 限 super/operator
+app.patch('/api/admin/sources/platforms', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const { url, platforms } = req.body || {};
   if (!url) return res.status(400).json({ ok: false, msg: 'url required' });
   if (!Array.isArray(platforms)) return res.status(400).json({ ok: false, msg: 'platforms must be an array' });
@@ -1038,7 +1057,8 @@ app.get('/api/admin/bookstore-feed', requireAdmin, (req, res) => {
   res.json(db.listAllBookstoreFeed());
 });
 
-app.post('/api/admin/bookstore-feed', requireAdmin, (req, res) => {
+// 万象书屋 D-16 (B-4): 书城 feed 也属于运营修改
+app.post('/api/admin/bookstore-feed', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const b = req.body || {};
   if (!b.channel || !_ALLOWED_CHANNELS.has(b.channel)) {
     return res.status(400).json({ ok: false, msg: 'channel invalid' });
@@ -1054,14 +1074,84 @@ app.post('/api/admin/bookstore-feed', requireAdmin, (req, res) => {
   }
 });
 
-app.patch('/api/admin/bookstore-feed/:id/enabled', requireAdmin, (req, res) => {
+app.patch('/api/admin/bookstore-feed/:id/enabled', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ ok: false });
   db.setBookstoreFeedEnabled(id, !!req.body?.enabled);
   res.json({ ok: true });
 });
 
-app.delete('/api/admin/bookstore-feed/:id', requireAdmin, (req, res) => {
+// =============================================================================
+// 万象书屋 D-23 (2026-05-08): 书城 m.qidian.com mirror endpoints
+// =============================================================================
+
+const qidianMirror = require('./jobs/qidianMirror');
+
+/**
+ * 客户端拉 mirror cache. ETag 304 节流, 命中 cache 时只发 etag header 不发 body.
+ * App 端原直抓 m.qidian 的代码保留为 fallback (本接口 503 / 304 异常时降级).
+ */
+app.get('/api/bookstore/mirror', rateLimitSources, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
+  const row = db.getLatestBookstoreMirror();
+  if (!row) {
+    return res.status(503).json({ ok: false, msg: 'mirror not ready, fallback to direct fetch' });
+  }
+  // 万象书屋: payload 已经是序列化好的 JSON 字符串, 直接 send 不再 JSON.stringify
+  res.set('ETag', row.etag);
+  res.set('Cache-Control', 'public, max-age=600');
+  res.set('Content-Type', 'application/json; charset=utf-8');
+  if (req.get('If-None-Match') === row.etag) return res.status(304).end();
+  // overrides_json 是 admin 配的覆盖规则 (置顶/屏蔽/改字段). 没规则时直接 send 原 payload.
+  // 有规则时 merge 后 send (overrides 处理放在客户端方便也省服务端 CPU; 后期可挪到这里).
+  res.send(row.payload);
+});
+
+/** admin 监控: 当前 cache 状态 + 最近 24 次抓取记录 */
+app.get('/api/admin/bookstore-mirror/status', requireAdmin, (req, res) => {
+  const latest = db.getLatestBookstoreMirror();
+  const recent = db.listRecentBookstoreMirror(24);
+  res.json({
+    latest: latest ? {
+      version: latest.version,
+      fetched_at: latest.fetched_at,
+      etag: latest.etag,
+      source: latest.source,
+      payload_size: latest.payload?.length || 0,
+    } : null,
+    nextScheduledAt: _nextMirrorRunAt || null,
+    recent: recent.map(r => ({
+      id: r.id,
+      version: r.version,
+      fetched_at: r.fetched_at,
+      ok: r.ok === 1,
+      err_msg: r.err_msg,
+      payload_size: r.payload_size,
+      source: r.source,
+    })),
+  });
+});
+
+/** admin 手动触发抓取 (不替换 cron, 只是临时刷新). */
+app.post('/api/admin/bookstore-mirror/refresh', requireAdmin, requireRole(['super', 'operator']), async (req, res) => {
+  try {
+    const result = await qidianMirror.fetchAndCache(db);
+    logger.info('mirror manual refresh ok', result);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    qidianMirror.recordFailure(db, e);
+    logger.warn('mirror manual refresh failed', { msg: e.message });
+    res.status(500).json({ ok: false, msg: e.message });
+  }
+});
+
+/** admin 预览当前 cache 完整 JSON */
+app.get('/api/admin/bookstore-mirror/preview', requireAdmin, (req, res) => {
+  const row = db.getLatestBookstoreMirror();
+  res.set('Content-Type', 'application/json; charset=utf-8');
+  res.send(row?.payload || '{}');
+});
+
+app.delete('/api/admin/bookstore-feed/:id', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ ok: false });
   const n = db.deleteBookstoreFeed(id);
@@ -1071,7 +1161,7 @@ app.delete('/api/admin/bookstore-feed/:id', requireAdmin, (req, res) => {
 
 // 万象书屋 v2 (007): 批量给一组源加/去某个平台标 (admin "全选 iOS" 用)
 // body: { urls: ['url1','url2'], platform: 'ios', op: 'add'|'remove' }
-app.patch('/api/admin/sources/platforms/bulk', requireAdmin, (req, res) => {
+app.patch('/api/admin/sources/platforms/bulk', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const { urls, platform, op } = req.body || {};
   if (!Array.isArray(urls) || urls.length === 0) return res.status(400).json({ ok: false, msg: 'urls required' });
   if (!['android', 'ios', 'web'].includes(platform)) return res.status(400).json({ ok: false, msg: 'platform invalid' });
@@ -1102,7 +1192,7 @@ app.patch('/api/admin/sources/platforms/bulk', requireAdmin, (req, res) => {
 });
 
 // 万象书屋: 批量启停整组 (admin O6)
-app.patch('/api/admin/sources/group-enabled', requireAdmin, (req, res) => {
+app.patch('/api/admin/sources/group-enabled', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const { group, enabled } = req.body || {};
   if (typeof group !== 'string') return res.status(400).json({ ok: false, msg: 'group required' });
   const now = Date.now();
@@ -1381,6 +1471,111 @@ app.post('/api/ad-events', rateLimitAdEvent, blockBlacklistedDevice, verifyDevic
     });
   }
   res.json({ ok: true, accepted: ok, rejected: bad, total: arr.length });
+});
+
+// ==================== 万象书屋: 自建埋点 ====================
+// 设计:
+//   客户端内存队列, 5 秒 / 50 条 / 切后台 触发批量 POST /api/events.
+//   单条事件 schema: {ts, type, name, params, sessionId} - deviceId 走 X-Device-Id header.
+//   后端只校验 schema 不校验业务语义 (event_name 可任意), 接受所有事件入库.
+//   长期数据用 /api/admin/events/* 系列查询.
+app.post('/api/events', rateLimitEvents, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
+  const arr = Array.isArray(req.body) ? req.body : req.body?.events;
+  if (!Array.isArray(arr)) return res.status(400).json({ ok: false, msg: 'array expected' });
+  if (arr.length === 0) return res.json({ ok: true, accepted: 0 });
+  if (arr.length > 100) return res.status(400).json({ ok: false, msg: 'too many events (max 100)' });
+
+  const did = req.get('X-Device-Id') || '';
+  if (!did) return res.status(400).json({ ok: false, msg: 'X-Device-Id required' });
+
+  let ok = 0, bad = 0;
+  const valid = [];
+  for (const e of arr) {
+    if (!e || typeof e !== 'object') { bad++; continue; }
+    if (!e.name || typeof e.name !== 'string') { bad++; continue; }
+    valid.push({
+      clientTs: e.ts,
+      deviceId: did,
+      platform: req.platform,
+      // 万象书屋 D-16 (API-3): appVer/sessionId 优先取 envelope (req.body), 单条 fallback 仅历史兼容.
+      // 当前 WanxiangAnalytics SDK 只在 envelope 顶层放, 不在每条 event 里放. 早期 schema 漂移
+      // 的客户端可能在每条事件里也带 — 二选一不阻塞解析.
+      appVer: req.body?.appVer || e.appVer,
+      type: e.type || 'custom',
+      name: e.name,
+      params: e.params,
+      sessionId: req.body?.sessionId || e.sessionId,
+    });
+  }
+  try {
+    ok = db.recordEventsBulk(valid, req.ip);
+  } catch (err) {
+    logger.error('event insert fail', { t: req.traceId, err: err.message });
+    return res.status(500).json({ ok: false, msg: 'db insert failed' });
+  }
+  res.json({ ok: true, accepted: ok, rejected: bad });
+});
+
+// === 万象书屋: 埋点管理面板查询接口 ===
+
+app.get('/api/admin/events/overview', requireAdmin, (req, res) => {
+  res.json({ ok: true, ...db.eventOverview() });
+});
+
+app.get('/api/admin/events/top', requireAdmin, (req, res) => {
+  const days = Math.max(1, Math.min(90, parseInt(req.query.days, 10) || 7));
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 20));
+  const sinceTs = Date.now() - days * 86400 * 1000;
+  res.json({
+    ok: true, days, limit,
+    items: db.eventTopList({ sinceTs, limit, type: req.query.type }),
+  });
+});
+
+app.get('/api/admin/events/dau', requireAdmin, (req, res) => {
+  const days = Math.max(1, Math.min(60, parseInt(req.query.days, 10) || 14));
+  res.json({ ok: true, days, daily: db.eventDailyDau(days) });
+});
+
+app.get('/api/admin/events/recent', requireAdmin, (req, res) => {
+  res.json({
+    ok: true,
+    items: db.listEvents({
+      limit: req.query.limit,
+      eventName: req.query.name,
+      deviceId: req.query.deviceId,
+      type: req.query.type,
+    }),
+  });
+});
+
+app.get('/api/admin/events/retention', requireAdmin, (req, res) => {
+  // 万象书屋 D-16 (B-5): db.eventRetentionMatrix 内部 SELECT device_id,ts FROM events WHERE ts >= now-2*days,
+  //   实测 90 天 events 表 (~50 万行) 单查询会阻塞 event loop ~1-2 秒.
+  //   admin 看留存通常只关心最近 14-30 天, 把上限收到 30 (原来 60), 同时给运维指引文档.
+  //   长期方案见 011_book_sources_idx.sql 的 events_cohort_daily 物化表 (D-17 计划).
+  const days = Math.max(2, Math.min(30, parseInt(req.query.days, 10) || 14));
+  res.json({ ok: true, ...db.eventRetentionMatrix(days) });
+});
+
+app.get('/api/admin/events/funnel', requireAdmin, (req, res) => {
+  // 接受 ?steps=app_open,page_main,page_bookshelf,read_chapter_open
+  const steps = (req.query.steps || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!steps.length) return res.status(400).json({ ok: false, msg: 'steps required' });
+  const days = Math.max(1, Math.min(60, parseInt(req.query.days, 10) || 7));
+  const sinceTs = Date.now() - days * 86400 * 1000;
+  const items = db.eventFunnel(steps, sinceTs);
+  // 加转化率
+  const enriched = items.map((s, i) => {
+    const prev = items[0]?.uv || 0;
+    const last = i > 0 ? items[i - 1].uv : prev;
+    return {
+      ...s,
+      conversionFromFirst: prev ? +(s.uv / prev * 100).toFixed(1) : 0,
+      conversionFromPrev:  last ? +(s.uv / last * 100).toFixed(1) : 0,
+    };
+  });
+  res.json({ ok: true, days, steps: enriched });
 });
 
 // 万象书屋: 手动清除熔断 + 设保护期 (运维介入用).
@@ -1689,7 +1884,8 @@ app.get('/api/admin/ad-config', requireAdmin, (req, res) => {
   });
 });
 
-app.post('/api/admin/ad-config', requireAdmin, (req, res) => {
+// 万象书屋 D-16 (B-4): 广告配置改写仅 super/operator (灰度 + commit 已限 super)
+app.post('/api/admin/ad-config', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   try {
     const body = req.body;
     if (!body || typeof body !== 'object') {
@@ -1925,9 +2121,85 @@ function start() {
   server = app.listen(PORT, () => {
     logger.info('backend listening', { port: PORT, admin: `http://0.0.0.0:${PORT}/admin` });
   });
+  scheduleMirrorJob();
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   return server;
+}
+
+// =============================================================================
+// 万象书屋 D-23: 书城 mirror cron 调度
+// =============================================================================
+//
+// 用 setTimeout 自己排, 不引入 node-cron 新依赖.
+// 策略: 每天 00:00-07:00 随机一个时刻触发抓取.
+//   - 半夜起点服务器低峰, 抓得稳, 也不打扰白天用户使用
+//   - 随机时间避免每天固定 hh:mm 太规律被起点反爬识别
+//
+// 启动时:
+//   1. 算"下一次执行的时刻": 如果当前时间 < 今天 7:00, 就在剩余窗口里随机;
+//      否则在明天 0:00-7:00 里随机
+//   2. setTimeout 到那个时刻执行 fetchAndCache, 之后再调度下一天
+//   3. 服务进程崩溃重启后会重新算, 不会重复跑
+//
+// 启动后还做一次"冷启抓取":
+//   如果 DB 里完全没 cache (新装), 立刻执行一次, 不等到半夜
+let _nextMirrorRunAt = null;
+let _mirrorTimer = null;
+
+function scheduleMirrorJob() {
+  // 启动时如果 cache 全空, 立刻抓一次, 让首次启动的用户能立即用上 mirror
+  setTimeout(async () => {
+    if (!db.getLatestBookstoreMirror()) {
+      logger.info('mirror: empty cache on boot, kick off initial fetch');
+      try {
+        const r = await qidianMirror.fetchAndCache(db);
+        logger.info('mirror: initial fetch ok', r);
+      } catch (e) {
+        qidianMirror.recordFailure(db, e);
+        logger.warn('mirror: initial fetch failed', { msg: e.message });
+      }
+    }
+  }, 5_000);  // 5s 后跑, 不阻塞启动
+
+  scheduleNextMirrorRun();
+}
+
+function scheduleNextMirrorRun() {
+  if (_mirrorTimer) clearTimeout(_mirrorTimer);
+
+  // 计算下一次抓取时刻: 0:00-7:00 之间随机
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(0, 0, 0, 0);  // 今天 0:00
+  // 0~7h 内随机毫秒数 (含 0, 不含 7h)
+  const randomMs = Math.floor(Math.random() * 7 * 3600 * 1000);
+  target.setTime(target.getTime() + randomMs);
+
+  // 如果今天的随机时刻已过, 排到明天的随机时刻
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+    target.setHours(0, 0, 0, 0);
+    target.setTime(target.getTime() + Math.floor(Math.random() * 7 * 3600 * 1000));
+  }
+
+  const delayMs = target.getTime() - now.getTime();
+  _nextMirrorRunAt = target.toISOString();
+  logger.info('mirror: next run scheduled', { at: _nextMirrorRunAt, delayMin: Math.round(delayMs / 60_000) });
+
+  _mirrorTimer = setTimeout(async () => {
+    try {
+      const r = await qidianMirror.fetchAndCache(db);
+      logger.info('mirror: scheduled fetch ok', r);
+    } catch (e) {
+      qidianMirror.recordFailure(db, e);
+      logger.warn('mirror: scheduled fetch failed', { msg: e.message });
+    } finally {
+      // 每次跑完重新调度下一天
+      scheduleNextMirrorRun();
+    }
+  }, delayMs);
+  _mirrorTimer.unref?.();  // 不阻塞进程退出
 }
 
 // 万象书屋: 优雅关闭. SIGTERM (systemd stop / docker stop) + SIGINT (Ctrl+C) 时
