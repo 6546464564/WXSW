@@ -72,6 +72,12 @@ struct CLI {
                 let key = args.dropFirst().first ?? "斗破苍穹"
                 let filter = args.dropFirst(2).first
                 try await realDeep(key: key, sourceFilter: filter)
+            case "merge-search":
+                // merge-search "<关键字>" [true|1]   # 第二参为「精准搜索」同 iOS App
+                let key = args.dropFirst().first ?? "斗破苍穹"
+                let precArg = args.dropFirst(2).first?.lowercased() ?? ""
+                let precision = (precArg == "1" || precArg == "true" || precArg == "yes")
+                try await mergeSearch(key: key, precision: precision)
             default:                 printHelp()
             }
         } catch {
@@ -98,6 +104,7 @@ struct CLI {
           fetch <URL>     抓页面看编码探测
           search-stub     用 mock HTML 源跑搜索 (无网络, 验证 SearchParser)
           real-search \"关键字\" [源名过滤]   # 走后端 /api/sources
+          merge-search \"关键字\" [true]      # 全源合并 + iOS 同款去重/排序 (对照安卓列表用)
           real-search-file <legado.json> \"关键字\" [源名过滤]   # 本地 JSON
         """)
     }
@@ -862,6 +869,92 @@ func realSearch(key: String, sourceFilter: String?) async throws {
     print("  ⚠️ 0 hit:    \(parseEmpty)")
     print("  ❌ 异常:      \(fail)")
     print("  ⏱  timeout:  \(timeout)")
+}
+
+// MARK: - merge-search (iOS SearchViewModel 等价快照)
+
+/// 与 iOS `SearchViewModel` + `SearchLegadoOrdering` 一致: 多源并发 → `dedupeKey` 首条保留 → 分层排序.
+/// Android 另会把同名同作者多源合成一条 (`addOrigin`), 故 Android 行数 ≤ 本列表行数.
+private func relevanceTierMergeSearch(book: SearchBook, k: String) -> Int {
+    if book.name == k || book.author == k { return 0 }
+    if book.name.contains(k) || book.author.contains(k) { return 1 }
+    return 2
+}
+
+private func sortMergedLikeIosSearchView(books: [SearchBook], key k: String, precision: Bool) -> [SearchBook] {
+    let key = k.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else { return books }
+    var arr = books
+    if precision {
+        arr = arr.filter { relevanceTierMergeSearch(book: $0, k: key) < 2 }
+    }
+    arr.sort { a, b in
+        let ta = relevanceTierMergeSearch(book: a, k: key)
+        let tb = relevanceTierMergeSearch(book: b, k: key)
+        if ta != tb { return ta < tb }
+        let ap = a.name.hasPrefix(key) || a.author.hasPrefix(key)
+        let bp = b.name.hasPrefix(key) || b.author.hasPrefix(key)
+        if ap != bp { return ap && !bp }
+        if a.name.count != b.name.count { return a.name.count < b.name.count }
+        if a.name != b.name { return a.name < b.name }
+        return a.author < b.author
+    }
+    return arr
+}
+
+func mergeSearch(key rawKey: String, precision: Bool) async throws {
+    let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else { return }
+    print("=== merge-search (iOS App 列表逻辑: dedupeKey + Legado 排序) ===")
+    print("关键字: \(key)   精准搜索: \(precision ? "开" : "关")\n")
+
+    let url = URL(string: "http://localhost:3000/api/sources")!
+    var req = URLRequest(url: url)
+    req.setValue("ios", forHTTPHeaderField: "X-Platform")
+    req.setValue("cli-merge-search", forHTTPHeaderField: "X-Device-Id")
+    let (data, _) = try await URLSession.shared.data(for: req)
+    let raw = try JSONSerialization.jsonObject(with: data)
+    var rawArr: [Any] = []
+    if let dict = raw as? [String: Any], let arr = dict["sources"] as? [Any] {
+        rawArr = arr
+    } else if let arr = raw as? [Any] {
+        rawArr = arr
+    }
+    var sources: [BookSource] = []
+    for item in rawArr {
+        guard let dict = item as? [String: Any] else { continue }
+        guard let d = try? JSONSerialization.data(withJSONObject: dict),
+              let bs = try? JSONDecoder().decode(BookSource.self, from: d),
+              !bs.bookSourceUrl.isEmpty, !bs.bookSourceName.isEmpty else { continue }
+        sources.append(bs)
+    }
+    print("书源数: \(sources.count) (X-Platform: ios)\n")
+
+    let engine = await BookSourceEngine.shared
+    var merged: [SearchBook] = []
+    var seenKeys = Set<String>()
+    let stream = await engine.searchAll(in: sources, key: key)
+    for await (_, result) in stream {
+        switch result {
+        case .success(let books):
+            for b in books {
+                if precision && relevanceTierMergeSearch(book: b, k: key) >= 2 { continue }
+                if seenKeys.insert(b.dedupeKey).inserted {
+                    merged.append(b)
+                }
+            }
+        case .failure(let err):
+            print("[源失败] \(err.localizedDescription)")
+        }
+    }
+    let sorted = sortMergedLikeIosSearchView(books: merged, key: key, precision: precision)
+    print("去重后 \(sorted.count) 条 (dedupeKey 首条保留, 与 iOS SearchViewModel 流式一致)\n")
+    print("--- 前 45 条 (书名 / 作者 | 源名) ---")
+    for (i, b) in sorted.prefix(45).enumerated() {
+        let idx = i + 1
+        let line = "\(idx). \(b.name) / \(b.author)  |  \(b.originName)"
+        print(line)
+    }
 }
 
 /// 从 legado 导出 JSON 载入书源并搜索 (不等后端)
