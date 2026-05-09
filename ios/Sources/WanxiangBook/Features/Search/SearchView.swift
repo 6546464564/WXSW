@@ -33,6 +33,9 @@ struct SearchView: View {
     @State private var debounceTask: Task<Void, Never>? = nil
     @FocusState private var inputFocused: Bool
 
+    /// 万象书屋: 对齐 Android `PreferKey.precisionSearch` — 只保留书名或作者含关键词的结果.
+    @AppStorage("wanxiang.search.precision") private var precisionSearch: Bool = false
+
     /// 万象书屋: 从书城点 stub 书时, 自动预填关键词 + 立即开搜
     let initialKeyword: String
 
@@ -66,12 +69,25 @@ struct SearchView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { dismiss() }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Toggle("精准搜索", isOn: $precisionSearch)
+                    } label: {
+                        Image(systemName: precisionSearch ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                            .foregroundStyle(precisionSearch ? WanxiangColors.primary : WanxiangColors.textPrimary)
+                    }
+                    .accessibilityLabel("搜索选项")
+                }
             }
             .onAppear {
                 inputFocused = true
                 if !initialKeyword.isEmpty && vm.results.isEmpty {
-                    Task { await vm.search(key: initialKeyword) }
+                    Task { await vm.search(key: initialKeyword, precisionSearch: precisionSearch) }
                 }
+            }
+            .onChange(of: precisionSearch) { _, _ in
+                guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                Task { await vm.search(key: keyword, precisionSearch: precisionSearch) }
             }
         }
     }
@@ -90,7 +106,7 @@ struct SearchView: View {
                     debounce(new)
                 }
                 .onSubmit {
-                    Task { await vm.search(key: keyword) }
+                    Task { await vm.search(key: keyword, precisionSearch: precisionSearch) }
                 }
             if !keyword.isEmpty {
                 Button {
@@ -154,7 +170,7 @@ struct SearchView: View {
                         ForEach(vm.history, id: \.self) { h in
                             Button {
                                 keyword = h
-                                Task { await vm.search(key: h) }
+                                Task { await vm.search(key: h, precisionSearch: precisionSearch) }
                             } label: {
                                 HStack {
                                     Image(systemName: "clock")
@@ -239,10 +255,11 @@ struct SearchView: View {
             vm.results = []
             return
         }
+        let prec = precisionSearch
         debounceTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)  // 300ms
             if !Task.isCancelled {
-                await vm.search(key: text)
+                await vm.search(key: text, precisionSearch: prec)
             }
         }
     }
@@ -294,6 +311,43 @@ private struct SearchResultRow: View {
     }
 }
 
+// MARK: - 对齐 Android SearchModel.mergeItems 的排序 (可单测)
+
+/// 万象书屋: Android 端 `SearchModel.mergeItems` 把结果分成「完全匹配 / 包含 / 其余」三档再拼接;
+/// iOS 之前按各书源 AsyncStream 完成顺序追加, 同一关键词下列表顺序与安卓差很多.
+enum SearchLegadoOrdering {
+    /// - 0: 书名或作者**等于**关键词
+    /// - 1: 书名或作者**包含**关键词
+    /// - 2: 其余 (精准搜索时丢弃)
+    static func relevanceTier(book: SearchBook, key: String) -> Int {
+        if book.name == key || book.author == key { return 0 }
+        if book.name.contains(key) || book.author.contains(key) { return 1 }
+        return 2
+    }
+
+    static func sort(books: [SearchBook], key: String, precision: Bool) -> [SearchBook] {
+        let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !k.isEmpty else { return books }
+        var arr = books
+        if precision {
+            arr = arr.filter { relevanceTier(book: $0, key: k) < 2 }
+        }
+        arr.sort { a, b in
+            let ta = relevanceTier(book: a, key: k)
+            let tb = relevanceTier(book: b, key: k)
+            if ta != tb { return ta < tb }
+            // 同档: 书名以关键词开头的优先 (「青山之恋」应排在「住在青山」前)
+            let ap = a.name.hasPrefix(k) || a.author.hasPrefix(k)
+            let bp = b.name.hasPrefix(k) || b.author.hasPrefix(k)
+            if ap != bp { return ap && !bp }
+            if a.name.count != b.name.count { return a.name.count < b.name.count }
+            if a.name != b.name { return a.name < b.name }
+            return a.author < b.author
+        }
+        return arr
+    }
+}
+
 // MARK: - ViewModel
 
 @MainActor
@@ -310,6 +364,10 @@ final class SearchViewModel: ObservableObject {
     private var currentTask: Task<Void, Never>? = nil
     private var searchGeneration: Int = 0
     private var resultKeys = Set<String>()
+    /// 当前这次搜索的关键词 (用于对齐 Android 的相关性排序)
+    private var activeSearchKey: String = ""
+    /// 对齐 Android `precisionSearch`: 为 true 时丢弃书名/作者都不含关键词的条目
+    private var activePrecision: Bool = false
 
     /// 万象书屋: 熔断器 (M2.4.7). 同一源连续超时 3 次 → 拉黑 1h
     /// key = source url, value = (failCount, blockedUntil)
@@ -345,12 +403,14 @@ final class SearchViewModel: ObservableObject {
         sourceFailures[url] = (0, nil)
     }
 
-    func search(key: String) async {
+    func search(key: String, precisionSearch: Bool = false) async {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
         currentTask?.cancel()
         searchGeneration += 1
         let generation = searchGeneration
+        self.activeSearchKey = key
+        self.activePrecision = precisionSearch
 
         // 1. 入历史
         addToHistory(key)
@@ -381,6 +441,10 @@ final class SearchViewModel: ObservableObject {
                     self.recordSuccess(source.bookSourceUrl)
                     for b in books {
                         if Task.isCancelled || generation != self.searchGeneration { break }
+                        if self.activePrecision,
+                           SearchLegadoOrdering.relevanceTier(book: b, key: self.activeSearchKey) >= 2 {
+                            continue
+                        }
                         // 万象书屋 (P0 修复): 只按 name+author 合并真正的"同一本书".
                         //   - 之前还按 titleDedupeKey (name 前 14 字) 二次去重, 把
                         //     《捞尸人》by 陈十三 / 《捞尸人》by 纯洁滴小龙 / 《黄河捞尸人》
@@ -392,6 +456,11 @@ final class SearchViewModel: ObservableObject {
                         self.resultKeys.insert(b.dedupeKey)
                         self.results.append(b)
                     }
+                    // 万象书屋: 对齐 Android SearchModel.mergeItems 的最终展示顺序 —
+                    // 先「书名或作者完全等于关键词」, 再「包含关键词」, 其余按非精准模式保留.
+                    // iOS 之前按 AsyncStream 完成顺序追加, 导致同一关键词下与安卓列表顺序差很多
+                    // (用户体感「搜青山两边不一样」).
+                    self.applyLegadoStyleOrdering()
                 case .failure(let err):
                     if generation != self.searchGeneration { break }
                     self.recordFailure(source.bookSourceUrl)
@@ -399,9 +468,18 @@ final class SearchViewModel: ObservableObject {
                 }
             }
             if generation == self.searchGeneration {
+                self.applyLegadoStyleOrdering()
                 self.isSearching = false
             }
         }
+    }
+
+    private func applyLegadoStyleOrdering() {
+        results = SearchLegadoOrdering.sort(
+            books: results,
+            key: activeSearchKey,
+            precision: activePrecision
+        )
     }
 
     // MARK: - 本地源 (M0-B 后端 platform=ios 后真拉远端)
