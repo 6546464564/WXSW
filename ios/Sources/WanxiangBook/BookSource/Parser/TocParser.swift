@@ -34,11 +34,21 @@ public actor TocParser {
         var visitedPages = Set<String>()
         var pageCount = 0
 
+        // 万象书屋: 目录解析 JS / 模板上下文 (修复点同 BookInfoParser).
+        //   - book.* 来自详情页结果, 让 chapterList JS / chapterName / chapterUrl 规则
+        //     里的 `@get:{book.bookUrl}` `source.bookSourceUrl` 等可用
+        //   - 一些目录 JS 用 `<js>if(result.includes('Cloudflare')) ... ajax(baseUrl)</js>`
+        //     模板里 baseUrl/source 都靠这个 scope.
+        let scopeBook = Self.bookFieldsForScope(info)
+
         while !queue.isEmpty, pageCount < Self.maxTocPages {
             let currentUrl = queue.removeFirst()
             if visitedPages.contains(currentUrl) { continue }
             visitedPages.insert(currentUrl)
             pageCount += 1
+            // 万象书屋: 目录多页 (nextTocUrl 抓数十页) 也走 concurrentRate 限速,
+            // 跟 Search/Content 一致避免封 IP.
+            await SourceRateLimiter.shared.acquire(source: source)
             let resp = try await fetcher.fetch(
                 urlString: currentUrl,
                 headers: source.parseHeaders(),
@@ -46,22 +56,33 @@ public actor TocParser {
             )
             let html = resp.bodyText
             let baseUrl = resp.finalURL?.absoluteString ?? currentUrl
+            let pageScope = JSContextScope()
+            pageScope.baseUrl = baseUrl
+            pageScope.src = html
+            pageScope.bookSource = source
+            pageScope.book = scopeBook
 
             let nodes = try await dispatcher.selectList(
-                rule: listSelector, source: html, baseUrl: baseUrl
+                rule: listSelector, source: html, baseUrl: baseUrl, jsContext: pageScope
             )
 
             for node in nodes {
                 // 万象书屋 (P0 fix): legado chapterName = "text" / "@text" 都是"取节点 text"
                 // chapterUrl = "href" / "@href" 都是"取节点 href"
                 // 不能直接当 css selector 跑, 必须走属性提取
+                let nodeScope = JSContextScope()
+                nodeScope.baseUrl = baseUrl
+                nodeScope.src = node
+                nodeScope.bookSource = source
+                nodeScope.book = scopeBook
+
                 let nameRule = normalizeSimpleAttr(rule.chapterName ?? "text")
                 let urlRule = normalizeSimpleAttr(rule.chapterUrl ?? "href")
                 let title = (try? await dispatcher.selectString(
-                    rule: nameRule, source: node, baseUrl: baseUrl
+                    rule: nameRule, source: node, baseUrl: baseUrl, jsContext: nodeScope
                 ))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let url = (try? await dispatcher.selectString(
-                    rule: urlRule, source: node, baseUrl: baseUrl
+                    rule: urlRule, source: node, baseUrl: baseUrl, jsContext: nodeScope
                 )) ?? ""
 
                 if title.isEmpty { continue }
@@ -77,15 +98,16 @@ public actor TocParser {
                 if seenKeys.contains(key) { continue }
                 seenKeys.insert(key)
 
-                let isVolume = await readBoolFlag(rule.isVolume, html: node, baseUrl: baseUrl)
-                let vipFromRule = await readBoolFlag(rule.isVip, html: node, baseUrl: baseUrl)
-                let payFromRule = await readBoolFlag(rule.isPay, html: node, baseUrl: baseUrl)
+                let isVolume = await readBoolFlag(rule.isVolume, html: node, baseUrl: baseUrl, scope: nodeScope)
+                let vipFromRule = await readBoolFlag(rule.isVip, html: node, baseUrl: baseUrl, scope: nodeScope)
+                let payFromRule = await readBoolFlag(rule.isPay, html: node, baseUrl: baseUrl, scope: nodeScope)
                 let isVip = urlSuffixVip || vipFromRule
                 let isPay = urlSuffixPay || payFromRule
                 let upd = (try? await dispatcher.selectString(
                     rule: rule.updateTime ?? "",
                     source: node,
-                    baseUrl: baseUrl
+                    baseUrl: baseUrl,
+                    jsContext: nodeScope
                 ))
 
                 chapters.append(BookChapter(
@@ -102,13 +124,13 @@ public actor TocParser {
             // 多页翻页 — 优先 selectList (兼容 JS 返数组), 否则退化 selectString
             if let nextRule = rule.nextTocUrl, !nextRule.isEmpty {
                 let nextList = (try? await dispatcher.selectList(
-                    rule: nextRule, source: html, baseUrl: baseUrl
+                    rule: nextRule, source: html, baseUrl: baseUrl, jsContext: pageScope
                 )) ?? []
                 let candidates: [String]
                 if nextList.count > 1 {
                     candidates = nextList
                 } else if let single = try? await dispatcher.selectString(
-                    rule: nextRule, source: html, baseUrl: baseUrl), !single.isEmpty {
+                    rule: nextRule, source: html, baseUrl: baseUrl, jsContext: pageScope), !single.isEmpty {
                     candidates = [single]
                 } else {
                     candidates = []
@@ -126,11 +148,29 @@ public actor TocParser {
         return chapters
     }
 
-    private func readBoolFlag(_ rule: String?, html: String, baseUrl: String?) async -> Bool {
+    private func readBoolFlag(_ rule: String?, html: String, baseUrl: String?, scope: JSContextScope? = nil) async -> Bool {
         guard let rule, !rule.isEmpty else { return false }
-        let v = try? await dispatcher.selectString(rule: rule, source: html, baseUrl: baseUrl)
+        let v = try? await dispatcher.selectString(rule: rule, source: html, baseUrl: baseUrl, jsContext: scope)
         guard let v, !v.isEmpty else { return false }
         return ["1", "true", "yes"].contains(v.lowercased())
+    }
+
+    /// 万象书屋: 把 BookInfo 字段拍平成 [String:Any] 给 JSContextScope.book 用.
+    /// 详情结果是目录链路里 `@get:{book.author}` `{{book.kind}}` 等模板的来源.
+    nonisolated static func bookFieldsForScope(_ info: BookInfo) -> [String: Any] {
+        var dict: [String: Any] = [
+            "name": info.name,
+            "author": info.author,
+            "bookUrl": info.bookUrl,
+        ]
+        if let v = info.coverUrl { dict["coverUrl"] = v }
+        if let v = info.intro { dict["intro"] = v }
+        if let v = info.kind { dict["kind"] = v }
+        if let v = info.tocUrl { dict["tocUrl"] = v }
+        if let v = info.lastChapter { dict["lastChapter"] = v }
+        if let v = info.updateTime { dict["updateTime"] = v }
+        if let v = info.wordCount { dict["wordCount"] = v }
+        return dict
     }
 
     /// 万象书屋: legado 单属性关键字处理

@@ -26,6 +26,19 @@ public actor BookInfoParser {
 
         let rule = source.ruleBookInfo ?? BookInfoRule()
 
+        // 万象书屋: 详情页解析的 JS / 模板上下文.
+        //   - book.* 字段: 来自搜索结果 (用户最关心的源数据), 这是规则里
+        //     `@get:{book.bookUrl}` `{{book.author}}` 能拿到值的关键.
+        //   - bookSource: 源对象, 让 @js: 里的 source.bookSourceUrl / source.header 可用
+        //   - 这一步是 iOS 解析能力对齐 Android 的核心修复:
+        //     之前 dispatcher 调用没传 jsContext, 规则里的 book/source 全空,
+        //     所以用了 `@get:{book.xxx}` 的源 (~半数) 在详情/目录环节直接断裂.
+        let scope = JSContextScope()
+        scope.baseUrl = baseUrl
+        scope.src = html
+        scope.bookSource = source
+        scope.book = Self.bookFieldsForScope(book)
+
         // 万象书屋: legado bookInfoInit 预处理 (yckceo「6.书源之详情→预处理规则(bookInfoInit)」)
         //   - 只能是 AllInOne 正则 (`:` 开头) 或 JS
         //   - JS 返回 JSON 对象, 后续 name/author 等规则就直接是键名 (a/b/...)
@@ -35,18 +48,19 @@ public actor BookInfoParser {
             let preprocessed = await runBookInfoInit(initRule, html: html, baseUrl: baseUrl, source: source)
             if let p = preprocessed, !p.isEmpty {
                 html = p
+                scope.src = html
             }
         }
 
-        async let nameTask = optString(rule.name, html: html, baseUrl: baseUrl)
-        async let authorTask = optString(rule.author, html: html, baseUrl: baseUrl)
-        async let introTask = optString(rule.intro, html: html, baseUrl: baseUrl)
-        async let kindTask = optString(rule.kind, html: html, baseUrl: baseUrl)
-        async let lastTask = optString(rule.lastChapter, html: html, baseUrl: baseUrl)
-        async let updTask = optString(rule.updateTime, html: html, baseUrl: baseUrl)
-        async let coverTask = optString(rule.coverUrl, html: html, baseUrl: baseUrl)
-        async let tocTask = optString(rule.tocUrl, html: html, baseUrl: baseUrl)
-        async let wcTask = optString(rule.wordCount, html: html, baseUrl: baseUrl)
+        async let nameTask = optString(rule.name, html: html, baseUrl: baseUrl, scope: scope)
+        async let authorTask = optString(rule.author, html: html, baseUrl: baseUrl, scope: scope)
+        async let introTask = optString(rule.intro, html: html, baseUrl: baseUrl, scope: scope)
+        async let kindTask = optString(rule.kind, html: html, baseUrl: baseUrl, scope: scope)
+        async let lastTask = optString(rule.lastChapter, html: html, baseUrl: baseUrl, scope: scope)
+        async let updTask = optString(rule.updateTime, html: html, baseUrl: baseUrl, scope: scope)
+        async let coverTask = optString(rule.coverUrl, html: html, baseUrl: baseUrl, scope: scope)
+        async let tocTask = optString(rule.tocUrl, html: html, baseUrl: baseUrl, scope: scope)
+        async let wcTask = optString(rule.wordCount, html: html, baseUrl: baseUrl, scope: scope)
 
         let name = (await nameTask)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? book.name
 
@@ -70,9 +84,29 @@ public actor BookInfoParser {
         )
     }
 
-    private func optString(_ rule: String?, html: String, baseUrl: String?) async -> String? {
+    private func optString(_ rule: String?, html: String, baseUrl: String?, scope: JSContextScope? = nil) async -> String? {
         guard let rule, !rule.isEmpty else { return nil }
-        return try? await dispatcher.selectString(rule: rule, source: html, baseUrl: baseUrl)
+        return try? await dispatcher.selectString(rule: rule, source: html, baseUrl: baseUrl, jsContext: scope)
+    }
+
+    /// 万象书屋: 把 SearchBook 字段拍平成 [String:Any] 给 JSContextScope.book 用.
+    /// 跟 Android `RuleData.put`/`Book.toMap` 对齐: 只放规则里常用的字段名,
+    /// 都用 String 值, JS 里 book.author 直接拿到字符串.
+    nonisolated static func bookFieldsForScope(_ book: SearchBook) -> [String: Any] {
+        var dict: [String: Any] = [
+            "name": book.name,
+            "author": book.author,
+            "bookUrl": book.bookUrl,
+            "origin": book.origin,
+            "originName": book.originName,
+        ]
+        if let v = book.coverUrl { dict["coverUrl"] = v }
+        if let v = book.intro { dict["intro"] = v }
+        if let v = book.kind { dict["kind"] = v }
+        if let v = book.lastChapter { dict["lastChapter"] = v }
+        if let v = book.updateTime { dict["updateTime"] = v }
+        if let v = book.wordCount { dict["wordCount"] = v }
+        return dict
     }
 
     /// 万象书屋: 处理详情页预处理规则 bookInfoInit

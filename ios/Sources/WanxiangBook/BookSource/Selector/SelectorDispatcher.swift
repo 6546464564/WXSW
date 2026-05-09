@@ -47,6 +47,7 @@ public struct SelectorDispatcher: Sendable {
         var ctx = LegadoContext(baseUrl: baseUrl, source: source, key: jsContext?.key,
                                  page: jsContext?.page ?? 1, bookSource: jsContext?.bookSource)
         if let s = jsContext?.src { ctx.source = s }
+        ctx.book = Self.bookFieldsAsStrings(jsContext?.book)
         return await LegadoRuleEngine.shared.selectList(rule: trimmed, source: source, ctx: ctx)
     }
 
@@ -57,7 +58,24 @@ public struct SelectorDispatcher: Sendable {
         var ctx = LegadoContext(baseUrl: baseUrl, source: source, key: jsContext?.key,
                                  page: jsContext?.page ?? 1, bookSource: jsContext?.bookSource)
         if let s = jsContext?.src { ctx.source = s }
+        ctx.book = Self.bookFieldsAsStrings(jsContext?.book)
         return await LegadoRuleEngine.shared.selectString(rule: trimmed, source: source, ctx: ctx)
+    }
+
+    /// 万象书屋: JSContextScope.book ([String:Any]?) → LegadoContext.book ([String:String])
+    ///   - LegadoRuleEngine 的模板 {{book.xxx}} / @get:{xxx} 用的是 String 字典
+    ///   - JS 引擎那边 book 可能塞了非字符串 (Int 章节序号等), 这里全部 stringify 兜底
+    ///   - 跟 Android `RuleData.put` (Object 转 String) 对齐
+    private static func bookFieldsAsStrings(_ book: [String: Any]?) -> [String: String] {
+        guard let book else { return [:] }
+        var out: [String: String] = [:]
+        out.reserveCapacity(book.count)
+        for (k, v) in book {
+            if let s = v as? String { out[k] = s }
+            else if let n = v as? NSNumber { out[k] = n.stringValue }
+            else { out[k] = String(describing: v) }
+        }
+        return out
     }
 
     // MARK: - 路由

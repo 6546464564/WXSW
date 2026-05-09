@@ -106,9 +106,15 @@ public actor BookSourceEngine {
         }
     }
 
-    public func fetchContent(of chapter: BookChapter, in source: BookSource) async throws -> ChapterContent {
+    /// 万象书屋: 正文抓取入口
+    /// - parameter book: 当前书的详情 (用于 JS 规则里 `book.*` 模板). 上层有
+    ///   `BookInfo` 时务必透传; 一些源 (~七星阁/百合会等) 正文规则会用
+    ///   `<js>java.ajax(book.bookUrl)</js>` 之类, 不传 book 会拿到空值导致正文断裂.
+    public func fetchContent(of chapter: BookChapter,
+                             in source: BookSource,
+                             book: BookInfo? = nil) async throws -> ChapterContent {
         do {
-            let content = try await contentParser.fetchContent(of: chapter, in: source)
+            let content = try await contentParser.fetchContent(of: chapter, in: source, book: book)
             if content.content.isEmpty {
                 Self.reportHealth(source: source, stage: "content", status: "zero",
                                   errorMessage: "empty content", sampleUrl: chapter.chapterUrl)

@@ -621,9 +621,42 @@ public actor JSEngine {
         java.setObject(webView, forKeyedSubscript: "webViewGetOverrideUrl" as NSString)
         java.setObject({ (_: String, _: String) in } as @convention(block) (String, String) -> Void,
                        forKeyedSubscript: "startBrowser" as NSString)
-        let startBrowserAwait: @convention(block) (Any?, Any?) -> [String: Any] = { _, _ in
-            // 真要 await 浏览器需要 WebView, 这里给个空 response 让 JS 链能继续
-            return ["body": "", "code": 0, "headers": [:] as [String: String]]
+        // 万象书屋: java.startBrowserAwait(url, keyword) — 反爬关键
+        //   - legado 源经常这么写: `if (result.includes('Cloudflare')) {
+        //       result = java.startBrowserAwait(baseUrl, '关键词').body();
+        //     }`
+        //   - 之前是 stub 返空对象, 顶点小说/黄易天地等用 CF 防护的源 result=""
+        //     → 后续 selector 全跑空 → 0 搜索结果. 这是 iOS 跟 Android 解析能力
+        //     差距最直接的一刀.
+        //   - 现在桥到 BrowserBridgeRegistry → WKWebViewBridge, 真起 WKWebView
+        //     跑 JS, 等 outerHTML 含 keyword 后回填. 30s 超时让 JS 链能 fallback.
+        //   - 同步阻塞: JSEngine 是 actor, 这里 sema.wait() 卡当前 JS 求值线程,
+        //     跟 SyncHTTP 同模式. 不在 main thread 上跑就 OK.
+        let startBrowserAwait: @convention(block) (Any?, Any?) -> [String: Any] = { urlAny, keywordAny in
+            let url = (urlAny as? String) ?? ""
+            let keyword = keywordAny as? String   // 可空, BrowserBridge 会兜底返 outerHTML
+            guard !url.isEmpty else {
+                return ["body": "", "code": 0, "headers": [:] as [String: String]]
+            }
+            // 跳出 actor: Task 在合作池跑 await, sema 同步等结果回灌
+            let sema = DispatchSemaphore(value: 0)
+            // 万象书屋: 用 wrapper class 让 closure 可写 (Swift block 默认按值捕获)
+            let box = _BrowserResultBox()
+            Task.detached {
+                let bridge = await BrowserBridgeRegistry.shared.get()
+                let html = await bridge.loadAndWait(
+                    url: url, expectedKeyword: keyword, timeout: 30
+                )
+                box.body = html ?? ""
+                sema.signal()
+            }
+            // 35s 兜底: 给 BrowserBridge 30s + 缓冲, 自身 timeout 还是要的防 actor 卡死.
+            _ = sema.wait(timeout: .now() + 35)
+            return [
+                "body": box.body,
+                "code": box.body.isEmpty ? 0 : 200,
+                "headers": [:] as [String: String]
+            ]
         }
         java.setObject(startBrowserAwait, forKeyedSubscript: "startBrowserAwait" as NSString)
         let randomUUID: @convention(block) () -> String = {
@@ -661,6 +694,13 @@ public actor JSEngine {
             sha1Hex(s)
         }
         java.setObject(sha1Encode, forKeyedSubscript: "sha1Encode" as NSString)
+
+        // 万象书屋: legado JS 还有 sha256Encode (一些登录签名 JS 用), Android 已有.
+        // 之前 iOS 没挂到 java 上, 源 JS 调到这里就是 undefined → 抛错 → 整段 JS 失败.
+        let sha256Encode: @convention(block) (String) -> String = { s in
+            sha256Hex(s)
+        }
+        java.setObject(sha256Encode, forKeyedSubscript: "sha256Encode" as NSString)
 
         let toString: @convention(block) (Any?) -> String = { v in
             v.map { String(describing: $0) } ?? ""
@@ -731,6 +771,13 @@ public actor JSEngine {
         }
         return v.toString()
     }
+}
+
+// 万象书屋: 跨线程结果回传辅助 (java.startBrowserAwait 用)
+//   - DispatchSemaphore + sync wait 模式下, closure 内闭包不允许直接写 var
+//   - 用 final class wrap 一个 mutable field 让 Task 跨线程回填
+final class _BrowserResultBox: @unchecked Sendable {
+    var body: String = ""
 }
 
 // MARK: - 哈希工具 (CommonCrypto)

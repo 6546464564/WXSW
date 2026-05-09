@@ -22,7 +22,13 @@ public actor ContentParser {
         self.fetcher = fetcher
     }
 
-    public func fetchContent(of chapter: BookChapter, in source: BookSource) async throws -> ChapterContent {
+    /// 万象书屋: 正文解析入口
+    /// - parameter book: 调用方传入的当前书 (用来做 `@get:{book.bookUrl}` 模板).
+    ///   不传时, 仅靠 chapter.chapterUrl 作为最弱兜底, 无 book 上下文; 一些源
+    ///   `<js>java.ajax(book.bookUrl)</js>` 之类需要 book 的规则会拿到空值.
+    public func fetchContent(of chapter: BookChapter,
+                             in source: BookSource,
+                             book: BookInfo? = nil) async throws -> ChapterContent {
         guard let rule = source.ruleContent, let contentSelector = rule.content, !contentSelector.isEmpty else {
             throw BookSourceEngineError.missingRule("ruleContent.content")
         }
@@ -38,11 +44,24 @@ public actor ContentParser {
         var visited = Set<String>()
         var pageCount = 0
 
+        // 万象书屋: 正文页 JS / 模板上下文 (修复点同 BookInfoParser).
+        //   - book.* 来自调用方 (上层有 BookInfo 时务必透传)
+        //   - chapter.* 让规则里能拿到 chapter.url / chapter.title (legado 全局变量)
+        //   - bookSource: source 对象, 让 @js: 里 source.bookSourceUrl 可用
+        let scopeBook: [String: Any] = book.map { TocParser.bookFieldsForScope($0) } ?? [:]
+        let scopeChapter: [String: Any] = Self.chapterFieldsForScope(chapter)
+
         while !queue.isEmpty, pageCount < Self.maxContentPages {
             let currentUrl = queue.removeFirst()
             if visited.contains(currentUrl) { continue }
             visited.insert(currentUrl)
             pageCount += 1
+            // 万象书屋: legado concurrentRate 限速 — 跟 Android 行为对齐.
+            //   - 同一书快速翻页 (用户连点下一章 / nextContentUrl 多页) 时,
+            //     每页之间至少间隔 concurrentRate 配置的时长.
+            //   - 没这个钩子, iOS 会瞬间打 N 次同站请求触发反爬封 IP,
+            //     用户体感是"读到一半突然全章节空白".
+            await SourceRateLimiter.shared.acquire(source: source)
             let resp = try await fetcher.fetch(
                 urlString: currentUrl,
                 headers: source.parseHeaders(),
@@ -50,15 +69,21 @@ public actor ContentParser {
             )
             let html = resp.bodyText
             let baseUrl = resp.finalURL?.absoluteString ?? currentUrl
+            let scope = JSContextScope()
+            scope.baseUrl = baseUrl
+            scope.src = html
+            scope.bookSource = source
+            scope.book = scopeBook
+            scope.chapter = scopeChapter
 
             // 1. 抽正文 (规则可能返回多段, join 起来)
             let rawList = try await dispatcher.selectList(
-                rule: contentSelector, source: html, baseUrl: baseUrl
+                rule: contentSelector, source: html, baseUrl: baseUrl, jsContext: scope
             )
             var pageText = rawList.joined(separator: "\n")
             if pageText.isEmpty {
                 if let single = try? await dispatcher.selectString(
-                    rule: contentSelector, source: html, baseUrl: baseUrl
+                    rule: contentSelector, source: html, baseUrl: baseUrl, jsContext: scope
                 ) {
                     pageText = single
                 }
@@ -80,13 +105,13 @@ public actor ContentParser {
             // 5. 多页翻页 — 优先 selectList (兼容 JS 返数组), 否则 selectString
             if let nextRule = rule.nextContentUrl, !nextRule.isEmpty {
                 let nextList = (try? await dispatcher.selectList(
-                    rule: nextRule, source: html, baseUrl: baseUrl
+                    rule: nextRule, source: html, baseUrl: baseUrl, jsContext: scope
                 )) ?? []
                 let candidates: [String]
                 if nextList.count > 1 {
                     candidates = nextList
                 } else if let single = try? await dispatcher.selectString(
-                    rule: nextRule, source: html, baseUrl: baseUrl), !single.isEmpty {
+                    rule: nextRule, source: html, baseUrl: baseUrl, jsContext: scope), !single.isEmpty {
                     candidates = [single]
                 } else {
                     candidates = []
@@ -131,6 +156,20 @@ public actor ContentParser {
             )
         }
         return result
+    }
+
+    /// 万象书屋: 把 BookChapter 字段拍平成 [String:Any] 给 JSContextScope.chapter 用.
+    /// legado 正文规则里 chapter.title / chapter.url 是常用上下文.
+    nonisolated static func chapterFieldsForScope(_ chapter: BookChapter) -> [String: Any] {
+        var dict: [String: Any] = [
+            "title": chapter.title,
+            "index": chapter.chapterIndex,
+            "isVip": chapter.isVip,
+            "isPay": chapter.isPay,
+        ]
+        if let v = chapter.chapterUrl { dict["url"] = v }
+        if let v = chapter.updateTime { dict["updateTime"] = v }
+        return dict
     }
 
     private func extractImages(from html: String, baseUrl: String) -> [String] {

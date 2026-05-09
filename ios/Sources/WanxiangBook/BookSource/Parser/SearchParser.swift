@@ -38,24 +38,62 @@ public actor SearchParser {
             searchUrlTemplate, bookSource: source, jsEngine: jsEngine,
             baseURL: source.bookSourceUrl, key: key, page: page
         )
-        let resp = try await fetcher.fetch(
-            urlString: rendered.url,
-            method: rendered.method,
-            body: rendered.body,
-            headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
-            sourceKey: source.bookSourceUrl,
-            retries: rendered.retry ?? 3
-        )
+
+        // 万象书屋: 限速钩子 — 单源 concurrentRate 控制并发节流
+        //   - legado JSON: "concurrentRate": "200" / "1000,2"  (毫秒/次 或 ms/N)
+        //   - 跟 Android ConcurrentRateLimiter.withLimit 对齐
+        //   - 没限速 iOS 多源并发搜索时一秒打 30+ 次同一站点, 触发反爬封 IP
+        await SourceRateLimiter.shared.acquire(source: source)
+
+        // 万象书屋: 显式 `,{webView:true}` 优先 WK 渲染, 不走 URLSession.
+        //   - 对应 legado UrlOption.webView. 这个标志位的本意是
+        //     "这个 URL 必须在浏览器里跑过 JS 才能拿到 DOM" (SPA + Cloudflare 必经).
+        //   - 之前 iOS 解出来但没消费, 0 命中才走启发式回退. 显式声明的源因此
+        //     第一次都失败一次, 浪费一次握手 + 触发反爬计数.
+        //   - 仅 GET 走 WK; POST 表单类的 webView:true 比较罕见, 不做改造.
+        var bodyText: String
+        var finalBaseUrl: String
+        if rendered.useWebView, rendered.method.uppercased() == "GET" {
+            let bridge = await BrowserBridgeRegistry.shared.get()
+            if let html = await bridge.loadAndWait(
+                url: rendered.url, expectedKeyword: key, timeout: 25
+            ), !html.isEmpty {
+                bodyText = html
+                finalBaseUrl = rendered.url
+            } else {
+                // WK 失败回退到 URLSession (一些源 webView:true 是冗余声明)
+                let resp = try await fetcher.fetch(
+                    urlString: rendered.url,
+                    method: rendered.method,
+                    body: rendered.body,
+                    headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
+                    sourceKey: source.bookSourceUrl,
+                    retries: rendered.retry ?? 3
+                )
+                bodyText = resp.bodyText
+                finalBaseUrl = resp.finalURL?.absoluteString ?? rendered.url
+            }
+        } else {
+            let resp = try await fetcher.fetch(
+                urlString: rendered.url,
+                method: rendered.method,
+                body: rendered.body,
+                headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
+                sourceKey: source.bookSourceUrl,
+                retries: rendered.retry ?? 3
+            )
+            bodyText = resp.bodyText
+            finalBaseUrl = resp.finalURL?.absoluteString ?? rendered.url
+        }
 
         // 2. 选书列表
         let scope = JSContextScope()
-        scope.baseUrl = resp.finalURL?.absoluteString ?? rendered.url
-        scope.src = resp.bodyText
+        scope.baseUrl = finalBaseUrl
+        scope.src = bodyText
         scope.key = key
         scope.page = page
         scope.bookSource = source
 
-        var bodyText = resp.bodyText
         var nodes = try await dispatcher.selectList(
             rule: listSelector,
             source: bodyText,
@@ -65,7 +103,8 @@ public actor SearchParser {
 
         // 万象书屋: 0 hit 时尝试 WKWebView — (1) SPA 壳 (2) GET + 403/Cloudflare 挑战页
         // 对齐 legado AnalyzeUrl.useWebView / BackstageWebView. POST 表单搜索无法简单用 GET URL 重放, 跳过.
-        if nodes.isEmpty {
+        // 注: useWebView=true 已在上面优先 WK, 这里走的是隐式启发式回退.
+        if nodes.isEmpty, !rendered.useWebView {
             let isSPA = bodyText.contains("data-n-head-ssr")
                      || bodyText.contains("__NUXT__")
                      || bodyText.contains("__NEXT_DATA__")
@@ -74,9 +113,8 @@ public actor SearchParser {
                 || bodyText.contains("__cf_chl")
                 || bodyText.contains("cf-browser-verification")
                 || bodyText.localizedCaseInsensitiveContains("attention required")
-            let clientErr = (400..<500).contains(resp.statusCode)
             let allowWebRetry = isSPA
-                || (rendered.method.uppercased() == "GET" && (cfWall || clientErr))
+                || (rendered.method.uppercased() == "GET" && cfWall)
             if allowWebRetry {
                 let bridge = await BrowserBridgeRegistry.shared.get()
                 if let renderedHtml = await bridge.loadAndWait(
