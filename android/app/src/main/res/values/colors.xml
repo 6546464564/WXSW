@@ -3,6 +3,8 @@
     <!-- 万象书屋 · 暖米色参考稿：羊皮纸底 / 淡金 / 棕墨字 -->
     <color name="wanxiang_primary">#B8956B</color>
     <color name="wanxiang_accent">#A69374</color>
+    <!-- 万象书屋: 品牌主色别名, 用于按钮/CTA 等强调元素 (= primary, 深一档显眼) -->
+    <color name="wanxiang_brand_primary">#B8956B</color>
     <color name="wanxiang_bg">#F7F2EA</color>
     <color name="wanxiang_card">#FFFBF7</color>
     <color name="wanxiang_text_primary">#3D342A</color>

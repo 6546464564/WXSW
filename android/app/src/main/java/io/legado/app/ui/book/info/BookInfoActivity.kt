@@ -284,6 +284,10 @@ class BookInfoActivity :
     private fun showBook(book: Book) = binding.run {
         showCover(book)
         tvName.text = book.name
+        // 万象书屋: 顶部 toolbar 标题用书名替换默认"书籍信息" -
+        //   书名是用户当前最关心的信息, "书籍信息"是冗余的页面 label.
+        //   超长书名 TitleBar 内部会做 ellipsize, 这里不做截断.
+        titleBar.title = book.name
         tvAuthor.text = getString(R.string.author_show, book.getRealAuthor())
         tvOrigin.text = getString(R.string.origin_show, book.originName)
         tvLasted.text = getString(R.string.lasted_show, book.latestChapterTitle)

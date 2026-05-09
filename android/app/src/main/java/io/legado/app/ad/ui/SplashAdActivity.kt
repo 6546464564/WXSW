@@ -1,5 +1,6 @@
 package io.legado.app.ad.ui
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.FrameLayout
@@ -8,6 +9,7 @@ import androidx.appcompat.app.AppCompatActivity
 import io.legado.app.R
 import io.legado.app.ad.AdConsent
 import io.legado.app.ad.AdManager
+import io.legado.app.base.AppContextWrapper
 import io.legado.app.ui.main.MainActivity
 import io.legado.app.utils.LogUtils
 
@@ -25,6 +27,16 @@ import io.legado.app.utils.LogUtils
  * 任何分支最终都通过 [proceedToMain] 进 Main, 用 OnceGuard 防双跳.
  */
 class SplashAdActivity : AppCompatActivity() {
+
+    /**
+     * 万象书屋: SplashAdActivity 不继承 BaseActivity (启动路径要尽量轻),
+     * 但 i18n 锁定依赖 attachBaseContext 包一层 AppContextWrapper.
+     * 不覆盖的话同意弹窗会跟着系统语言, 出现"AGREE / DECLINE"等英文 -
+     * 跟正文 UI 全中文不一致. 这里手动 wrap, 保持和 BaseActivity 一致.
+     */
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppContextWrapper.wrap(newBase))
+    }
 
     private var jumped = false
 

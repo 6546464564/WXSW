@@ -122,8 +122,9 @@
     <string name="all">All</string>
     <string name="recent_reading">Recent reading</string>
     <string name="last_read">Last reading</string>
-    <string name="bookshelf_empty">The bookshelf is still empty. Search for books or add them from discovery!</string>
-    <string name="bookshelf_empty_hint">Find a few books in Discovery to start reading</string>
+    <string name="bookshelf_empty">书架还空着</string>
+    <string name="bookshelf_empty_hint">去「书城」逛逛, 挑几本喜欢的吧</string>
+    <string name="bookshelf_empty_action">去书城看看</string>
     <string name="action_search">Search</string>
     <string name="action_download">Download</string>
     <string name="layout_list">List</string>

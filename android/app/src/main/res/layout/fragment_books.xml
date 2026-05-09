@@ -51,6 +51,26 @@
             android:text="@string/bookshelf_empty_hint"
             android:textColor="@color/wanxiang_text_secondary"
             android:textSize="13sp" />
+
+        <!-- 万象书屋: 空态 CTA. 不能用 MaterialButton (App 主题非 Material3),
+             用 AppCompatButton + 圆角 drawable 自绘, 视觉效果一致. -->
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btn_empty_go_bookcity"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/bg_btn_brand_pill"
+            android:drawableStart="@drawable/ic_search"
+            android:drawablePadding="6dp"
+            android:drawableTint="@android:color/white"
+            android:minWidth="160dp"
+            android:minHeight="40dp"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/bookshelf_empty_action"
+            android:textColor="@android:color/white"
+            android:textAllCaps="false"
+            android:textSize="14sp" />
     </LinearLayout>
 
 </FrameLayout>

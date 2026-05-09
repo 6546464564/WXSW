@@ -108,7 +108,8 @@
     <string name="recent_reading">最近閲讀</string>
     <string name="last_read">最後閲讀</string>
     <string name="bookshelf_empty">書架還空著</string>
-    <string name="bookshelf_empty_hint">去「發現」裡挑幾本喜歡的吧</string>
+    <string name="bookshelf_empty_hint">去「書城」逛逛, 挑幾本喜歡的吧</string>
+    <string name="bookshelf_empty_action">去書城看看</string>
     <string name="action_search">搜尋</string>
     <string name="action_download">下載</string>
     <string name="layout_list">列表</string>

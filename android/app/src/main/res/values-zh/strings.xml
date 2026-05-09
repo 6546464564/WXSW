@@ -139,7 +139,8 @@
     <string name="recent_reading">最近阅读</string>
     <string name="last_read">最后阅读</string>
     <string name="bookshelf_empty">书架还空着</string>
-    <string name="bookshelf_empty_hint">去「发现」里挑几本喜欢的吧</string>
+    <string name="bookshelf_empty_hint">去「书城」逛逛, 挑几本喜欢的吧</string>
+    <string name="bookshelf_empty_action">去书城看看</string>
     <string name="action_search">搜索</string>
     <string name="action_download">下载</string>
     <string name="layout_list">列表</string>

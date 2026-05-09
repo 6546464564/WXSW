@@ -89,7 +89,27 @@ class BooksFragment() : BaseFragment(R.layout.fragment_books),
             binding.refreshLayout.isEnabled = enableRefresh
         }
         initRecyclerView()
+        initEmptyAction()
         upRecyclerData()
+    }
+
+    /**
+     * 万象书屋: 书架空态 CTA 按钮 -> 直接跳到底部"书城"tab.
+     *   - 复用 MainActivity 的 BottomNavigationView, 通过 selectedItemId 触发
+     *     onNavigationItemSelected, 保证和点底部图标走同一条路径
+     *     (避免 ViewPager 状态不一致).
+     *   - 找不到 BNV 时降级用 EventBus, 不抛异常 (Fragment 可能在 detach 边缘被点).
+     */
+    private fun initEmptyAction() {
+        binding.btnEmptyGoBookcity.setOnClickListener {
+            val act = activity ?: return@setOnClickListener
+            val bnv = act.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(
+                R.id.bottom_navigation_view
+            )
+            if (bnv != null) {
+                bnv.selectedItemId = R.id.menu_book_store
+            }
+        }
     }
 
     private fun initRecyclerView() {

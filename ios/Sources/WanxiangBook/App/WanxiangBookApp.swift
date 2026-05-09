@@ -216,6 +216,24 @@ private struct WanxiangAPISourceHealthSink: SourceHealthSink {
 // 万象书屋: AppDelegate 用于早期初始化 (崩溃捕获必须越早越好, SwiftUI App 生命周期太晚)
 final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
 
+    /// 万象书屋: 强制锁定简体中文 UI, 不跟随系统语言.
+    ///   - 跟 Android `AppContextWrapper` 行为一致, 国内 App 标准做法
+    ///     (微信 / 支付宝 / 网易云 / 起点 都是这样).
+    ///   - 必须在所有 UI 加载前调用 (UIView/Bundle.main 第一次拿 strings 之前),
+    ///     所以放在 AppDelegate `init` 而不是 didFinishLaunching.
+    ///   - 写 SP key `AppleLanguages` = ["zh-Hans"], iOS 启动时读这个值
+    ///     决定整个 Bundle 的 lproj 解析顺序.
+    ///   - 用 `wx.lang.locked` 作幂等标记, 避免每次冷启都写; 用户主动想改回
+    ///     英文/繁体的话改这个标记就能恢复跟系统.
+    override init() {
+        super.init()
+        let lockKey = "wx.lang.locked_v1"
+        if !UserDefaults.standard.bool(forKey: lockKey) {
+            UserDefaults.standard.set(["zh-Hans"], forKey: "AppleLanguages")
+            UserDefaults.standard.set(true, forKey: lockKey)
+        }
+    }
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil

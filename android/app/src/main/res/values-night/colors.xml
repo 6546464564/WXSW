@@ -45,6 +45,8 @@
     <color name="wanxiang_text_primary">#EDE6DC</color>
     <color name="wanxiang_text_secondary">#B5AA9E</color>
     <color name="wanxiang_divider">#554C41</color>
+    <!-- 万象书屋: 品牌主色暗色变体 (= primary night) -->
+    <color name="wanxiang_brand_primary">#C9A86C</color>
 
     <!-- 万象书屋 D-17 (THEME-1): 书城页面色板暗色版 -->
     <color name="bs_bg_gradient_start">#332D24</color>
