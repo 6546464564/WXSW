@@ -29,8 +29,32 @@ public final class BookSourceRegistry: ObservableObject {
             self.sources = cached
             self.isLoaded = true
         }
-        // 2. 异步从后端拉新, 入库 + 替换内存
+        // 2. 万象书屋: 首次安装且没拉过远端时, SQLite 是空的; 用 bundle 内置 fallback
+        //    避免"全新设备 + 后端不可达"时 App 完全没书源能用.
+        //    跟 Android `assets/defaultData/bookSources.json` 同源 (backend/seed/ 维护权威版本).
+        if self.sources.isEmpty {
+            await loadBundleFallback()
+        }
+        // 3. 异步从后端拉新, 入库 + 替换内存
         await refresh()
+    }
+
+    /// 万象书屋: 从 bundle 读 defaultData/bookSources.json, 入库 + 内存
+    private func loadBundleFallback() async {
+        guard let url = Bundle.main.url(forResource: "bookSources",
+                                        withExtension: "json",
+                                        subdirectory: "defaultData"),
+              let data = try? Data(contentsOf: url) else {
+            print("[BookSourceRegistry] bundle fallback missing")
+            return
+        }
+        guard let arr = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else { return }
+        let parsed = Self.parseSources(arr)
+        guard !parsed.isEmpty else { return }
+        try? await DB.shared.replaceAllBookSources(parsed)
+        self.sources = parsed
+        self.isLoaded = true
+        print("[BookSourceRegistry] loaded \(parsed.count) sources from bundle fallback")
     }
 
     public func refresh() async {

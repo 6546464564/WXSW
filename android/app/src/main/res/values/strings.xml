@@ -10,14 +10,14 @@
     <string name="app_tagline">阅书千卷  · 万象皆书</string>
     <string name="receiving_shared_label">万象书屋·搜索</string>
     <string name="book_store">书城</string>
-    <string name="bottom_nav_bookshelf">Bookshelf</string>
+    <string name="bottom_nav_bookshelf">书架</string>
     <string name="bs_male">男生</string>
     <string name="bs_female">女生</string>
     <string name="bs_publish">出版</string>
-    <string name="bs_rank">Top Picks</string>
-    <string name="bs_rank_sub">Tap to search popular ›</string>
-    <string name="bs_library">Completed</string>
-    <string name="bs_library_sub">Tap to search classics ›</string>
+    <string name="bs_rank">热门排行</string>
+    <string name="bs_rank_sub">点击搜索热门好书 ›</string>
+    <string name="bs_library">完本书库</string>
+    <string name="bs_library_sub">点击搜索完本经典 ›</string>
     <string name="bs_banner_rank_keyword">热门</string>
     <string name="bs_banner_library_keyword">完本</string>
 
@@ -38,8 +38,8 @@
     <string name="book_finished_subtitle">More exciting chapters coming soon, check back later.</string>
     <string name="book_finished_swipe_hint">← Swipe / tap to go back</string>
     <string name="book_finished_change_source">Try another source</string>
-    <string name="book_finished_go_bookshelf">Bookshelf</string>
-    <string name="book_finished_go_bookstore">Discover</string>
+    <string name="book_finished_go_bookshelf">书架</string>
+    <string name="book_finished_go_bookstore">书城</string>
 
     <!-- Ad consent manage (PIPL revoke path) -->
     <string name="ad_consent_manage_title">Personalized ads</string>
@@ -113,7 +113,7 @@
     <string name="not_available">Not available now</string>
     <string name="enable">Enable</string>
     <string name="replace_purify_search">Search Replacement</string>
-    <string name="bookshelf">Bookshelf</string>
+    <string name="bookshelf">书架</string>
     <string name="favorites">Favorites</string>
     <string name="favorite">Favorite</string>
     <string name="in_favorites">in Favorites</string>
@@ -640,8 +640,8 @@
     <string name="edit_find">Edit Discovery</string>
     <string name="change_icon_summary">Switch the software icon displayed on the desktop</string>
     <string name="help">Help</string>
-    <string name="my">Me</string>
-    <string name="reading">Read</string>
+    <string name="my">我的</string>
+    <string name="reading">阅读</string>
     <string name="battery_show">%d%%</string>
     <string name="timer_m">%d min</string>
     <string name="brightness_auto">Auto-Brightness %s</string>

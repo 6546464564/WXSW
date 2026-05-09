@@ -80,11 +80,13 @@ final class AppState: ObservableObject {
             bootstrapFailed = true
             isBootstrapped = true
         }
-        // 万象书屋: 启动后立即首次 ping (访问统计) + 拉公告/版本
+        // 万象书屋: 启动后立即首次 ping (访问统计) + 拉公告/版本 + 拉广告配置
+        // 广告配置 consent 与否都拉 (只是配置, 无个人数据); SDK init 仍受 consent 控制
         await Task.detached(priority: .background) { [weak self] in
             await self?.sendPingNow()
             await self?.fetchAnnouncement()
             await self?.fetchVersionCheck()
+            await AdManager.shared.refreshConfig()
         }.value
         // 万象书屋: 启 4 分钟一次心跳定时器 (跟后端 rateLimitPing 对齐, 防超频)
         startHeartbeatLoop()

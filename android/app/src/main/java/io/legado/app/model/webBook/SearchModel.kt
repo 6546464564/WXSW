@@ -200,8 +200,12 @@ class SearchModel(private val scope: CoroutineScope, private val callBack: CallB
     }
 
     fun close() {
-        searchJob?.cancel()
-        searchPool?.close()
+        // 万象书屋: 关搜索时所有清理操作都吞异常.
+        // 旧实现如果 ViewModelImpl 在 onCleared 链路上调到 close(), searchJob.cancel() / Executor.close()
+        // 之间偶尔会传递 JobCancellationException, 被 ViewModelImpl.closeWithRuntimeException 打印到 stderr,
+        // CrashHandler 可能把这条 noise 当真实 crash 上报到 /api/crash-log, 污染 crash 报表.
+        runCatching { searchJob?.cancel() }
+        runCatching { searchPool?.close() }
         searchPool = null
         mSearchId = 0L
     }

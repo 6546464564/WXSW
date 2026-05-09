@@ -76,3 +76,9 @@ android/keystore/.local-password.txt
 android/keystore/*.OLD*
 keystore/*.keystore
 keystore/*.jks
+
+# 万象书屋: 联调辅助脚本 (Cursor 生成, 不入仓库)
+install-and-run.sh
+
+# 万象书屋: xcodegen 临时备份文件
+ios/project.yml.bak

@@ -39,6 +39,16 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "C3E085F4C24096ED437F2BB5"
+               BuildableName = "WanxiangBookTests.xctest"
+               BlueprintName = "WanxiangBookTests"
+               ReferencedContainer = "container:WanxiangBook.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

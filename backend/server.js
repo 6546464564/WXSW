@@ -501,12 +501,47 @@ function computeDeviceTokenHash(deviceId, installTs) {
 }
 
 /**
- * 校验设备 token 中间件. 顺序: 黑名单 → 限速 → token 校验.
- * 兼容老 App: 如果 device_id 还没注册 (没在 device_tokens 表), 放行;
- *   注册后 (rows>0) 必须带正确 token, 否则 401.
+ * 万象书屋 安全加固: 未注册 device_id 的 IP 级配额.
  *
- * 解释: 老 App 升级到带 token 流程前, 设备没注册过, 先让它进, 让 App
- * 第一次启动跑 register 后, 后续才校验. 不会一升级就把所有人挡门外.
+ * 旧设计: verifyDeviceToken 对"db 里查不到 token"的设备直接放行(兼容老 App),
+ *   导致攻击者只要伪造任意新 X-Device-Id 即可绕开 token 校验, token 校验形同虚设.
+ *
+ * 新设计 (双层):
+ *   1. 已注册设备: 必须带正确 token, 否则 401 (跟旧版一致).
+ *   2. 未注册设备 (兼容老 App): 放行, 但每 IP 每分钟最多见 N 个 unique device_id.
+ *      超过 N 一律 429, 阻止"伪造 device_id 横扫"攻击; 真实老 App 一台设备只
+ *      贡献 1 个 device_id, 完全不受影响.
+ *
+ * UNREG_PER_IP_LIMIT 默认 8 (家庭/办公网 NAT 后通常 < 8 台 App), 可通过环境变量调.
+ */
+// 万象书屋: 阈值取 60 — NAT 后大型办公网 1 分钟内同时新装 60 个全新设备很罕见,
+// 但能拦下"伪造 device_id 横扫"的暴力攻击 (千级以上). 生产可通过 env 调小给关键 IP 收紧.
+const UNREG_PER_IP_LIMIT = parseInt(process.env.UNREG_PER_IP_LIMIT, 10) || 60;
+const UNREG_WINDOW_MS = 60_000;
+const _unregByIp = new Map(); // ip -> { ts: number, dids: Set<string> }
+function _checkUnregisteredQuota(ip, did) {
+  const now = Date.now();
+  let bucket = _unregByIp.get(ip);
+  if (!bucket || now - bucket.ts > UNREG_WINDOW_MS) {
+    bucket = { ts: now, dids: new Set() };
+    _unregByIp.set(ip, bucket);
+  }
+  bucket.dids.add(did);
+  // 顺手清旧桶, 防止 Map 无限膨胀 (每 1000 次清一次过期)
+  if (_unregByIp.size > 5000) {
+    for (const [k, v] of _unregByIp) {
+      if (now - v.ts > UNREG_WINDOW_MS) _unregByIp.delete(k);
+    }
+  }
+  return bucket.dids.size <= UNREG_PER_IP_LIMIT;
+}
+
+/**
+ * 校验设备 token 中间件 (默认: 兼容模式).
+ * - 已注册设备: 必须带 token, 否则 401.
+ * - 未注册设备: 放行 (兼容老 App), 但走 IP 级 quota 防伪造扫.
+ *
+ * 用 [verifyDeviceTokenStrict] 替换以拒绝未注册访问 (写操作端点推荐).
  */
 function verifyDeviceToken(req, res, next) {
   const did = (req.body && (req.body.device_id || req.body.deviceId)) ||
@@ -518,7 +553,12 @@ function verifyDeviceToken(req, res, next) {
   }
   const expected = db.getDeviceTokenHash(did);
   if (!expected) {
-    // 老 App / 没注册过, 放行 (兼容性)
+    // 未注册: IP 级配额防伪造横扫
+    if (!_checkUnregisteredQuota(req.ip, did)) {
+      logger.warn('unregistered device flood', { t: req.traceId, ip: req.ip, did: did.slice(0, 12) });
+      return res.status(429).json({ ok: false, msg: 'too many unregistered devices, please register' });
+    }
+    req.deviceUnregistered = true;
     return next();
   }
   const provided = req.get('X-Device-Token') || (req.body && req.body.device_token);
@@ -534,6 +574,38 @@ function verifyDeviceToken(req, res, next) {
     return res.status(401).json({ ok: false, msg: 'device token invalid' });
   }
   // 顺手更新 last_seen_at, 用于活跃统计
+  db.touchDeviceSeen(did);
+  next();
+}
+
+/**
+ * 严格模式: 未注册 device_id 一律 401, 让客户端先调 /api/device/register.
+ * 用于敏感写操作 (crash-log / feedback / source-error / wipe-data) 防匿名滥发.
+ */
+function verifyDeviceTokenStrict(req, res, next) {
+  const did = (req.body && (req.body.device_id || req.body.deviceId)) ||
+              req.get('X-Device-Id');
+  if (!did) {
+    return res.status(401).json({ ok: false, msg: 'device id required' });
+  }
+  if (typeof did !== 'string' || did.length === 0 || did.length > 128) {
+    return res.status(400).json({ ok: false, msg: 'invalid device_id' });
+  }
+  const expected = db.getDeviceTokenHash(did);
+  if (!expected) {
+    return res.status(401).json({ ok: false, msg: 'device not registered, call /api/device/register first' });
+  }
+  const provided = req.get('X-Device-Token') || (req.body && req.body.device_token);
+  if (!provided) {
+    return res.status(401).json({ ok: false, msg: 'device token required' });
+  }
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+  if (!ok) {
+    logger.warn('device token mismatch (strict)', { t: req.traceId, did: did.slice(0, 12) });
+    return res.status(401).json({ ok: false, msg: 'device token invalid' });
+  }
   db.touchDeviceSeen(did);
   next();
 }
@@ -761,7 +833,7 @@ app.get('/api/sources', rateLimitSources, blockBlacklistedDevice, verifyDeviceTo
 
 // 万象书屋 iOS/Android: 解析失败/超时上报.
 // App 可在 search/info/toc/content 任意阶段上报, 后台聚合为 source_health.
-app.post('/api/source-error', rateLimitSourceError, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
+app.post('/api/source-error', rateLimitSourceError, blockBlacklistedDevice, verifyDeviceTokenStrict, (req, res) => {
   try {
     const r = db.recordSourceErrorEvent({
       ...(req.body || {}),
@@ -1624,7 +1696,7 @@ app.get('/api/admin/ad-funnel', requireAdmin, (req, res) => {
 });
 
 // === 万象书屋: 崩溃上报 (mini Sentry) ===
-app.post('/api/crash-log', rateLimitCrash, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
+app.post('/api/crash-log', rateLimitCrash, blockBlacklistedDevice, verifyDeviceTokenStrict, (req, res) => {
   const b = req.body || {};
   if (!b.exception || !b.stack) return res.status(400).json({ ok: false, msg: 'exception & stack required' });
   // fingerprint: stack 第一行 + exception, md5, 用于聚合同类
@@ -1664,7 +1736,7 @@ app.get('/api/admin/audit-log', requireAdmin, (req, res) => {
 });
 
 // === 万象书屋: 用户反馈与举报 (公开 + admin) ===
-app.post('/api/feedback', rateLimitFeedback, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
+app.post('/api/feedback', rateLimitFeedback, blockBlacklistedDevice, verifyDeviceTokenStrict, (req, res) => {
   const b = req.body || {};
   try {
     const r = db.recordFeedback({

@@ -15,6 +15,8 @@
 import Foundation
 import UIKit
 import SwiftUI
+
+#if canImport(BUAdSDK)
 import BUAdSDK
 
 public actor CsjAdProvider: AdProvider {
@@ -121,3 +123,19 @@ final class CsjRewardDelegateBridge: NSObject, BUNativeExpressRewardedVideoAdDel
         return vc
     }
 }
+
+#else
+
+// 没 link BUAdSDK (e.g. simulator / 无穿山甲二进制) 时 CsjAdProvider 退化为 Stub
+public actor CsjAdProvider: AdProvider {
+    public let name = AdProviderName.csj
+    public var isReady: Bool { false }
+    public init() {}
+    public func bootstrap(appId: String) async throws {
+        throw NSError(domain: "CSJ", code: 99, userInfo: [NSLocalizedDescriptionKey: "BUAdSDK 未链接 (本地无穿山甲 SDK)"])
+    }
+    public func showSplash(in container: some View) async -> Bool { false }
+    public func showRewarded() async -> Bool { false }
+}
+
+#endif

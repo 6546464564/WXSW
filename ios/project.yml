@@ -64,6 +64,7 @@ targets:
           - "Resources/PrivacyInfo.xcprivacy"
           - "Resources/Assets.xcassets/**"
           - "Resources/*.lproj/**"
+          - "Resources/defaultData/**"
           - "Info.plist"
     resources:
       - path: Sources/WanxiangBook/Resources/legal
@@ -73,6 +74,10 @@ targets:
       # 万象书屋: 多语言 — XcodeGen 自动识别 *.lproj 目录, 编译进 .ipa 各语种 bundle
       - path: Sources/WanxiangBook/Resources/zh-Hans.lproj
       - path: Sources/WanxiangBook/Resources/zh-Hant.lproj
+      # 万象书屋: 内置 fallback 书源, 跟 android/app/src/main/assets/defaultData/bookSources.json
+      # 同源 (从 backend/seed/ 复制), 后端不可达时仍能离线使用 32 条默认源.
+      - path: Sources/WanxiangBook/Resources/defaultData
+        type: folder
     info:
       path: Sources/WanxiangBook/Info.plist
       properties:
@@ -248,10 +253,10 @@ targets:
     dependencies:
       - package: SwiftSoup
       - package: ZIPFoundation
-      # 广告 SDK (从 Frameworks/ 引)
-      # CSJ 7.6.0.3 全 slice OK (arm64 真机 + arm64 + x86_64 simulator)
-      - framework: Frameworks/BUAdSDK.xcframework
-        embed: true
+      # 广告 SDK (从 Frameworks/ 引) — 本地无二进制时全部注释 (Cursor 自动配置)
+      # 接广告: 跑 ios/scripts/setup-ad-sdks.sh, 然后解开下面 4 行 + GDT 部分
+      # - framework: Frameworks/BUAdSDK.xcframework
+      #   embed: true
       # 万象书屋: GDT 4.15.80 这版 simulator slice 只有 x86_64, 缺 arm64 simulator.
       # Apple Silicon 模拟器 (M1/M2/M3/M4 Mac) 编不过.
       # 真机 archive 时把下面两行注释解开 + 在 GdtAdProvider.swift 也解开 import:

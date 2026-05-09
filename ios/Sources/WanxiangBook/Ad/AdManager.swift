@@ -25,11 +25,34 @@ public final class AdManager: ObservableObject {
     @Published public private(set) var bootstrapped: Bool = false
 
     private var provider: any AdProvider = StubAdProvider()
+    /// 上次拉到的 ad-config (consent 前也会拉), bootstrap 时直接复用
+    private var cachedConfig: [String: Any]?
 
     private static let kConsented = "wanxiang.ad.consented_v1"
+    private static let kCachedConfig = "wanxiang.ad.config_v1"
 
     private init() {
         self.consented = UserDefaults.standard.bool(forKey: Self.kConsented)
+        // 对齐 Android: SP 缓存兜底, 启动时立即读上次的配置, 启用 review_mode/disabled 等开关不延迟
+        if let raw = UserDefaults.standard.data(forKey: Self.kCachedConfig),
+           let dict = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] {
+            self.cachedConfig = dict
+            self.enabled = !(dict["disabled"] as? Bool ?? true)
+            self.reviewMode = dict["review_mode"] as? Bool ?? false
+        }
+    }
+
+    /// 启动时 (consent 与否都) 调一次, 把 /api/ad-config 拉到 cachedConfig + 持久化.
+    /// 跟 Android `AdRepository.refreshFromRemote` 行为对齐 — 无个人信息, 隐私门外允许调.
+    public func refreshConfig() async {
+        let config = await fetchAdConfig()
+        guard !config.isEmpty else { return }
+        self.cachedConfig = config
+        self.enabled = !(config["disabled"] as? Bool ?? true)
+        self.reviewMode = config["review_mode"] as? Bool ?? false
+        if let data = try? JSONSerialization.data(withJSONObject: config) {
+            UserDefaults.standard.set(data, forKey: Self.kCachedConfig)
+        }
     }
 
     // MARK: - 同意态 (PIPL)
@@ -56,8 +79,14 @@ public final class AdManager: ObservableObject {
         guard consented else { return }
         guard !bootstrapped else { return }
 
-        // 1. 拉广告配置
-        let config = await fetchAdConfig()
+        // 1. 拉广告配置 (优先用启动时已 refreshConfig 缓存的, 否则现拉)
+        let config: [String: Any]
+        if let cached = cachedConfig {
+            config = cached
+        } else {
+            await refreshConfig()
+            config = cachedConfig ?? [:]
+        }
         self.enabled = !(config["disabled"] as? Bool ?? true)
         self.reviewMode = config["review_mode"] as? Bool ?? false
 
