@@ -265,7 +265,7 @@ struct BookshelfView: View {
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(vm.books) { book in
                     NavigationLink {
-                        ReaderView(book: book, source: nil)
+                        ReaderView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
                     } label: {
                         BookCard(book: book, showLastUpdate: showLastUpdateTime)
                     }
@@ -282,7 +282,7 @@ struct BookshelfView: View {
         List {
             ForEach(vm.books) { book in
                 NavigationLink {
-                    ReaderView(book: book, source: nil)
+                    ReaderView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
                 } label: {
                     bookListRow(book)
                 }

@@ -305,6 +305,30 @@ public actor BookshelfRepository {
         }
     }
 
+    /// 万象书屋 (P0 fix · D-25):
+    ///   阅读器拉到目录后回写 totalChapterNum / latestChapterTitle, 让书架的
+    ///   "X/N" 进度条不再永远显示"未读". row 不存在时 silently no-op (因为
+    ///   ReaderEngine.bootstrap 已经先 add 过).
+    public func updateTotalChapters(bookUrl: String, total: Int, latestTitle: String?) async throws {
+        try await DB.shared.openIfNeeded()
+        try await DB.shared.execQuery { handle in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_prepare_v2(handle, """
+                UPDATE books SET totalChapterNum=?, latestChapterTitle=?, latestChapterTime=?, lastCheckTime=?, updated_at=?
+                WHERE book_url=?
+            """, -1, &stmt, nil)
+            sqlite3_bind_int(stmt, 1, Int32(total))
+            sqlite3_bind_optstr(stmt, 2, latestTitle)
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            sqlite3_bind_int64(stmt, 3, now)
+            sqlite3_bind_int64(stmt, 4, now)
+            sqlite3_bind_int64(stmt, 5, now)
+            sqlite3_bind_text(stmt, 6, bookUrl, -1, SQLITE_TRANSIENT)
+            _ = sqlite3_step(stmt)
+        }
+    }
+
     /// 更新阅读进度 (从阅读器调; M2.5 用)
     public func updateProgress(bookUrl: String, chapterIndex: Int, chapterTitle: String?, chapterPos: Int) async throws {
         try await DB.shared.openIfNeeded()

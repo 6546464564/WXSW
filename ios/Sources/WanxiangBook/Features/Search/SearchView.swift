@@ -186,7 +186,10 @@ struct SearchView: View {
         let books = displayResults
         return List {
             Section {
-                ForEach(books, id: \.bookUrl) { book in
+                // 万象书屋 (D-25 fix): id 改用 listRowId — 用 origin+name+author+bookUrl
+                // 避免某些源 (例: QQ浏览器柳树) bookUrl 因解析 bug 全相同时, SwiftUI
+                // 把不同书识别成同一行, 用户体感"19 本书全是同一本".
+                ForEach(books, id: \.listRowId) { book in
                     NavigationLink {
                         BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
                     } label: {

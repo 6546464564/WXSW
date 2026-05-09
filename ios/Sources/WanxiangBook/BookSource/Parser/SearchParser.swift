@@ -161,31 +161,53 @@ public actor SearchParser {
         return false
     }
 
-    /// 从单个书节点抽字段
+    /// 从单个书节点抽字段.
+    ///
+    /// 万象书屋 (D-25 fix · P0): **必须串行解析, 不能 async let 并发**.
+    ///   - 部分源 (例: QQ浏览器柳树) 在 ruleSearch.bookUrl 用 `{{book.kind}}` 模板,
+    ///     bookUrl 必须在 kind 解析后再解析, 否则 {{book.kind}} 求值为空 →
+    ///     bookUrl 全部退化成相同的 query, 19 本书在 UI 上变成同一本.
+    ///   - Android Legado (`SearchData.analyzeSearchBook`) 也是顺序解析并把
+    ///     每个字段回写到 `book` map, 让后续模板能引用. 这里对齐它的语义.
     private func extractBook(rule: SearchRule, nodeHtml: String, baseUrl: String?, source: BookSource) async throws -> SearchBook? {
-        // 万象书屋: 子字段抽取也要带 source/cookie/host JS context
         let scope = JSContextScope()
         scope.baseUrl = baseUrl
         scope.src = nodeHtml
         scope.bookSource = source
+        scope.book = [:]
 
-        async let nameTask = optString(rule.name, html: nodeHtml, baseUrl: baseUrl, scope: scope)
-        async let authorTask = optString(rule.author, html: nodeHtml, baseUrl: baseUrl, scope: scope)
-        async let bookUrlTask = optString(rule.bookUrl, html: nodeHtml, baseUrl: baseUrl, scope: scope)
-        async let coverTask = optString(rule.coverUrl, html: nodeHtml, baseUrl: baseUrl, scope: scope)
-        async let introTask = optString(rule.intro, html: nodeHtml, baseUrl: baseUrl, scope: scope)
-        async let kindTask = optString(rule.kind, html: nodeHtml, baseUrl: baseUrl, scope: scope)
-        async let lastTask = optString(rule.lastChapter, html: nodeHtml, baseUrl: baseUrl, scope: scope)
-        async let updTask = optString(rule.updateTime, html: nodeHtml, baseUrl: baseUrl, scope: scope)
-        async let wcTask = optString(rule.wordCount, html: nodeHtml, baseUrl: baseUrl, scope: scope)
+        // 顺序: name → author → kind → lastChapter → intro → coverUrl → updateTime → wordCount → bookUrl
+        // 每解析完一个就 publish 进 scope.book, 让后续字段的模板能引用.
+        let name = (await optString(rule.name, html: nodeHtml, baseUrl: baseUrl, scope: scope))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        scope.book?["name"] = name
 
-        let name = (await nameTask)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let bookUrl = (await bookUrlTask)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let author = (await optString(rule.author, html: nodeHtml, baseUrl: baseUrl, scope: scope)) ?? ""
+        scope.book?["author"] = author
+
+        let kind = await optString(rule.kind, html: nodeHtml, baseUrl: baseUrl, scope: scope)
+        scope.book?["kind"] = kind ?? ""
+
+        let lastChapter = await optString(rule.lastChapter, html: nodeHtml, baseUrl: baseUrl, scope: scope)
+        scope.book?["lastChapter"] = lastChapter ?? ""
+
+        let rawIntro = await optString(rule.intro, html: nodeHtml, baseUrl: baseUrl, scope: scope)
+        scope.book?["intro"] = rawIntro ?? ""
+
+        let cover = await optString(rule.coverUrl, html: nodeHtml, baseUrl: baseUrl, scope: scope)
+        scope.book?["coverUrl"] = cover ?? ""
+
+        let updateTime = await optString(rule.updateTime, html: nodeHtml, baseUrl: baseUrl, scope: scope)
+        scope.book?["updateTime"] = updateTime ?? ""
+
+        let wordCount = await optString(rule.wordCount, html: nodeHtml, baseUrl: baseUrl, scope: scope)
+        scope.book?["wordCount"] = wordCount ?? ""
+
+        // bookUrl 必须最后解析, 才能用到上面所有 {{book.xxx}} 模板.
+        let bookUrl = (await optString(rule.bookUrl, html: nodeHtml, baseUrl: baseUrl, scope: scope))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !name.isEmpty, !bookUrl.isEmpty else { return nil }
 
-        let author = (await authorTask) ?? ""
-        // 万象书屋: 部分源 intro 规则错位拿到 "作者:xxx" 这种, 自动 sanitize
-        let rawIntro = await introTask
         let cleanIntro = sanitizeIntro(rawIntro, author: author, name: name)
         return SearchBook(
             origin: source.bookSourceUrl,
@@ -193,12 +215,12 @@ public actor SearchParser {
             name: name,
             author: author,
             bookUrl: absolutize(bookUrl, baseUrl: baseUrl),
-            coverUrl: absolutize(await coverTask, baseUrl: baseUrl),
+            coverUrl: absolutize(cover, baseUrl: baseUrl),
             intro: cleanIntro,
-            kind: await kindTask,
-            lastChapter: await lastTask,
-            updateTime: await updTask,
-            wordCount: await wcTask
+            kind: kind,
+            lastChapter: lastChapter,
+            updateTime: updateTime,
+            wordCount: wordCount
         )
     }
 

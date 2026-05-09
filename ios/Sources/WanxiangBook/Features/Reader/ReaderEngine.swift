@@ -55,6 +55,13 @@ public final class ReaderEngine: ObservableObject {
     public func bootstrap() async {
         loadingIndices.insert(currentChapterIndex)
         updateLoadingState()
+        // 万象书屋 (P0 fix · D-25):
+        //   阅读=隐式加书架. 用户从书城/搜索点开任意一本书直达 ReaderView 时,
+        //   若不先 ensure 一行 books, 后续 updateProgress 是纯 UPDATE → row 不
+        //   存在则静默丢进度, 退出阅读器后这本书"凭空消失"+ 下次进来从第 1 章
+        //   开始. 这里 add 是 idempotent (ON CONFLICT DO UPDATE 但不覆盖进度),
+        //   多次调用安全.
+        try? await BookshelfRepository.shared.add(book)
         do {
             let cachedToc = try await ChapterRepository.shared.loadToc(bookUrl: book.bookUrl)
             if !cachedToc.isEmpty {
@@ -85,6 +92,18 @@ public final class ReaderEngine: ObservableObject {
             updateLoadingState()
             return
         }
+        // 万象书屋 (P0 fix · D-25): 回写 totalChapterNum + 最新章, 让书架进度条
+        // (durChapterIndex / totalChapterNum) 真正可用.
+        let latestTitle = chapters.last?.title
+        try? await BookshelfRepository.shared.updateTotalChapters(
+            bookUrl: book.bookUrl,
+            total: chapters.count,
+            latestTitle: latestTitle
+        )
+        var refreshed = book
+        refreshed.totalChapterNum = chapters.count
+        refreshed.latestChapterTitle = latestTitle
+        self.book = refreshed
         loadingIndices.remove(currentChapterIndex)
         updateLoadingState()
         await loadChapter(index: currentChapterIndex)

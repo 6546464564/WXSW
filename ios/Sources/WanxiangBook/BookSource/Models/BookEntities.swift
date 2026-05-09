@@ -63,6 +63,14 @@ public struct SearchBook: Codable, Hashable, Sendable {
         String(Self.normalizeKey(name).prefix(14))
     }
 
+    /// 万象书屋 (D-25 fix): SwiftUI ForEach 的稳定 id.
+    /// bookUrl 在某些源 (如 QQ浏览器柳树) 解析时会因 query 拼接问题全部为同一个,
+    /// 直接用 id: \.bookUrl 会让 19 本不同的书在 List 上 render 成同一条 cell 的复制,
+    /// 用户体感"搜出来全是同一本". 这里用 (origin + name + author + bookUrl) 拼一个稳定 id.
+    public var listRowId: String {
+        "\(origin)|\(name)|\(author)|\(bookUrl)"
+    }
+
     private static func normalizeKey(_ raw: String) -> String {
         var s = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
