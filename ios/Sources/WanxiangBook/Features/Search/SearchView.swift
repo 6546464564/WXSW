@@ -219,49 +219,13 @@ struct SearchView: View {
         .background(WanxiangColors.background)
     }
 
-    /// 万象书屋: 渲染层最终去重。
-    /// 搜索是多源并发流式追加, 即便 ViewModel 层做了 generation/Set 防重,
-    /// 仍可能因为旧 AsyncStream 的回调或源自身重复导致同名书刷屏。
-    /// 这里按 titleDedupeKey 再兜底, 保证 UI 永远只显示唯一书名。
+    /// 万象书屋 (P0 修复): 渲染层不再做"按标题前 N 字"的全局去重.
+    ///   - 旧版本 q.count >= 8 时把所有书塞到同一个全局 key, 导致"搜长名书全是同一本".
+    ///   - 旧版本 q.count < 8 时按 title 前 10 字 dedupe, 把不同作者的同名书合一条.
+    ///   - 现在只透传 ViewModel 已经按 (name+author) 去重过的 results, 保证
+    ///     "捞尸人 / 陈十三", "捞尸人 / 纯洁滴小龙", "黄河捞尸人" 都正常显示.
     private var displayResults: [SearchBook] {
-        var seen = Set<String>()
-        var out: [SearchBook] = []
-        out.reserveCapacity(vm.results.count)
-        for b in vm.results {
-            let k = uiDedupeKey(for: b, query: keyword)
-            if seen.insert(k).inserted {
-                out.append(b)
-            }
-        }
-        return out
-    }
-
-    private func uiDedupeKey(for book: SearchBook, query: String) -> String {
-        let title = uiDedupeKey(book.name)
-        let q = uiDedupeKey(query)
-        if q.count >= 8 {
-            // 长书名精确搜索: 只保留响应最快/排序最前的一条。
-            // 这比猜测各源返回的脏 title 更稳定, 也符合用户输入完整书名时的预期。
-            return "long-query-single-result"
-        }
-        // 其它场景按标题前 10 个有效字符全局去重。
-        return "global::\(String(title.prefix(10)))"
-    }
-
-    private func uiDedupeKey(_ raw: String) -> String {
-        let cleaned = raw
-            .lowercased()
-            .unicodeScalars
-            .filter { scalar in
-                // CJK Unified Ideographs + ASCII letters/digits. 丢弃零宽、标点、emoji、空白等一切不可见差异。
-                (scalar.value >= 0x4E00 && scalar.value <= 0x9FFF)
-                    || (scalar.value >= 0x3400 && scalar.value <= 0x4DBF)
-                    || (scalar.value >= 0x30 && scalar.value <= 0x39)
-                    || (scalar.value >= 0x61 && scalar.value <= 0x7A)
-            }
-            .map(String.init)
-            .joined()
-        return String(cleaned.prefix(12))
+        return vm.results
     }
 
     // MARK: - 防抖
@@ -343,7 +307,6 @@ final class SearchViewModel: ObservableObject {
     private var currentTask: Task<Void, Never>? = nil
     private var searchGeneration: Int = 0
     private var resultKeys = Set<String>()
-    private var resultTitleKeys = Set<String>()
 
     /// 万象书屋: 熔断器 (M2.4.7). 同一源连续超时 3 次 → 拉黑 1h
     /// key = source url, value = (failCount, blockedUntil)
@@ -396,7 +359,6 @@ final class SearchViewModel: ObservableObject {
         results = []
         errors = []
         resultKeys.removeAll()
-        resultTitleKeys.removeAll()
         isSearching = true
 
         // 3. 没源时直接 stub 一条提示
@@ -416,12 +378,15 @@ final class SearchViewModel: ObservableObject {
                     self.recordSuccess(source.bookSourceUrl)
                     for b in books {
                         if Task.isCancelled || generation != self.searchGeneration { break }
-                        let titleKey = b.titleDedupeKey
-                        // 万象书屋: UI 层强去重。正常按 name+author 合并;
-                        // 如果同一标题已出现, 后续重复条丢弃, 防止截图那种同一本刷屏。
-                        if self.resultKeys.contains(b.dedupeKey) || self.resultTitleKeys.contains(titleKey) { continue }
+                        // 万象书屋 (P0 修复): 只按 name+author 合并真正的"同一本书".
+                        //   - 之前还按 titleDedupeKey (name 前 14 字) 二次去重, 把
+                        //     《捞尸人》by 陈十三 / 《捞尸人》by 纯洁滴小龙 / 《黄河捞尸人》
+                        //     这种"同名不同书 / 同名不同源不同作者"全揉成一条,
+                        //     用户体感"搜出来全是同一本".
+                        //   - 真正的同一本不同源 (常见: 番茄 vs 速读谷 都收录某书) 仍按
+                        //     dedupeKey 合并, 因为它们 name+author 完全一致.
+                        if self.resultKeys.contains(b.dedupeKey) { continue }
                         self.resultKeys.insert(b.dedupeKey)
-                        self.resultTitleKeys.insert(titleKey)
                         self.results.append(b)
                     }
                 case .failure(let err):
