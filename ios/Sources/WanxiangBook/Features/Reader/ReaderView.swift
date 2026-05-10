@@ -118,6 +118,28 @@ public struct ReaderView: View {
                 startReadingTimer()
                 UIApplication.shared.isIdleTimerDisabled = config.keepScreenOn
                 applyBrightness()
+                // 万象书屋 (debug arg): 自动化测试入口
+                let args = ProcessInfo.processInfo.arguments
+                if args.contains("--ReaderShowMenu") || args.contains("-ReaderShowMenu") {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 800_000_000)
+                        withAnimation { menuVisible = true }
+                    }
+                }
+                if args.contains("--ReaderShowChangeSource") || args.contains("-ReaderShowChangeSource") {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        showChangeSource = true
+                    }
+                }
+                if args.contains("--ReaderTriggerDownload") || args.contains("-ReaderTriggerDownload") {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        triggerDownloadFromReader()
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        withAnimation { menuVisible = true }
+                    }
+                }
             }
             .onDisappear {
                 stopReadingTimer()
