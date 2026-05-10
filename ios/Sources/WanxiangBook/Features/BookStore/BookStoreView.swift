@@ -33,6 +33,11 @@ struct BookStoreView: View {
     @StateObject private var vm = BookStoreViewModel()
     @State private var searchSeed: StoreSearchSeed?
     @State private var navTarget: NavTarget?
+    /// 万象书屋 (M2.8): 点书后后台搜的中间态. 显示"正在查找..." HUD,
+    /// 找到第一条命中就直跳详情, 失败兜底弹 search sheet.
+    @State private var loadingDetailFor: String? = nil
+    /// 后台搜命中的 (book, source), trigger navigationDestination push 详情
+    @State private var detailTarget: BookDetailTarget?
 
     var body: some View {
         NavigationStack {
@@ -53,8 +58,95 @@ struct BookStoreView: View {
                         RankDetailView(mode: .finish, title: title)
                     }
                 }
+                .navigationDestination(item: $detailTarget) { t in
+                    BookDetailView(book: t.book, source: t.source)
+                }
+                .overlay(alignment: .center) {
+                    if loadingDetailFor != nil {
+                        bookstoreLoadingHUD
+                    }
+                }
                 .task(id: vm.currentChannel) { await vm.loadIfNeeded(force: false) }
         }
+    }
+
+    /// 万象书屋 (M2.8): 书城点书改为"后台静默搜 → 直跳详情" — 不再弹 SearchView 让用户重搜.
+    /// 流程:
+    ///   1. 显示 HUD "正在查找..."
+    ///   2. 按 SourcePerformanceTracker 排序拿前 8 个最稳源, 并发搜 book.name
+    ///   3. 第一个 (name == name) 命中 → push 到 BookDetailView (只用真书源!)
+    ///   4. 5 秒内没结果 → 兜底弹 SearchView 让用户手动选源
+    /// 这里做"后台搜"的好处: 用户不必看一长串结果, 直接进详情读. 跟 Android Legado
+    /// 书城点书行为一致.
+    private func tapBookCell(_ qidianBook: QidianBook) {
+        let key = qidianBook.name
+        let token = key + "::" + UUID().uuidString
+        loadingDetailFor = token
+
+        Task {
+            // 1. 拿排序后的前 8 个源
+            let allSources = BookSourceRegistry.shared.sources
+            let sorted = SourcePerformanceTracker.shared.sortByScore(allSources)
+            let candidates = Array(sorted.prefix(8))
+            guard !candidates.isEmpty else {
+                fallbackToSearch(key: key, token: token)
+                return
+            }
+            // 2. 并发搜, 拿到第一个名字精确匹配的
+            let stream = await BookSourceEngine.shared.searchAll(
+                in: candidates, key: key, maxConcurrency: 5, perSourceTimeoutSec: 5
+            )
+            var found: (SearchBook, BookSource)? = nil
+            for await (src, result) in stream {
+                if loadingDetailFor != token { return }    // 用户取消 / 切走
+                guard case .success(let books) = result else { continue }
+                if let m = books.first(where: { $0.name == key }) {
+                    found = (m, src)
+                    break
+                }
+            }
+            await MainActor.run {
+                guard loadingDetailFor == token else { return }
+                if let (book, source) = found {
+                    self.loadingDetailFor = nil
+                    self.detailTarget = BookDetailTarget(book: book, source: source)
+                } else {
+                    self.fallbackToSearch(key: key, token: token)
+                }
+            }
+        }
+    }
+
+    private func fallbackToSearch(key: String, token: String) {
+        Task { @MainActor in
+            guard loadingDetailFor == token else { return }
+            loadingDetailFor = nil
+            searchSeed = StoreSearchSeed(keyword: key)
+        }
+    }
+
+    /// 万象书屋 (M2.8): 简单 HUD overlay. 点 cancel 中断后台搜, 让用户手动搜.
+    private var bookstoreLoadingHUD: some View {
+        VStack(spacing: 14) {
+            ProgressView().scaleEffect(1.2)
+            Text("正在查找最佳书源…")
+                .font(.subheadline)
+                .foregroundStyle(WanxiangColors.textPrimary)
+            Button("跳过, 手动搜") {
+                if let token = loadingDetailFor {
+                    fallbackToSearch(
+                        key: String(token.split(separator: "::").first ?? ""),
+                        token: token
+                    )
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(WanxiangColors.primary)
+        }
+        .padding(28)
+        .background(WanxiangColors.card)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: 4)
     }
 
     // MARK: - Content
@@ -155,7 +247,7 @@ struct BookStoreView: View {
 
     private func heroCard(_ book: QidianBook) -> some View {
         Button {
-            searchSeed = StoreSearchSeed(keyword: book.name)
+            tapBookCell(book)
         } label: {
             HStack(alignment: .top, spacing: 14) {
                 BookCover(url: book.coverUrl, width: 96, height: 128)
@@ -279,7 +371,7 @@ struct BookStoreView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 14) {
                 ForEach(books, id: \.id) { book in
                     Button {
-                        searchSeed = StoreSearchSeed(keyword: book.name)
+                        tapBookCell(book)
                     } label: {
                         gridCell(book: book)
                     }
@@ -304,7 +396,7 @@ struct BookStoreView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 14) {
                 ForEach(Array(books.enumerated()), id: \.offset) { idx, book in
                     Button {
-                        searchSeed = StoreSearchSeed(keyword: book.name)
+                        tapBookCell(book)
                     } label: {
                         rankedCell(book: book, displayRank: idx + 1)
                     }
@@ -459,6 +551,16 @@ struct BookStoreView: View {
 struct StoreSearchSeed: Identifiable {
     let id = UUID()
     let keyword: String
+}
+
+/// 万象书屋 (M2.8): 书城点书后, 后台搜命中的目标 — 直跳详情页用.
+struct BookDetailTarget: Identifiable, Hashable {
+    let id = UUID()
+    let book: SearchBook
+    let source: BookSource?
+
+    static func == (lhs: BookDetailTarget, rhs: BookDetailTarget) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 // MARK: - Navigation target
