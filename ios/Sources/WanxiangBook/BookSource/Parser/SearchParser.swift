@@ -78,16 +78,30 @@ public final class SearchParser: @unchecked Sendable {
                 finalBaseUrl = resp.finalURL?.absoluteString ?? rendered.url
             }
         } else {
-            let resp = try await fetcher.fetch(
-                urlString: rendered.url,
-                method: rendered.method,
-                body: rendered.body,
-                headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
-                sourceKey: source.bookSourceUrl,
-                retries: rendered.retry ?? 1   // 万象书屋 (M2.4 perf): search 不 retry, 单源失败立即让位多源并发
-            )
-            bodyText = resp.bodyText
-            finalBaseUrl = resp.finalURL?.absoluteString ?? rendered.url
+            // 万象书屋 (M2.8 fix): GET 拿到 4xx 时, 不抛错, 让下面 0-hit 启发式 fallback
+            // 用 BrowserBridge 重新拉. 顶点小说 / 随梦小说网等 Cloudflare 反爬源直接 400,
+            // 之前 throw 跳出 → 反爬源永远 search_fail. 现在 catch 错误后给空 bodyText 走
+            // webview fallback. (POST 不能这么做, 因为 webview 重放 GET URL 不带 body.)
+            do {
+                let resp = try await fetcher.fetch(
+                    urlString: rendered.url,
+                    method: rendered.method,
+                    body: rendered.body,
+                    headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
+                    sourceKey: source.bookSourceUrl,
+                    retries: rendered.retry ?? 1
+                )
+                bodyText = resp.bodyText
+                finalBaseUrl = resp.finalURL?.absoluteString ?? rendered.url
+            } catch {
+                // GET 拿 4xx/5xx — 留给后面 webview fallback 重新拉. POST 直接 rethrow.
+                if rendered.method.uppercased() == "GET" {
+                    bodyText = ""
+                    finalBaseUrl = rendered.url
+                } else {
+                    throw error
+                }
+            }
         }
 
         // 2. 选书列表
@@ -106,6 +120,7 @@ public final class SearchParser: @unchecked Sendable {
         )
 
         // 万象书屋: 0 hit 时尝试 WKWebView — (1) SPA 壳 (2) GET + 403/Cloudflare 挑战页
+        // (3) 万象书屋 M2.8 新增: bodyText 空 (上面 catch 4xx 留空) 也触发 webview 兜底.
         // 对齐 legado AnalyzeUrl.useWebView / BackstageWebView. POST 表单搜索无法简单用 GET URL 重放, 跳过.
         // 注: useWebView=true 已在上面优先 WK, 这里走的是隐式启发式回退.
         if nodes.isEmpty, !rendered.useWebView {
@@ -117,8 +132,10 @@ public final class SearchParser: @unchecked Sendable {
                 || bodyText.contains("__cf_chl")
                 || bodyText.contains("cf-browser-verification")
                 || bodyText.localizedCaseInsensitiveContains("attention required")
+            // 万象书屋 (M2.8 fix): bodyText 空 (4xx HTTP fail) 也算反爬, 走 webview
+            let httpFail = bodyText.isEmpty
             let allowWebRetry = isSPA
-                || (rendered.method.uppercased() == "GET" && cfWall)
+                || (rendered.method.uppercased() == "GET" && (cfWall || httpFail))
             if allowWebRetry {
                 let bridge = await BrowserBridgeRegistry.shared.get()
                 if let renderedHtml = await bridge.loadAndWait(
