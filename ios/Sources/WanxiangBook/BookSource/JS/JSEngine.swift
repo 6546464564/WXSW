@@ -762,6 +762,242 @@ public actor JSEngine {
         java.setObject(identity, forKeyedSubscript: "t2s" as NSString)
         java.setObject(identity, forKeyedSubscript: "s2t" as NSString)
 
+        // 万象书屋 (M2.8 P0): 补齐 Android JsExtensions 高频但 iOS 没实现的 java.* 方法.
+        // 之前 iOS 缺这些方法 → 调用方 JS 直接 ReferenceError → 整段 evaluate 失败.
+
+        // == HTML 实体反转义 (大量源 content rule 末尾用) ==
+        // Android: htmlFormat(str) → 反转义 &amp; → & / &nbsp; → space / &quot; → " 等
+        let htmlFormat: @convention(block) (String) -> String = { s in
+            var out = s
+            let entities: [(String, String)] = [
+                ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+                ("&quot;", "\""), ("&#039;", "'"), ("&apos;", "'"),
+                ("&nbsp;", " "), ("&ldquo;", "\u{201C}"), ("&rdquo;", "\u{201D}"),
+                ("&lsquo;", "\u{2018}"), ("&rsquo;", "\u{2019}"),
+                ("&hellip;", "…"), ("&mdash;", "—"), ("&ndash;", "–"),
+                ("&copy;", "©"), ("&reg;", "®"), ("&trade;", "™"),
+            ]
+            for (k, v) in entities { out = out.replacingOccurrences(of: k, with: v) }
+            // 数字实体 &#1234; → unicode
+            if out.contains("&#") {
+                let pattern = #"&#(\d+);"#
+                if let regex = try? NSRegularExpression(pattern: pattern) {
+                    let nsstr = out as NSString
+                    let matches = regex.matches(in: out, range: NSRange(0..<nsstr.length)).reversed()
+                    for m in matches {
+                        let numStr = nsstr.substring(with: m.range(at: 1))
+                        if let n = UInt32(numStr), let scalar = Unicode.Scalar(n) {
+                            out = (out as NSString).replacingCharacters(in: m.range, with: String(scalar))
+                        }
+                    }
+                }
+            }
+            return out
+        }
+        java.setObject(htmlFormat, forKeyedSubscript: "htmlFormat" as NSString)
+
+        // == 字符编码转换 (加密源 / 字符级处理) ==
+        // strToBytes(str, charset?) → ByteArray (JS 当 number[] 用)
+        let strToBytes: @convention(block) (String, Any?) -> [UInt8] = { s, charsetAny in
+            let charset = (charsetAny as? String)?.lowercased() ?? "utf-8"
+            let enc: String.Encoding = {
+                switch charset {
+                case "gbk", "gb2312":
+                    let cf = CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+                    return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cf))
+                case "big5":
+                    let cf = CFStringEncoding(CFStringEncodings.big5.rawValue)
+                    return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cf))
+                case "utf-16le": return .utf16LittleEndian
+                case "utf-16be": return .utf16BigEndian
+                case "iso-8859-1", "latin1": return .isoLatin1
+                default: return .utf8
+                }
+            }()
+            return Array(s.data(using: enc) ?? Data())
+        }
+        java.setObject(strToBytes, forKeyedSubscript: "strToBytes" as NSString)
+
+        // bytesToStr(bytes, charset?) → String
+        let bytesToStr: @convention(block) (Any, Any?) -> String = { bytesAny, charsetAny in
+            let charset = (charsetAny as? String)?.lowercased() ?? "utf-8"
+            let data: Data
+            if let arr = bytesAny as? [Any] {
+                let bytes: [UInt8] = arr.compactMap {
+                    if let n = $0 as? NSNumber { return UInt8(truncatingIfNeeded: n.intValue) }
+                    return nil
+                }
+                data = Data(bytes)
+            } else if let d = bytesAny as? Data {
+                data = d
+            } else {
+                return ""
+            }
+            let enc: String.Encoding = {
+                switch charset {
+                case "gbk", "gb2312":
+                    let cf = CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+                    return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cf))
+                case "big5":
+                    let cf = CFStringEncoding(CFStringEncodings.big5.rawValue)
+                    return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cf))
+                default: return .utf8
+                }
+            }()
+            return String(data: data, encoding: enc) ?? ""
+        }
+        java.setObject(bytesToStr, forKeyedSubscript: "bytesToStr" as NSString)
+
+        // == Hex 编解码 (加密源用很多) ==
+        // hexEncodeToString(utf8: String) → "48656c6c6f"
+        let hexEncodeToString: @convention(block) (String) -> String = { s in
+            return s.utf8.map { String(format: "%02x", $0) }.joined()
+        }
+        java.setObject(hexEncodeToString, forKeyedSubscript: "hexEncodeToString" as NSString)
+
+        // hexDecodeToString("48656c6c6f") → "Hello"
+        let hexDecodeToString: @convention(block) (String) -> String = { hex in
+            let cleaned = hex.replacingOccurrences(of: " ", with: "")
+            guard cleaned.count % 2 == 0 else { return "" }
+            var bytes: [UInt8] = []
+            var idx = cleaned.startIndex
+            while idx < cleaned.endIndex {
+                let next = cleaned.index(idx, offsetBy: 2)
+                if let b = UInt8(cleaned[idx..<next], radix: 16) {
+                    bytes.append(b)
+                }
+                idx = next
+            }
+            return String(data: Data(bytes), encoding: .utf8) ?? ""
+        }
+        java.setObject(hexDecodeToString, forKeyedSubscript: "hexDecodeToString" as NSString)
+
+        // hexDecodeToByteArray("48656c") → [UInt8] (JS 当 number[] 用)
+        let hexDecodeToByteArray: @convention(block) (String) -> [UInt8] = { hex in
+            let cleaned = hex.replacingOccurrences(of: " ", with: "")
+            guard cleaned.count % 2 == 0 else { return [] }
+            var bytes: [UInt8] = []
+            var idx = cleaned.startIndex
+            while idx < cleaned.endIndex {
+                let next = cleaned.index(idx, offsetBy: 2)
+                if let b = UInt8(cleaned[idx..<next], radix: 16) {
+                    bytes.append(b)
+                }
+                idx = next
+            }
+            return bytes
+        }
+        java.setObject(hexDecodeToByteArray, forKeyedSubscript: "hexDecodeToByteArray" as NSString)
+
+        // base64DecodeToByteArray
+        let base64DecodeToByteArray: @convention(block) (String) -> [UInt8] = { s in
+            guard let d = Data(base64Encoded: s) else { return [] }
+            return Array(d)
+        }
+        java.setObject(base64DecodeToByteArray, forKeyedSubscript: "base64DecodeToByteArray" as NSString)
+
+        // == 时间格式化 (UTC 偏移版) ==
+        // timeFormatUTC(timestamp, format, sh: 时区小时偏移)
+        let timeFormatUTC: @convention(block) (Double, String, Int) -> String = { ts, fmt, sh in
+            let date = Date(timeIntervalSince1970: ts > 1e12 ? ts / 1000 : ts)
+            let f = DateFormatter()
+            f.dateFormat = fmt
+            f.timeZone = TimeZone(secondsFromGMT: sh * 3600)
+            return f.string(from: date)
+        }
+        java.setObject(timeFormatUTC, forKeyedSubscript: "timeFormatUTC" as NSString)
+
+        // == 章节序号标准化 (一些源章节排序用) ==
+        // toNumChapter("第一千零九十七章 大璺在身") → 数字字符串便于排序
+        // 简化实现: 提取连续数字 (Android 实际处理"第一" "第二十" 等中文数字, 这里先提阿拉伯数字)
+        let toNumChapter: @convention(block) (String?) -> String = { s in
+            guard let s = s else { return "" }
+            // 先 try 数字
+            let pattern = #"\d+"#
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let nsstr = s as NSString
+                if let m = regex.firstMatch(in: s, range: NSRange(0..<nsstr.length)) {
+                    return nsstr.substring(with: m.range)
+                }
+            }
+            // 中文数字粗映射 (一二三四五六七八九十百千万)
+            let cnDigits: [Character: Int] = [
+                "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+                "六": 6, "七": 7, "八": 8, "九": 9, "十": 10, "百": 100, "千": 1000, "万": 10000
+            ]
+            var result = 0
+            var current = 0
+            for ch in s {
+                if let v = cnDigits[ch] {
+                    if v >= 10 {
+                        if current == 0 { current = 1 }
+                        current *= v
+                        if v >= 100 {
+                            result += current
+                            current = 0
+                        }
+                    } else {
+                        current = current * 10 + v
+                    }
+                } else if current > 0 || result > 0 {
+                    break
+                }
+            }
+            result += current
+            return result > 0 ? String(result) : s
+        }
+        java.setObject(toNumChapter, forKeyedSubscript: "toNumChapter" as NSString)
+
+        // == ajaxAll(urls) — 多 URL 并发抓 ==
+        // 一些源用 `java.ajaxAll(["url1","url2"])` 批量抓页面合并解析
+        let ajaxAll: @convention(block) (Any?) -> [String] = { urlsAny in
+            guard let urls = urlsAny as? [String] else { return [] }
+            // 串行实现 (JSCore actor 内部调, async/await 跨 boundary 用 sync wait)
+            // 比 Android 真并发慢, 但功能正确; 个别源命中量级很小
+            return urls.map { url in
+                SyncHTTP.get(url: url, headers: [:])?.body ?? ""
+            }
+        }
+        java.setObject(ajaxAll, forKeyedSubscript: "ajaxAll" as NSString)
+
+        // == getWebViewUA() — 反爬源用 ==
+        let getWebViewUA: @convention(block) () -> String = {
+            // 万象书屋: 跟 BookCoverDiskCache / SyncHTTP / WKWebViewBridge 用同款 Safari UA
+            return "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) " +
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+        }
+        java.setObject(getWebViewUA, forKeyedSubscript: "getWebViewUA" as NSString)
+
+        // == importScript(path: String) — 引入外部 JS ==
+        // Android 支持 path = http(s) URL 或本地路径. iOS 简化: 仅支持 http(s) URL, 走 JsLibCache.
+        let importScript: @convention(block) (String) -> String = { path in
+            guard path.hasPrefix("http://") || path.hasPrefix("https://") else {
+                return ""  // 本地路径 iOS 不支持
+            }
+            return JsLibCache.fetchSync(url: path) ?? ""
+        }
+        java.setObject(importScript, forKeyedSubscript: "importScript" as NSString)
+
+        // == queryTTF / replaceFont — 字体反爬 (番茄/晋江系) ==
+        // queryTTF(url|base64, useCache?) → QueryTTF 对象 (有 .getNameByCode / .getCodeByName 方法)
+        // replaceFont(text, fromTTF, toTTF) → 替换字符
+        // 万象书屋 P1: 完整字体替换需要 TTF 解析 (CMap 表), 实现量大. 现在给 stub:
+        // - queryTTF 返一个空 object 让 .getNameByCode 不 ReferenceError
+        // - replaceFont 直接返原 text (不替换 但不抛错)
+        // 后续如果用户反馈某源乱码, 单独实现完整 TTF 解析.
+        let queryTTF: @convention(block) (Any?, Any?) -> [String: Any] = { _, _ in
+            return [
+                "ttfRange": [],
+                "fileBytes": [Int]()
+            ]
+        }
+        java.setObject(queryTTF, forKeyedSubscript: "queryTTF" as NSString)
+        java.setObject(queryTTF, forKeyedSubscript: "queryBase64TTF" as NSString)
+        let replaceFont: @convention(block) (String, Any?, Any?) -> String = { text, _, _ in
+            return text
+        }
+        java.setObject(replaceFont, forKeyedSubscript: "replaceFont" as NSString)
+
         ctx.setObject(java, forKeyedSubscript: "java" as NSString)
 
         // 万象书屋 (M2.8 perf): cache.* 进程级 KV store, init 时注一次, 评估时不重注.
