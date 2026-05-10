@@ -406,6 +406,14 @@ public struct CSSSelectorEngine: SelectorEngine {
         if s.hasPrefix("tag.") {
             return String(s.dropFirst(4))
         }
+        // 万象书屋 (M2.8 source 对比): legado `text.<keyword>` → 找含此 own text 的元素.
+        // Android `temp.getElementsContainingOwnText(rules[1])` 等价 jsoup `:containsOwn(text)`.
+        // 上游对比发现 iOS 没实现这个 prefix, 部分源用 `text.第N章` 作为 toc 选择器会失效.
+        if s.hasPrefix("text.") {
+            let kw = String(s.dropFirst(5))
+            // 用 jsoup `:containsOwn()` selector (SwiftSoup 也支持)
+            return ":containsOwn(\(kw))"
+        }
         return s
     }
 

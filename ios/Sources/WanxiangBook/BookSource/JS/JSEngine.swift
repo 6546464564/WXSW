@@ -979,17 +979,39 @@ public actor JSEngine {
         java.setObject(importScript, forKeyedSubscript: "importScript" as NSString)
 
         // == queryTTF / replaceFont — 字体反爬 (番茄/晋江系) ==
-        // queryTTF(url|base64, useCache?) → QueryTTF 对象 (有 .getNameByCode / .getCodeByName 方法)
-        // replaceFont(text, fromTTF, toTTF) → 替换字符
-        // 万象书屋 P1: 完整字体替换需要 TTF 解析 (CMap 表), 实现量大. 现在给 stub:
-        // - queryTTF 返一个空 object 让 .getNameByCode 不 ReferenceError
-        // - replaceFont 直接返原 text (不替换 但不抛错)
-        // 后续如果用户反馈某源乱码, 单独实现完整 TTF 解析.
-        let queryTTF: @convention(block) (Any?, Any?) -> [String: Any] = { _, _ in
-            return [
-                "ttfRange": [],
-                "fileBytes": [Int]()
-            ]
+        // queryTTF(url|base64, useCache?) → QueryTTF 对象, 有 .getNameByCode(unicode) /
+        //   .getCodeByName(name) / .inLimit(code) 等方法
+        // replaceFont(text, fromTTF, toTTF) → 字符级替换文本 (TTF glyph 反向映射)
+        //
+        // 万象书屋: 完整 TTF 解析 = Android QueryTTF.java 1055 行 Java (Header / Directory /
+        //   HeadLayout / NameLayout / MaxpLayout / CmapRecord / GlyphTableBySimple /
+        //   GlyphTableComponent), Swift 重写 ~1000 行 + 真实场景需要 glyph outline 像素
+        //   比较才能跨字体匹配同一汉字 (Android 用 PixelMap 算法). 实现量极大且反爬规则
+        //   一直变, ROI 太低.
+        //
+        // 当前 stub 策略 — 让 JS 调用链不抛错:
+        //   - queryTTF / queryBase64TTF 返带方法的 JSValue object
+        //   - getNameByCode / getCodeByName 返 null (而非 undefined)
+        //     源 JS 拿 null 走 fallback 路径 (一些源会判 `if (glyph === null) return c`)
+        //   - inLimit 返 false (字符不在 TTF 范围 → 不替换)
+        //   - replaceFont 返原 text 不替换
+        //
+        // 后续若用户报"某源乱码", 再做完整 TTF 解析.
+        let queryTTF: @convention(block) (Any?, Any?) -> JSValue = { [weakCtx] _, _ in
+            let obj = JSValue(newObjectIn: weakCtx)!
+            // 跟 Android QueryTTF 接口对齐 — 返 null 或 false 让 JS 走 fallback
+            let getNameByCode: @convention(block) (Any?) -> Any? = { _ in NSNull() }
+            let getCodeByName: @convention(block) (Any?) -> Any? = { _ in NSNull() }
+            let inLimit: @convention(block) (Any?) -> Bool = { _ in false }
+            let getGlyfByCode: @convention(block) (Any?) -> Any? = { _ in NSNull() }
+            obj.setObject(getNameByCode, forKeyedSubscript: "getNameByCode" as NSString)
+            obj.setObject(getCodeByName, forKeyedSubscript: "getCodeByName" as NSString)
+            obj.setObject(inLimit, forKeyedSubscript: "inLimit" as NSString)
+            obj.setObject(getGlyfByCode, forKeyedSubscript: "getGlyfByCode" as NSString)
+            // 字段: 一些源直接读 .ttfRange / .fileBytes
+            obj.setObject([] as [Int], forKeyedSubscript: "ttfRange" as NSString)
+            obj.setObject([] as [Int], forKeyedSubscript: "fileBytes" as NSString)
+            return obj
         }
         java.setObject(queryTTF, forKeyedSubscript: "queryTTF" as NSString)
         java.setObject(queryTTF, forKeyedSubscript: "queryBase64TTF" as NSString)
