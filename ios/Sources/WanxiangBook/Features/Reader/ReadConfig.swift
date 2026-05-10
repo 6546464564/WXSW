@@ -18,6 +18,7 @@
 //
 
 import SwiftUI
+import UIKit
 import Combine
 
 // MARK: - 翻页方式 (5 种, 跟 Android arrays.xml page_anim 对齐)
@@ -134,6 +135,11 @@ public final class ReadConfig: ObservableObject {
     @Published public var keepScreenOn: Bool {
         didSet { UserDefaults.standard.set(keepScreenOn, forKey: K.keepScreenOn) }
     }
+    /// 万象书屋 (M2.8): 字体. 空字符串 = 系统默认 (动态适配 iOS 系统语言).
+    /// 实际值是 UIFont.familyName (e.g. "PingFang SC", "Songti SC").
+    @Published public var fontFamily: String {
+        didSet { UserDefaults.standard.set(fontFamily, forKey: K.fontFamily) }
+    }
 
     enum K {
         static let textSize = "wanxiang.read.textSize"
@@ -149,7 +155,27 @@ public final class ReadConfig: ObservableObject {
         static let brightness = "wanxiang.read.brightness"
         static let autoBrightness = "wanxiang.read.autoBrightness"
         static let keepScreenOn = "wanxiang.read.keepScreenOn"
+        static let fontFamily = "wanxiang.read.fontFamily"
     }
+
+    /// 万象书屋: 中文系统字体白名单 — iOS 内置可用的中文字体, 覆盖大部分用户偏好.
+    public struct FontOption: Identifiable, Hashable {
+        public let id = UUID()
+        public let displayName: String
+        public let familyName: String   // 空字符串 = 系统默认
+    }
+    public static let chineseFonts: [FontOption] = [
+        FontOption(displayName: "系统默认",       familyName: ""),
+        FontOption(displayName: "苹方",          familyName: "PingFang SC"),
+        FontOption(displayName: "宋体",          familyName: "Songti SC"),
+        FontOption(displayName: "黑体",          familyName: "Heiti SC"),
+        FontOption(displayName: "楷体",          familyName: "Kaiti SC"),
+        FontOption(displayName: "STSong",       familyName: "STSong"),
+        FontOption(displayName: "STKaiti",      familyName: "STKaiti"),
+        FontOption(displayName: "STFangsong",   familyName: "STFangsong"),
+        FontOption(displayName: "STHeiti",      familyName: "STHeiti"),
+        FontOption(displayName: "Hiragino Sans GB", familyName: "Hiragino Sans GB"),
+    ]
 
     private init() {
         let d = UserDefaults.standard
@@ -166,5 +192,20 @@ public final class ReadConfig: ObservableObject {
         self.brightness = (d.value(forKey: K.brightness) as? Int) ?? -1
         self.autoBrightness = d.bool(forKey: K.autoBrightness)
         self.keepScreenOn = (d.value(forKey: K.keepScreenOn) as? Bool) ?? true
+        self.fontFamily = d.string(forKey: K.fontFamily) ?? ""
+    }
+
+    /// 万象书屋: 给 PaginationEngine / SwiftUI Text 用的 UIFont.
+    /// fontFamily 空 → 系统默认 (.preferredFont)
+    public func uiFont(size: CGFloat? = nil) -> UIFont {
+        let s = size ?? textSize
+        if fontFamily.isEmpty {
+            return UIFont.systemFont(ofSize: s)
+        }
+        // family 取一个具体 face
+        if let descriptor = UIFontDescriptor(name: fontFamily, size: s) as UIFontDescriptor? {
+            return UIFont(descriptor: descriptor, size: s)
+        }
+        return UIFont.systemFont(ofSize: s)
     }
 }

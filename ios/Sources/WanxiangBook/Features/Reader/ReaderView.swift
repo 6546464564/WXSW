@@ -172,6 +172,10 @@ public struct ReaderView: View {
             )) { _ in
                 repaginateCurrent()
             }
+            // 万象书屋 (M2.8): 切字体也要重新分页
+            .onReceive(config.$fontFamily) { _ in
+                repaginateCurrent()
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         // 万象书屋 (P0 fix): TabView 默认 push 时不隐藏底部 tabBar, 阅读器必须沉浸全屏
@@ -1020,12 +1024,20 @@ struct ChapterPageBody: View {
     let pageText: String
     @ObservedObject var config: ReadConfig
 
+    /// 万象书屋 (M2.8): 用户选的中文字体. fontFamily 空 = 系统默认 .system.
+    private var bodyFont: Font {
+        if config.fontFamily.isEmpty {
+            return .system(size: config.textSize)
+        }
+        return .custom(config.fontFamily, size: config.textSize)
+    }
+
     var body: some View {
         let segs = parseChapterPageSegments(pageText)
         // 没图片就用单 Text, 跟历史行为等价 (不让 VStack 改变行间距 / 文本选择)
         if segs.count == 1, case .text(let txt, _) = segs[0] {
             Text(txt)
-                .font(.system(size: config.textSize))
+                .font(bodyFont)
                 .foregroundStyle(config.theme.textColor)
                 .lineSpacing(config.textSize * (config.lineSpacing - 1))
                 .kerning(config.letterSpacing)
@@ -1036,7 +1048,7 @@ struct ChapterPageBody: View {
                     switch seg {
                     case .text(let txt, _):
                         Text(txt)
-                            .font(.system(size: config.textSize))
+                            .font(bodyFont)
                             .foregroundStyle(config.theme.textColor)
                             .lineSpacing(config.textSize * (config.lineSpacing - 1))
                             .kerning(config.letterSpacing)

@@ -133,7 +133,18 @@ public struct PaginationEngine {
         paraStyle.alignment = .natural
         paraStyle.lineBreakMode = .byCharWrapping
 
-        let font = UIFont.systemFont(ofSize: config.textSize)
+        // 万象书屋 (M2.8): 用 ReadConfig.uiFont 拿用户选的字体. 空 fontFamily fallback systemFont.
+        let font: UIFont = {
+            if config.fontFamily.isEmpty {
+                return UIFont.systemFont(ofSize: config.textSize)
+            }
+            if let f = UIFont(name: config.fontFamily, size: config.textSize) {
+                return f
+            }
+            // family 取一个具体 face — 用 descriptor 让 face 列表自动选首选
+            let desc = UIFontDescriptor(name: config.fontFamily, size: config.textSize)
+            return UIFont(descriptor: desc, size: config.textSize)
+        }()
 
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -152,6 +163,7 @@ public struct ReadConfigSnapshot: Hashable, Sendable {
     public let paragraphSpacing: CGFloat
     public let letterSpacing: CGFloat
     public let indentChars: Int
+    public let fontFamily: String
 
     @MainActor
     public static func current(from c: ReadConfig = .shared) -> ReadConfigSnapshot {
@@ -160,7 +172,8 @@ public struct ReadConfigSnapshot: Hashable, Sendable {
             lineSpacing: c.lineSpacing,
             paragraphSpacing: c.paragraphSpacing,
             letterSpacing: c.letterSpacing,
-            indentChars: c.indentChars
+            indentChars: c.indentChars,
+            fontFamily: c.fontFamily
         )
     }
 }

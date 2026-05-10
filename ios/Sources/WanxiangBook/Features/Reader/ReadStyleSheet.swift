@@ -33,6 +33,16 @@ struct ReadStyleSheet: View {
 
                 // 2. 排版
                 Section("排版") {
+                    // 万象书屋 (M2.8): 字体选择 — 系统中文字体 10 种
+                    Picker("字体", selection: $config.fontFamily) {
+                        ForEach(ReadConfig.chineseFonts, id: \.familyName) { f in
+                            Text(f.displayName)
+                                .font(f.familyName.isEmpty
+                                    ? .system(size: 16)
+                                    : .custom(f.familyName, size: 16))
+                                .tag(f.familyName)
+                        }
+                    }
                     sliderRow("字号", value: $config.textSize, range: 12...32, step: 1, format: { "\(Int($0))" })
                     sliderRow("行距", value: $config.lineSpacing, range: 0.8...2.5, step: 0.05, format: { String(format: "%.2f", $0) })
                     sliderRow("段距", value: $config.paragraphSpacing, range: 0...30, step: 1, format: { "\(Int($0))" })

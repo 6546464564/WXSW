@@ -251,12 +251,48 @@ public final class HTTPFetcher: @unchecked Sendable {
             if body[0] == 0xFF, body[1] == 0xFE { return "utf-16le" }
             if body[0] == 0xFE, body[1] == 0xFF { return "utf-16be" }
         }
-        // 4. 启发式: 简化判断, 试 utf8 → gbk → big5 哪个 decode 出来"中文字符比例"最高
-        if String(data: body.prefix(1024), encoding: .utf8) != nil {
-            return "utf-8"
+        // 4. 万象书屋 (M2.8): 多编码评分启发式 — 之前只 try utf-8 一次, 失败就 gbk fallback
+        //    很粗糙. 一些源 (e.g. 个别老笔趣阁站) GBK 但**第 1KB 全 ASCII** 时 utf-8 也能
+        //    decode "成功", 但后续 0x80+ 的中文字节是乱码. 改成多编码全文 decode + 计中文
+        //    字符比例打分, 选最高的.
+        let sample = body.prefix(8192)
+        let candidates: [(name: String, enc: String.Encoding)] = [
+            ("utf-8", .utf8),
+            ("gbk", nsEncoding(for: "gbk")),
+            ("big5", nsEncoding(for: "big5")),
+        ]
+        var best: (name: String, score: Double) = ("utf-8", -1)
+        for (name, enc) in candidates {
+            guard let s = String(data: sample, encoding: enc) else { continue }
+            let score = chineseRatio(s)
+            if score > best.score { best = (name, score) }
         }
-        // GBK fallback (中文站常见)
+        if best.score > 0 { return best.name }
+        // 全部 decode 失败极少见, 回到 GBK (中文站最常见)
         return "gbk"
+    }
+
+    /// 万象书屋 (M2.8): 估算字符串里 CJK 中文字符比例 (0.0-1.0).
+    /// 对中文站 decode 后中文比例越高 = 编码越对. 替换字符 (U+FFFD) 视为负分.
+    nonisolated private func chineseRatio(_ s: String) -> Double {
+        var cjk = 0
+        var replacement = 0
+        var totalChars = 0
+        for c in s {
+            totalChars += 1
+            if c == "\u{FFFD}" { replacement += 1; continue }
+            for sc in c.unicodeScalars {
+                let v = sc.value
+                // CJK Unified Ideographs (常用): U+4E00 - U+9FFF
+                if v >= 0x4E00 && v <= 0x9FFF { cjk += 1; break }
+                // CJK Symbols and Punctuation: U+3000 - U+303F (中文标点)
+                if v >= 0x3000 && v <= 0x303F { cjk += 1; break }
+            }
+        }
+        guard totalChars > 0 else { return 0 }
+        // 替换字符强惩罚 (出现就大概率不是这个编码)
+        let penalty = Double(replacement) / Double(totalChars) * 5.0
+        return max(0, Double(cjk) / Double(totalChars) - penalty)
     }
 
     /// 把字节按编码 decode 成 String. 失败时降级 utf-8 lossy.
