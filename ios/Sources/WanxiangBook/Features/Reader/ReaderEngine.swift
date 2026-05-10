@@ -321,13 +321,43 @@ public final class ReaderEngine: ObservableObject {
         await changeSource(to: pickedBook, source: pickedSource)
     }
 
+    /// 万象书屋 (M2.8): preDownload — 跟 Android `ReadBook.preDownload` (默认
+    /// `preDownloadNum=10`) 对齐. 之前只预拉 ±1 章, 翻 3 章就走网络. 现在前 5 + 后 10
+    /// 全后台预拉, SQLite cache 命中后翻页秒级.
+    /// 关键 invariants:
+    ///   - silent=true 让失败不写 lastError (后台预拉失败别打扰前台读)
+    ///   - 跳过已 cache / inflight 的章, 避免重复请求
+    ///   - 用 .utility QoS, 不抢用户当前章主线程资源
+    private static let preDownloadAhead = 10
+    private static let preDownloadBehind = 5
+
     private func prefetchAround(_ index: Int) {
-        for offset in [-1, 1] {
+        // 1. 优先邻近 (±1) — 用户大概率下一秒就翻到, 高优先级
+        for offset in [1, -1] {
             let target = index + offset
-            guard target >= 0, target < chapters.count, contentCache[target] == nil, inflight[target] == nil else {
+            guard target >= 0, target < chapters.count,
+                  contentCache[target] == nil, inflight[target] == nil else {
                 continue
             }
-            Task { await loadChapter(index: target, silent: true) }
+            Task(priority: .userInitiated) { await loadChapter(index: target, silent: true) }
+        }
+        // 2. 后续 N 章 (用户顺序读时, 翻页前已经在 SQLite)
+        for offset in 2...Self.preDownloadAhead {
+            let target = index + offset
+            guard target >= 0, target < chapters.count,
+                  contentCache[target] == nil, inflight[target] == nil else {
+                continue
+            }
+            Task(priority: .utility) { await loadChapter(index: target, silent: true) }
+        }
+        // 3. 前 N 章 (用户回看上文时也命中)
+        for offset in 2...Self.preDownloadBehind {
+            let target = index - offset
+            guard target >= 0, target < chapters.count,
+                  contentCache[target] == nil, inflight[target] == nil else {
+                continue
+            }
+            Task(priority: .utility) { await loadChapter(index: target, silent: true) }
         }
     }
 }
