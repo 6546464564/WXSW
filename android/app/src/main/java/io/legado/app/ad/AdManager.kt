@@ -33,17 +33,21 @@ import kotlinx.coroutines.withContext
 object AdManager {
 
     private const val TAG = "AdManager"
+
     /**
-     * 万象书屋: 开屏广告展示阶段硬兜底超时.
+     * 万象书屋: **开屏 splash** 展示阶段硬兜底超时.
      *
-     * 设为 180s (3 分钟) 仅用于防 SDK bug (回调不触发卡死), 正常情况下完全信任 SDK 的
-     * onAdClosed. 之前设 30s 会切断 fallback 到 interstitial-as-splash 的广告
-     * (CSJ 40019 后回退的全屏视频通常 30-60s, 30s 超时永远看不到完结).
+     * 真实 splash 节奏: 倒计时 5s, 用户多看一两秒 + 点跳过 + 网络抖动, 最多 ~10s 就该结束.
+     * 15s 已经足够兜住正常体验; 再长用户会以为"App 卡死"放弃回退 (实测 emulator/弱网下
+     * SDK 偶尔进入"已 onAdReadyToShow 但永不 onAdClosed"的半死态, 之前 180s 兜底意味着
+     * 用户冷启需要等 3 分钟才能看到主界面).
      *
-     * 关键: 一旦 SDK 调 onAdReadyToShow, SHOW_TIMEOUT_MS 就只是兜底, **不应该作为
-     * 主流程**. 主流程是 SDK 的 onAdClosed/onError.
+     * 注意: 这条兜底仅给 splash 用, 不要复用到激励视频 (rewarded 视频本身就可能 1~2 分钟).
      */
-    private const val SHOW_TIMEOUT_MS = 180_000L
+    private const val SPLASH_SHOW_TIMEOUT_MS = 15_000L
+
+    // 万象书屋: 激励视频/插页的兜底 (180s) 在 showRewardedReadingUnlock 内部直接用字面量,
+    // 不抽公共常量 — 防止后续有人误把它复用到 splash 上, 让 splash 又退回 3 分钟.
 
     /**
      * 当前接入的 SDK 适配器 + 兜底 stub.
@@ -168,9 +172,10 @@ object AdManager {
      * 在 [container] 中展示开屏广告. 强制开屏: 用户每次冷启动必看, 直到广告自然结束.
      *
      * 超时拆两段:
-     *   - **加载超时** = splash.timeoutMs (5s): SDK 没拿到广告就 fallback 跳 MainActivity
-     *   - **展示超时** = SHOW_TIMEOUT_MS (30s): 广告已经在播 (onAdReadyToShow 触发后),
-     *     等用户看完 / 点跳过 / SDK 倒计时结束才走 onFinished. 30s 是兜底防 SDK 死锁.
+     *   - **加载超时** = splash.timeoutMs (≤10s): SDK 没拿到广告就 fallback 跳 MainActivity
+     *   - **展示超时** = SPLASH_SHOW_TIMEOUT_MS (15s): 广告已经在播 (onAdReadyToShow 触发后),
+     *     等用户看完 / 点跳过 / SDK 倒计时结束才走 onFinished. 15s 是兜底防 SDK 死锁
+     *     (之前 180s 会让 emulator/弱网用户冷启坐 3 分钟; splash 真广告 ≤12s 已绰绰有余).
      *
      * @param onFinished 不论展示成功 / 跳过 / 失败 / 超时, 最终都调用一次 (主线程).
      */
@@ -235,11 +240,13 @@ object AdManager {
                     onceFinished.run("load-timeout")
                 }
             }
-            // 展示超时兜底: 30s 后就算 SDK 没回 close, 也强制结束防卡死
+            // 展示超时兜底: 15s 后就算 SDK 没回 close, 也强制结束防卡死.
+            // (emulator/弱网时 CSJ 偶发"已 onAdReadyToShow 但永不 onAdClosed"半死态,
+            //  这里用 splash 专属短兜底, 不复用激励视频的 180s.)
             activity.lifecycleScope.launch {
-                delay(SHOW_TIMEOUT_MS)
+                delay(SPLASH_SHOW_TIMEOUT_MS)
                 if (!onceFinished.isDone()) {
-                    LogUtils.d(TAG, "showSplash: show hard timeout ${SHOW_TIMEOUT_MS}ms")
+                    LogUtils.d(TAG, "showSplash: show hard timeout ${SPLASH_SHOW_TIMEOUT_MS}ms")
                     onceFinished.run("show-timeout")
                 }
             }
