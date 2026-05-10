@@ -63,8 +63,12 @@ public enum SyncHTTP {
         req.httpMethod = method
         if let body = body { req.httpBody = body }
         // 默认 UA, 防止某些站点 403 空 UA
+        // 万象书屋 (M2.8 fix bug): UA 不能含中文 — 之前结尾 "万象书屋" 让某些站点 (如
+        // 爱下电子书 ixdzs8.com) 反爬规则把请求拒掉或返 challenge 页. 改成跟 HTTPFetcher
+        // 一致的标准 iOS Safari UA.
         if headers["User-Agent"] == nil && headers["user-agent"] == nil {
-            req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 万象书屋",
+            req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) " +
+                         "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
                          forHTTPHeaderField: "User-Agent")
         }
         for (k, v) in headers {
@@ -74,6 +78,11 @@ public enum SyncHTTP {
             req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         }
 
+        if ProcessInfo.processInfo.environment["WX_DEBUG_HTTP"] != nil {
+            let cookies = HTTPCookieStorage.shared.cookies(for: u) ?? []
+            let cookieStr = cookies.map { "\($0.name)=\($0.value.prefix(10))" }.joined(separator: "; ")
+            print("[SyncHTTP] \(method) \(url.prefix(120)) | cookies=\(cookieStr)")
+        }
         let sema = DispatchSemaphore(value: 0)
         var result: SyncHTTPResponse? = nil
         let task = session.dataTask(with: req) { data, resp, _ in
