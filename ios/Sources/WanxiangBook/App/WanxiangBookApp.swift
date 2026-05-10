@@ -88,6 +88,12 @@ final class AppState: ObservableObject {
             await self?.fetchVersionCheck()
             await AdManager.shared.refreshConfig()
         }.value
+        // 万象书屋 (M2.4 perf): 在 splash 这 1s 期间预热 BookSourceEngine 单例
+        // (含 4 个 JSEngine + stdlib 注入), 让用户进搜索页时第一次 search 不再等
+        // ~200-400ms 的冷启 cost. 是 lazy singleton 的最早 access 点, 副作用 0.
+        Task.detached(priority: .utility) {
+            _ = BookSourceEngine.shared
+        }
         // 万象书屋: 启 4 分钟一次心跳定时器 (跟后端 rateLimitPing 对齐, 防超频)
         startHeartbeatLoop()
     }

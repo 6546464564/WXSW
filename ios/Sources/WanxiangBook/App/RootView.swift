@@ -132,10 +132,12 @@ struct RootView: View {
                 }
             }
             // --Search <keyword>: 直接打开搜索 (debug 用)
+            // 万象书屋 (M2.4 perf): 之前死等 2s 是给 splash + RootView 渲染完缓冲, 实测 splash
+            // 已经在自己 task 里跑完 (1s 品牌停留), 这里再等 2s 是冗余 — 直接 set 让 sheet
+            // 跟 splash 转场并行起来.
             for key in ["--Search", "-Search"] {
                 if let i = args.firstIndex(of: key), i + 1 < args.count {
                     let kw = args[i + 1]
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
                     await MainActor.run { deepLinkSearchKeyword = kw }
                     break
                 }
