@@ -53,6 +53,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// 万象书屋: 全局 piggyback ETag, 让客户端 0 流量感知到"源池有变更".
+//
+// 设计 (方案 G' 服务端部分):
+//   - 任何 API 响应都附带 `X-Sources-Etag: <当前 platform 的 sources etag>`.
+//   - 客户端在 URLSession/OkHttp 拦截器里读这个 header, 跟本地缓存的 etag 比对,
+//     不一致才静默发 `If-None-Match` 拉 /api/sources. 一致就完全不动.
+//   - server 计算 etag 是 in-memory cache hit (db.getEnabledSourcesEtag),
+//     不查 DB 不算 hash, ~微秒级开销, 可放在所有路由前.
+//   - 仅给 /api/* 路由附加 (admin / 静态资源不需要).
+app.use('/api/', (req, res, next) => {
+  try {
+    res.set('X-Sources-Etag', db.getEnabledSourcesEtag(req.platform));
+    res.append('Vary', 'X-Platform');
+  } catch (_e) {
+    // 兜底: db 异常时不阻断业务请求, 只是这次 etag 没下发, 客户端下次再感知
+  }
+  next();
+});
+
 // db.init() 已在 db.js 加载时执行（须在 prepare 语句之前建表）
 // 30 分钟清一次老数据 — unref 让单元测试能正常退出
 setInterval(() => db.cleanupOldData(), 30 * 60 * 1000).unref?.();

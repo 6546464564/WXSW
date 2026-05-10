@@ -229,6 +229,8 @@ dependencies {
     //lifecycle
     implementation(libs.lifecycle.common.java8)
     implementation(libs.lifecycle.service)
+    // 万象书屋: ProcessLifecycleOwner — 给 App 切前台兜底刷书源 etag 用 (方案 G')
+    implementation(libs.lifecycle.process)
 
     //media
     implementation(libs.media.media)

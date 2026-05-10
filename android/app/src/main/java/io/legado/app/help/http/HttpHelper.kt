@@ -80,6 +80,19 @@ val okHttpClient: OkHttpClient by lazy {
             builder.addHeader("Cache-Control", "no-cache")
             chain.proceed(builder.build())
         }
+        // 万象书屋 (方案 G'): 全局 piggyback etag 拦截器.
+        //   - 任何指向万象后端的响应里都会有 `X-Sources-Etag` header
+        //   - 拦截器读 header 调 WanxiangBackend.noteServerSourcesEtag(它内部判 etag 是否变)
+        //   - 第三方网站响应没这个 header → header 为 null → 直接跳过, 0 开销
+        //   - 不影响响应 body / 业务逻辑, 仅做 sniff
+        .addInterceptor { chain ->
+            val resp = chain.proceed(chain.request())
+            val etag = resp.header("X-Sources-Etag")
+            if (!etag.isNullOrBlank()) {
+                io.legado.app.help.WanxiangBackend.noteServerSourcesEtag(etag)
+            }
+            resp
+        }
         .addNetworkInterceptor { chain ->
             var request = chain.request()
             val enableCookieJar = request.header(cookieJarHeader) != null

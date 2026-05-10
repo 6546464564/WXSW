@@ -79,6 +79,17 @@ class App : Application() {
         // 万象书屋 D-19: 护眼模式 Application 级覆盖 — Activity 进 onResume 时统一调 EyeCareHelper.apply,
         //   覆盖所有 Activity (含 SplashAdActivity / 任何第三方库 Activity), 不漏 corner case.
         registerActivityLifecycleCallbacks(io.legado.app.help.EyeCareLifecycleCallback)
+        // 万象书屋 (方案 G'): App 切回前台兜底刷一次书源 etag.
+        //   - X-Sources-Etag 拦截器已经在任何 backend 响应时被动同步, 这里只是兜底,
+        //     防"用户切回前台后没任何接口被调"的极端弱网情况.
+        //   - 心跳本身也会调 fetchAndApplySources 顺带刷, 这里的兜底只在心跳失败的 corner case 起作用.
+        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : androidx.lifecycle.DefaultLifecycleObserver {
+                override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
+                    WanxiangBackend.refreshOnBecameForeground()
+                }
+            }
+        )
         defaultSharedPreferences.registerOnSharedPreferenceChangeListener(AppConfig)
         // 万象书屋: 在 Application.onCreate 同步隐私同意态.
         //

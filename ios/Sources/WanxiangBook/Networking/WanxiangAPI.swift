@@ -115,10 +115,25 @@ actor WanxiangAPI {
         return r
     }
 
-    /// 通用 send: 状态码校验 + JSON 解析
-    func send<T: Decodable>(_ req: URLRequest, as: T.Type) async throws -> T {
+    /// 万象书屋 (方案 G' 客户端): 统一 HTTP helper, 在收到任意响应时 sniff `X-Sources-Etag`,
+    /// 发现 server 当前 sources etag 跟客户端最近一次拿到的不一致, 就后台静默触发 BookSourceRegistry.refresh.
+    /// - 不阻塞业务请求, 也不影响调用方拿数据.
+    /// - 替代裸用 `session.data(for:)` 让所有 API 调用自动参与源同步.
+    func httpData(for req: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw APIError.invalidResponse }
+        if let etag = http.value(forHTTPHeaderField: "X-Sources-Etag"), !etag.isEmpty {
+            // 跳到 main actor 让 BookSourceRegistry 处理, 不阻塞当前 request
+            Task { @MainActor in
+                BookSourceRegistry.shared.noteServerSourcesEtag(etag)
+            }
+        }
+        return (data, http)
+    }
+
+    /// 通用 send: 状态码校验 + JSON 解析
+    func send<T: Decodable>(_ req: URLRequest, as: T.Type) async throws -> T {
+        let (data, http) = try await httpData(for: req)
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401 { throw APIError.unauthorized }
             let body = String(data: data, encoding: .utf8) ?? ""
@@ -130,7 +145,9 @@ actor WanxiangAPI {
     /// 不关心结果的 fire-and-forget POST (心跳 / 广告事件)
     nonisolated func sendIgnoreResult(_ req: URLRequest) {
         Task.detached { [weak self] in
-            _ = try? await self?.session.data(for: req)
+            // 万象书屋: 心跳 / 上报也走 httpData, 顺便消费 X-Sources-Etag header.
+            // 失败就吞掉, 但 etag 还是要尝试读 (即使响应 4xx/5xx 也会有 header).
+            _ = try? await self?.httpData(for: req)
         }
     }
 
@@ -179,10 +196,15 @@ actor WanxiangAPI {
     /// 返回原始 JSON 数组 (具体解析在 M1 BookSourceEngine 完成)
     func fetchSources(ifNoneMatch etag: String? = nil) async throws -> (sources: [Any], etag: String?) {
         var r = request(path: "/api/sources", method: "GET")
+        // 万象书屋 (方案 G'): /api/sources 必须每次都到 server, 让 server 用 ETag/304 控制是否回 body.
+        //   - 默认 URLSession 见 `Cache-Control: public, max-age=300` 会在 5min 内完全不发请求, 直接返回 cached body
+        //     ⇒ "本地不保存源" / "etag piggyback" 都失效, 客户端用 5 分钟前的旧源.
+        //   - 用 .reloadIgnoringLocalCacheData 强制走网络, 但仍带 If-None-Match (URLSession 会自动管理 ETag, 但既然
+        //     我们已经显式 set 一次, 命中 304 就 1 KB 返回零成本).
+        r.cachePolicy = .reloadIgnoringLocalCacheData
         if let e = etag { r.setValue(e, forHTTPHeaderField: "If-None-Match") }
 
-        let (data, resp) = try await session.data(for: r)
-        guard let http = resp as? HTTPURLResponse else { throw APIError.invalidResponse }
+        let (data, http) = try await httpData(for: r)
 
         let newEtag = http.value(forHTTPHeaderField: "ETag")
         if http.statusCode == 304 { return ([], etag) }
@@ -199,14 +221,15 @@ actor WanxiangAPI {
         var r = request(path: "/api/ping", method: "POST")
         // 万象书屋: 后端要求 body 含 device_id, header 也要 X-Device-Id
         r.httpBody = try? JSONSerialization.data(withJSONObject: ["device_id": deviceId])
-        _ = try? await session.data(for: r)
+        // 走 httpData 让响应里的 X-Sources-Etag 被读到 (即使 ping 没拿到 200, header 也尝试 sniff)
+        _ = try? await httpData(for: r)
     }
 
     /// 拉公告 (启动后展示一次, UserDefaults 记 last_seen_id 不重复弹)
     func fetchAnnouncement() async throws -> AnnouncementInfo? {
         let r = request(path: "/api/announcement", method: "GET")
-        let (data, resp) = try await session.data(for: r)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let (data, http) = try await httpData(for: r)
+        guard (200..<300).contains(http.statusCode) else {
             return nil
         }
         guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -235,8 +258,8 @@ actor WanxiangAPI {
         var r = URLRequest(url: comps.url!)
         r.setValue(Self.platform, forHTTPHeaderField: "X-Platform")
         r.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
-        let (data, resp) = try await session.data(for: r)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let (data, http) = try await httpData(for: r)
+        guard (200..<300).contains(http.statusCode) else {
             return nil
         }
         guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -338,9 +361,7 @@ actor WanxiangAPI {
         r.setValue(Self.platform, forHTTPHeaderField: "X-Platform")
         r.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
         if let tok = deviceToken { r.setValue(tok, forHTTPHeaderField: "X-Device-Token") }
-        let (data, resp) = try await session.data(for: r)
-        guard let http = resp as? HTTPURLResponse else { throw APIError.invalidResponse }
-        return (data, http)
+        return try await httpData(for: r)
     }
 
     /// 提交反馈 (M2.10.7)
@@ -356,8 +377,8 @@ actor WanxiangAPI {
         if !contact.isEmpty { body["contact"] = contact }
         r.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, resp) = try await session.data(for: r)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let (data, http) = try await httpData(for: r)
+        guard (200..<300).contains(http.statusCode) else {
             return false
         }
         let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -371,8 +392,8 @@ actor WanxiangAPI {
         // 后端要求 body 里再带 device_id (跟 header 双重校验)
         r.httpBody = try? JSONSerialization.data(withJSONObject: ["device_id": deviceId])
 
-        let (data, resp) = try await session.data(for: r)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let (data, http) = try await httpData(for: r)
+        guard (200..<300).contains(http.statusCode) else {
             return false
         }
         let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]

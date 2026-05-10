@@ -123,6 +123,10 @@ final class AppState: ObservableObject {
             if heartbeatTimer == nil || heartbeatTimer?.isCancelled == true {
                 startHeartbeatLoop()
             }
+            // 万象书屋 (方案 G'): 切回前台兜底刷一次源 etag.
+            // 心跳 sendPingNow 已经会通过 X-Sources-Etag header 发现变更, 这里多一次 If-None-Match
+            // 探测只是双保险 — 极端弱网下 ping 失败时也能在前台刷一次源.
+            BookSourceRegistry.shared.refreshOnBecameActive()
         case .background:
             heartbeatTimer?.cancel()
             heartbeatTimer = nil

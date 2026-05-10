@@ -189,63 +189,130 @@ object WanxiangBackend {
         startHeartbeatLoop(url)
     }
 
+    // ===== 万象书屋 (方案 G' 客户端): X-Sources-Etag 被动同步 =====
+    //
+    // 思路: 任何 backend API 响应都会带 `X-Sources-Etag: <当前服务端 sources etag>` header.
+    // OkHttp 拦截器 (HttpHelper.kt) 在收到响应时调 [noteServerSourcesEtag], 这里比对内存里
+    // 的 lastKnownEtag, 不一致才静默拉一次 /api/sources. 一致就完全不动 (零流量, 零延迟).
+    //
+    // 配合切前台 [refreshOnBecameForeground] 兜底, 撤源延迟 ≤ 1 个心跳周期 (4 分钟).
+
+    @Volatile
+    private var lastKnownSourcesEtag: String? = null
+
+    @Volatile
+    private var refreshInflight: Boolean = false
+
+    /**
+     * 由全局 OkHttp 响应拦截器调. 任何带 backend host 的响应都会顺路捎回 etag header.
+     * 不阻塞调用方; etag 一致直接跳过, 不一致才起 coroutine 后台 sync.
+     */
+    fun noteServerSourcesEtag(remoteEtag: String?) {
+        if (remoteEtag.isNullOrBlank()) return
+        val url = baseUrl ?: return
+        // 冷启时 start() 会自己拉一次, 这里不抢跑. 用 lastKnownSourcesEtag != null 当"已初始化"信号 —
+        // 第一次 fetchAndApplySources 成功后会设, 之后任何 etag drift 才走这条路径.
+        if (lastKnownSourcesEtag == null) return
+        if (remoteEtag == lastKnownSourcesEtag) return
+        // 防并发: 已经在跑了不重复
+        if (refreshInflight) return
+        refreshInflight = true
+        Coroutine.async {
+            runCatching {
+                LogUtils.d(TAG, "etag drift (local=$lastKnownSourcesEtag server=$remoteEtag), refreshing sources")
+                fetchAndApplySources(url)
+                lastKnownSourcesEtag = remoteEtag
+            }.onFailure {
+                LogUtils.d(TAG, "etag-driven refresh failed: ${it.message}")
+            }
+        }.onFinally {
+            refreshInflight = false
+        }
+    }
+
+    /**
+     * App 切回前台兜底刷新一次. 调用方应在 ProcessLifecycleOwner ON_START 时触发.
+     * 冷启时 [start] 已经会跑 fetchAndApplySources, 这里加 guard 避免冷启重复跑两次浪费 160KB.
+     */
+    fun refreshOnBecameForeground() {
+        val url = baseUrl ?: return
+        // 等 start() 至少跑过一次 (lastKnownSourcesEtag 非空) 才走前台兜底, 避免冷启 onStart 抢跑
+        if (lastKnownSourcesEtag == null) return
+        if (refreshInflight) return
+        refreshInflight = true
+        Coroutine.async {
+            runCatching { fetchAndApplySources(url) }
+                .onFailure { LogUtils.d(TAG, "foreground refresh failed: ${it.message}") }
+        }.onFinally {
+            refreshInflight = false
+        }
+    }
+
     private suspend fun fetchAndApplySources(url: String) = withContext(Dispatchers.IO) {
         // 万象书屋 PIPL 合规: 撤回隐私同意后, 不应再向后端发送 device_id.
         // 拉取书源不需要个人身份, 撤回时只匿名拉取 (后端的限速/黑名单按 IP 即可).
         val consented = io.legado.app.ad.AdManager.isConsented()
         val tok = deviceToken
         LogUtils.d(TAG, "fetchSources: consented=$consented, tokenLen=${tok?.length ?: 0}")
+        val cachedEtag = lastKnownSourcesEtag
         val resp = okHttpClient.newCallStrResponse(retry = 1) {
             url("$url/api/sources")
             header("X-Platform", PLATFORM)
             if (consented) header("X-Device-Id", deviceId)
             if (!tok.isNullOrBlank()) header("X-Device-Token", tok)
             header("Accept", "application/json")
+            // 万象书屋 (方案 G'): 主动带 If-None-Match. 服务端 ETag 不变 → 304, 1 KB 0 改动.
+            // 仅在内存里有 etag 时才带 (冷启 first run 拿不到 304 优化, 但这是符合预期的).
+            if (!cachedEtag.isNullOrBlank()) header("If-None-Match", cachedEtag)
         }
         LogUtils.d(TAG, "fetchSources resp: code=${resp.raw.code}, bodyLen=${resp.body?.length ?: 0}")
+
+        // 万象书屋 (方案 G'): 304 = "你的还是最新", 不动本地 sources, 仅 etag 已确认.
+        if (resp.raw.code == 304) {
+            LogUtils.d(TAG, "fetchSources 304 (etag stable), keep local")
+            return@withContext
+        }
+
         val body = resp.body ?: return@withContext
+        // 万象书屋 (方案 G'): 记下当前服务端 sources etag, 给 noteServerSourcesEtag 用作"基线".
+        // 第一次设上后, 后续任何接口响应里的 X-Sources-Etag 一致就跳过, 不一致才主动重拉.
+        resp.raw.header("ETag")?.takeIf { it.isNotBlank() }?.let { lastKnownSourcesEtag = it }
         val sources = GSON.fromJsonArray<BookSource>(body).getOrDefault(emptyList())
         if (sources.isEmpty()) {
             LogUtils.d(TAG, "remote returned 0 sources, keep local. body sample: ${body.take(200)}")
             return@withContext
         }
-        // 万象书屋: 后端是书源权威源, 做精确 reconcile 而不是只 INSERT REPLACE.
+        // 万象书屋: 后端是书源权威源, 做精确 reconcile.
         //
-        // 旧 BUG #1 (已修): 后端 disable 一个源后, /api/sources 不再返回该源, 但 App 端
-        //   book_sources 表里**该源仍然存在且 enabled**, 用户搜索仍会调用它. 导致
-        //   "后端 disable 的劣质源在 App 端继续生效".
-        //
-        // 旧 BUG #2 (D-15 / A-1 本次修复): 上一版补丁过激 — 把所有"不在当前远端列表"的本地
-        //   enabled 源都 disable 掉, 包括用户自己导入的私人源. 用户每次冷启动书架阅读源全失效,
-        //   必须手动逐个开启, 严重影响信任.
-        //
-        // 当前策略 (兼顾两个 BUG):
+        // 当前策略 (跟 iOS `BookSourceRegistry.refresh` 对齐):
         //   1. 读上次保存的"远端 URL 集合" prevRemoteUrls (首次启动为空集)
-        //   2. 把当前远端列表批量 upsert (覆盖名称/规则等, 但 enabled 字段以远端为准)
-        //   3. 仅 disable "url ∈ prevRemoteUrls AND url ∉ currentRemoteUrls" 的源 →
-        //      只命中"之前由远端推过, 现在远端撤回"的源, 用户自定义源 (从未在 prev 集合)
-        //      永远不动.
+        //   2. 把当前远端列表批量 upsert (覆盖名称/规则, enabled 字段以远端为准)
+        //   3. **直接删除** "url ∈ prevRemoteUrls AND url ∉ currentRemoteUrls" 的源 →
+        //      命中"之前由远端推过, 现在远端撤回"的源 (后端 disable / 删除 / 调整 platforms 后不再下发).
+        //      用户从未由远端推过的私人源 (不在 prev 集合) 永远不动 → 本地 JSON 导入安全.
         //   4. 把 currentRemoteUrls 持久化, 给下次比对.
         //
-        // 首次启动 / 升级首次跑: prevRemoteUrls = ∅ → 不 disable 任何本地源, 安全降级.
-        // 升级用户先前被错误 disable 的源: 仍是 disabled, 但本次不会再误伤新源. 用户手动
-        //   启用即可. 后续不再受影响.
+        // 历史: 之前是 "撤源 → disable" (留个壳子), 但用户希望"之前的不要留存了",
+        //   所以本次改成 hard delete. 已经被错误 disable 的旧源, 在升级用户首次 reconcile
+        //   时如果它的 url 仍然在 prevRemoteUrls 里 (上一版本写入的), 就会自动被删掉; 否则
+        //   保持 disabled 状态.
+        //
+        // 首次启动 / 升级首次跑: prevRemoteUrls = ∅ → 不删任何本地源, 安全降级.
         val remoteUrls: Set<String> = sources.map { it.bookSourceUrl }.toHashSet()
         val previousRemoteUrls = readPreviousRemoteUrls()
         appDb.bookSourceDao.insert(*sources.toTypedArray())
 
-        var disabledCount = 0
+        var deletedCount = 0
         if (previousRemoteUrls.isNotEmpty()) {
             // 求差集: 之前远端推过, 现在远端不再返回 = 后端撤源
             val withdrawn = previousRemoteUrls - remoteUrls
             if (withdrawn.isNotEmpty()) {
-                // 万象书屋: 只对**当前 enabled** 的撤源做 disable, 已 disable 的不重复写库
-                val allLocal = appDb.bookSourceDao.allEnabled
-                for (local in allLocal) {
-                    if (local.bookSourceUrl in withdrawn) {
-                        local.enabled = false
-                        appDb.bookSourceDao.update(local)
-                        disabledCount++
+                appDb.runInTransaction {
+                    for (url in withdrawn) {
+                        // 复用 SourceHelp.deleteBookSourceInternal 等价行为, 但跨模块直接调 dao
+                        // 避免 SourceHelp 在测试时拉到 SourceConfig / AppCacheManager 等重量级依赖.
+                        appDb.bookSourceDao.delete(url)
+                        deletedCount++
                     }
                 }
             }
@@ -254,7 +321,7 @@ object WanxiangBackend {
         LogUtils.d(
             TAG,
             "applied ${sources.size} remote sources, " +
-                "disabled $disabledCount withdrawn (prev=${previousRemoteUrls.size})"
+                "deleted $deletedCount withdrawn (prev=${previousRemoteUrls.size})"
         )
     }
 
