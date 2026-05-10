@@ -442,10 +442,8 @@ public struct ReaderView: View {
         ScrollView {
             LazyVStack(spacing: config.paragraphSpacing) {
                 ForEach(pages) { page in
-                    Text(page.text)
-                        .font(.system(size: config.textSize))
-                        .foregroundStyle(config.theme.textColor)
-                        .lineSpacing(config.textSize * (config.lineSpacing - 1))
+                    // 万象书屋 (M2.8 Gap 3): 按 ␎WX_IMG[url]␏ 标记切段, text/image 分别渲染
+                    chapterPageBody(page: page)
                         .padding(.horizontal, config.paddingHorizontal)
                 }
                 // bug fix: 滚动模式下滚到底部, 自动 load 下一章 (跟 Android 对齐)
@@ -602,6 +600,13 @@ public struct ReaderView: View {
             .background(.black.opacity(0.7))
         }
         .ignoresSafeArea()
+    }
+
+    /// 万象书屋 (M2.8 Gap 3): scrollPager 用的 page body wrapper, 跟 ReaderPageView 的
+    /// ChapterPageBody 等价 (内部都是 segments 渲染).
+    @ViewBuilder
+    private func chapterPageBody(page: ReaderPage) -> some View {
+        ChapterPageBody(pageText: page.text, config: config)
     }
 
     private func menuBtn(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
@@ -860,15 +865,13 @@ private struct ReaderPageView: View {
     var body: some View {
         GeometryReader { geo in
             VStack(alignment: .leading, spacing: 0) {
-                // 万象书屋 (P0 fix): SwiftUI Text 自动按 frame 自适应换行/截断, 跟 PaginationEngine
-                // CTFramesetter 行高/字距完全一致, 不会出现 UITextView 那样字数算错留白的情况
-                Text(page.text)
-                    .font(.system(size: config.textSize))
-                    .foregroundStyle(config.theme.textColor)
-                    .lineSpacing(config.textSize * (config.lineSpacing - 1))
-                    .kerning(config.letterSpacing)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // 万象书屋 (M2.8 Gap 3): page.text 可能含 ␎WX_IMG[url]␏ 占位标记,
+                // 切成 text/image 段分别渲染. 没有 image 时保持跟之前的纯 Text 等价.
+                ChapterPageBody(
+                    pageText: page.text,
+                    config: config
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                 // 页脚
                 HStack {
@@ -957,6 +960,46 @@ private struct AutoReadConfigSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - ChapterPageBody (M2.8 Gap 3)
+
+/// 万象书屋: 一页正文的渲染 wrapper, 按 ␎WX_IMG[url]␏ 占位标记切成 text/image 段,
+/// text 段用 SwiftUI Text, image 段用 ChapterImageBlock (AsyncImage + 全屏点击).
+/// 没有 image 时整页作为单个 Text 渲染, 跟之前行为完全等价 (零回归).
+struct ChapterPageBody: View {
+    let pageText: String
+    @ObservedObject var config: ReadConfig
+
+    var body: some View {
+        let segs = parseChapterPageSegments(pageText)
+        // 没图片就用单 Text, 跟历史行为等价 (不让 VStack 改变行间距 / 文本选择)
+        if segs.count == 1, case .text(let txt, _) = segs[0] {
+            Text(txt)
+                .font(.system(size: config.textSize))
+                .foregroundStyle(config.theme.textColor)
+                .lineSpacing(config.textSize * (config.lineSpacing - 1))
+                .kerning(config.letterSpacing)
+                .textSelection(.enabled)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(segs) { seg in
+                    switch seg {
+                    case .text(let txt, _):
+                        Text(txt)
+                            .font(.system(size: config.textSize))
+                            .foregroundStyle(config.theme.textColor)
+                            .lineSpacing(config.textSize * (config.lineSpacing - 1))
+                            .kerning(config.letterSpacing)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    case .image(let url, _):
+                        ChapterImageBlock(imageUrl: url, textColor: config.theme.textColor)
+                    }
                 }
             }
         }

@@ -205,6 +205,15 @@ public final class ContentParser: @unchecked Sendable {
         var s = html
         s = s.replacingOccurrences(of: #"<br\s*/?>"#, with: "\n", options: .regularExpression)
         s = s.replacingOccurrences(of: #"</?p[^>]*>"#, with: "\n\n", options: [.regularExpression, .caseInsensitive])
+        // 万象书屋 (M2.8 Gap 3): 在剥所有 tag 前先把 <img src="X"> 抽出来当占位段落.
+        // 用 \nWX_IMG_BEGIN_ url WX_IMG_END_\n 三段标记, 让 Reader 渲染时识别这种段并
+        // 用 AsyncImage / ChapterImageCache 渲染. 选用纯 ASCII 唯一字符串, 避免被
+        // 后续中文段落里的 [/] 字符误识别. 标记被字符级分页切断的概率极低 (整段总长 ~50 字).
+        s = s.replacingOccurrences(
+            of: #"<img[^>]+src=['"]([^'"]+)['"][^>]*>"#,
+            with: "\n␎WX_IMG[$1]␏\n",
+            options: [.regularExpression, .caseInsensitive]
+        )
         s = s.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
         s = s.replacingOccurrences(of: "&nbsp;", with: " ")
         s = s.replacingOccurrences(of: "&lt;", with: "<")

@@ -33,6 +33,8 @@ struct BookDetailView: View {
     /// 万象书屋 (debug arg `--AutoStartReading`): 详情拉完 toc 后自动 push 进 reader,
     /// 给 GUI 自动化测试用 (cliclick 不稳).
     @State private var autoStartReader = false
+    /// 万象书屋 (M2.8 Gap 2): 章节范围下载 sheet
+    @State private var downloadRangeSheet = false
     /// 万象书屋 (M2.5.5.1 补丁): 详情页里"当前正在用"的 SearchBook / BookSource.
     /// 初始 = 入参; 用户在换源 sheet 里点了候选后 = 候选.
     @State private var currentBook: SearchBook
@@ -146,6 +148,20 @@ struct BookDetailView: View {
         .sheet(isPresented: $changeSourceSheet) {
             ChangeSourceView(searchBook: currentBook) { newBook, newSource in
                 Task { await onSourceSwitched(to: newBook, source: newSource) }
+            }
+        }
+        // 万象书屋 (M2.8 Gap 2): 章节范围下载 sheet
+        .sheet(isPresented: $downloadRangeSheet) {
+            DownloadRangeSheet(
+                bookName: currentBook.name,
+                totalChapters: vm.chapters.count,
+                currentChapter: vm.shelfDurChapterIndex >= 0 ? vm.shelfDurChapterIndex + 1 : nil
+            ) { range in
+                downloader.startDownload(
+                    book: shelfBookFromSearch(),
+                    source: currentSource,
+                    range: range
+                )
             }
         }
         // 万象书屋 (debug arg `--AutoStartReading`): 让 autoStartReader 触发 push reader.
@@ -324,7 +340,7 @@ struct BookDetailView: View {
             .background(WanxiangColors.card)
             .clipShape(RoundedRectangle(cornerRadius: 10))
         } else {
-            // 未下载: 大按钮
+            // 未下载: 大按钮 (短按整本下, 长按弹范围 sheet)
             Button {
                 triggerDownload()
             } label: {
@@ -333,7 +349,17 @@ struct BookDetailView: View {
                     Text(downloadButtonTitle(chapterCount: chapterCount))
                         .font(.subheadline.weight(.semibold))
                     Spacer()
-                    if !canDownload {
+                    if canDownload {
+                        // 万象书屋 (M2.8 Gap 2): 副入口 — 长按 / 点 ⋯ 选范围
+                        Button {
+                            downloadRangeSheet = true
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.subheadline)
+                                .foregroundStyle(WanxiangColors.primary)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
                         ProgressView().scaleEffect(0.7)
                     }
                 }
@@ -345,6 +371,9 @@ struct BookDetailView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canDownload)
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                if canDownload { downloadRangeSheet = true }
+            })
         }
     }
 

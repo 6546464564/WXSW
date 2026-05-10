@@ -35,8 +35,21 @@ struct MyView: View {
     @StateObject private var eyeCare = EyeCareModeManager.shared
     @StateObject private var purified = PurifiedReadingState.shared
     @StateObject private var ad = AdManager.shared
+    @StateObject private var downloader = BookDownloader.shared
 
     @State private var unlockToast: String? = nil
+
+    /// 万象书屋 (M2.8 C 档): 下载管理 row 的副标题, 显示当前任务概览
+    private var downloadSummarySubtitle: String {
+        let running = downloader.jobs.values.filter { $0.status == .running }.count
+        let finished = downloader.jobs.values.filter { $0.status == .finished }.count
+        if running > 0 {
+            return "\(running) 本下载中" + (finished > 0 ? " · \(finished) 已完成" : "")
+        } else if finished > 0 {
+            return "\(finished) 本已完成"
+        }
+        return "管理离线下载任务"
+    }
     // 万象书屋: 上架合规 / 调试入口 (showHiddenItems = true 时才出现)
     @State private var showBookSourceImporter = false
     @State private var importSourceMessage: String?
@@ -87,6 +100,17 @@ struct MyView: View {
                             icon: "clock.arrow.circlepath",
                             title: "阅读记录",
                             subtitle: "查看每日阅读时长统计"
+                        )
+                    }
+
+                    // 万象书屋 (M2.8 C 档): 下载管理入口, 跟 Android `CacheActivity` 等价.
+                    NavigationLink {
+                        DownloadCenterView()
+                    } label: {
+                        rowLabel(
+                            icon: "arrow.down.circle",
+                            title: "下载管理",
+                            subtitle: downloadSummarySubtitle
                         )
                     }
 

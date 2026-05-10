@@ -67,12 +67,14 @@ public final class BookDownloader: ObservableObject {
     // MARK: - 公共 API
 
     /// 开始下载. 已有任务直接 noop (不重复跑)
-    public func startDownload(book: ShelfBook, source: BookSource?) {
+    /// - Parameter range: 万象书屋 (M2.8 Gap 2): 可选章节范围 (1-based 索引), nil = 全本.
+    ///   跟 Android `CacheBook.start(book, start, end)` 等价, 让用户选"下载第 100-200 章".
+    public func startDownload(book: ShelfBook, source: BookSource?, range: ClosedRange<Int>? = nil) {
         if tasks[book.bookUrl] != nil { return }
         beginBackgroundTaskIfNeeded()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.runDownload(book: book, source: source)
+            await self.runDownload(book: book, source: source, range: range)
             self.endBackgroundTaskIfNoJobs()
         }
         tasks[book.bookUrl] = task
@@ -151,7 +153,7 @@ public final class BookDownloader: ObservableObject {
 
     // MARK: - 实际下载
 
-    private func runDownload(book: ShelfBook, source: BookSource?) async {
+    private func runDownload(book: ShelfBook, source: BookSource?, range: ClosedRange<Int>? = nil) async {
         // 1. 拿 chapters (优先本地 toc, 没就从 source 拉)
         var chapters: [BookChapter] = []
         if let local = try? await ChapterRepository.shared.loadToc(bookUrl: book.bookUrl), !local.isEmpty {
@@ -164,6 +166,15 @@ public final class BookDownloader: ObservableObject {
             if let toc = try? await BookSourceEngine.shared.fetchToc(of: info, in: s), !toc.isEmpty {
                 try? await ChapterRepository.shared.saveToc(bookUrl: book.bookUrl, chapters: toc)
                 chapters = toc
+            }
+        }
+        // 万象书屋 (M2.8 Gap 2): 用户指定范围时只下载该范围内章节. range 是 1-based 索引,
+        // chapters 是 0-based, 这里转换. 范围越界自动 clamp 到 [0, count-1].
+        if let range = range, !chapters.isEmpty {
+            let lo = max(0, range.lowerBound - 1)
+            let hi = min(chapters.count - 1, range.upperBound - 1)
+            if lo <= hi {
+                chapters = Array(chapters[lo...hi])
             }
         }
         guard !chapters.isEmpty else {
