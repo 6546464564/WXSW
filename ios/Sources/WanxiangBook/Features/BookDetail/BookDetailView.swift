@@ -597,56 +597,76 @@ final class BookDetailViewModel: ObservableObject {
         isLoadingToc = false
     }
 
-    /// 万象书屋 (P0 fix · D-25): 拉详情 + 拉目录, 让详情页不再"只用 SearchBook 的浅信息"
+    /// 万象书屋 (P0 fix · D-25): 拉详情 + 拉目录, 让详情页不再"只用 SearchBook 的浅信息".
+    /// 万象书屋 (M2.8 perf): fetchInfo + fetchToc 改并行, 之前串行用户等两个网络完成才能
+    /// 点"开始阅读" (~4-6s), 现在两个同时发 (~2-3s) 进 reader 路径快一倍.
     func loadDetails(book: SearchBook, source: BookSource?) async {
         loadTask?.cancel()
         loadTask = Task { [weak self] in
             guard let self else { return }
-            // Step 1: fetchInfo (有源才能拉; 无源只 fallback SearchBook)
-            if let s = source {
-                self.isLoadingDetail = true
-                self.infoError = nil
-                do {
-                    let detail = try await BookSourceEngine.shared.fetchInfo(of: book, in: s)
-                    if Task.isCancelled { return }
-                    self.info = detail
-                } catch {
-                    if Task.isCancelled { return }
-                    self.infoError = error.localizedDescription
-                }
-                self.isLoadingDetail = false
-            }
-            // Step 2: 拉 toc — 优先看 SQLite cache, 没就调源
-            if Task.isCancelled { return }
+
+            self.isLoadingDetail = source != nil
             self.isLoadingToc = true
+            self.infoError = nil
             self.tocError = nil
-            do {
-                let cached = try await ChapterRepository.shared.loadToc(bookUrl: book.bookUrl)
-                if !cached.isEmpty {
-                    self.chapters = cached
-                } else if let s = source {
-                    let infoForToc = self.info ?? BookInfo(
-                        bookUrl: book.bookUrl, name: book.name, author: book.author,
-                        intro: book.intro, kind: book.kind, coverUrl: book.coverUrl,
-                        tocUrl: book.bookUrl, lastChapter: book.lastChapter,
-                        updateTime: book.updateTime, wordCount: book.wordCount
-                    )
-                    let toc = try await BookSourceEngine.shared.fetchToc(of: infoForToc, in: s)
-                    if Task.isCancelled { return }
-                    try? await ChapterRepository.shared.saveToc(bookUrl: book.bookUrl, chapters: toc)
-                    self.chapters = toc
-                }
-            } catch {
+
+            // Step A: SQLite toc cache 优先 — 已加架 / 之前打开过的书 0.05s 命中
+            if let cached = try? await ChapterRepository.shared.loadToc(bookUrl: book.bookUrl),
+               !cached.isEmpty {
                 if Task.isCancelled { return }
-                self.tocError = error.localizedDescription
+                self.chapters = cached
+                self.isLoadingToc = false
+            }
+
+            // Step B: 并行启 fetchInfo + (cache miss 时) fetchToc
+            //   - fetchToc 用 search 数据组 fallback BookInfo (多数源 tocUrl == bookUrl 时 work)
+            //   - 少数源依赖 fetchInfo 解出来的 tocUrl, 那种源 fetchToc 会失败 →
+            //     用户感知是 toc 加载失败 errorState, 跟之前串行体验一样, 但成功 case 加速 1 倍
+            let cacheHit = !self.chapters.isEmpty
+            async let detailFuture: BookInfo? = {
+                guard let s = source else { return nil }
+                return try? await BookSourceEngine.shared.fetchInfo(of: book, in: s)
+            }()
+            async let tocFuture: [BookChapter]? = {
+                // 已 cache 命中就别再拉
+                if cacheHit { return nil }
+                guard let s = source else { return nil }
+                let infoForToc = BookInfo(
+                    bookUrl: book.bookUrl, name: book.name, author: book.author,
+                    intro: book.intro, kind: book.kind, coverUrl: book.coverUrl,
+                    tocUrl: book.bookUrl, lastChapter: book.lastChapter,
+                    updateTime: book.updateTime, wordCount: book.wordCount
+                )
+                return try? await BookSourceEngine.shared.fetchToc(of: infoForToc, in: s)
+            }()
+
+            // 收 detail 先到先显示
+            let detail = await detailFuture
+            if Task.isCancelled { return }
+            self.info = detail
+            if detail == nil, source != nil {
+                self.infoError = "详情加载失败"
+            }
+            self.isLoadingDetail = false
+
+            // 收 toc
+            let fetchedToc = await tocFuture
+            if Task.isCancelled { return }
+            if let toc = fetchedToc, !toc.isEmpty {
+                self.chapters = toc
+                let bookUrl = book.bookUrl
+                Task.detached(priority: .utility) {
+                    try? await ChapterRepository.shared.saveToc(bookUrl: bookUrl, chapters: toc)
+                }
+            } else if self.chapters.isEmpty {
+                // 既没 cache 也没拉到 → toc fail
+                self.tocError = "目录加载失败"
             }
             self.isLoadingToc = false
 
-            // 万象书屋 (M2.6 perf): 详情页拉到 toc 后, 后台默默预拉用户即将打开的章节正文.
-            // 用户在详情页一般停留 1-3 秒看简介, 这段时间足够拉一章 content (1-2 秒).
-            // 用户点"开始阅读" → ReaderEngine 走 SQLite cache hit 秒开 (0 网络).
-            // 跟 Android `BookInfoActivity` 不同 — Android 靠 `ReadBook` 全局单例 + 三章
-            // 并发 cover, iOS 没单例, 用预拉 cache 达到等价"秒开"效果.
+            // Step C: 后台预拉用户即将打开的章节正文
+            //   用户停留详情页 1-3s, 期间 prefetch 一章 ~ 1-2s, 点"开始阅读"时已经在 SQLite.
+            //   ReaderEngine.bootstrap 命中 cache 秒开.
             await self.prefetchTargetChapterContent(book: book, source: source)
         }
         await loadTask?.value

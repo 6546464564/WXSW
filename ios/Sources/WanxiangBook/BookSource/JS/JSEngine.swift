@@ -352,12 +352,8 @@ public actor JSEngine {
         // 万象书屋: legado 给每段 JS 评估都注入 source / cookie / host 全局
         // 缺这些会让大量 "高级" 源 (动态 host / 用户 token / cookie 鉴权) 直接挂
         injectSourceContext(scope.bookSource)
-
-        // 万象书屋 (M2.8 fix bug): 注入 legado `cache.putMemory()` / `getFromMemory()` 等
-        // KV store JS API. 番茄小说源等的 ruleBookInfo.init 用 `cache.putMemory('articleid', ...)`
-        // 跨阶段传值, 后续 tocUrl 用 `{{cache.getFromMemory('articleid')}}` 取. iOS 之前没实现
-        // 直接 ReferenceError ⇒ init 失败 ⇒ tocUrl 拿不到 articleid ⇒ toc 0 chapter.
-        injectCacheGlobal()
+        // 万象书屋 (M2.8 perf): cache.* global 不在每次 evaluate 重注 — 它是 process-singleton
+        // KV store, 进程内 API 不变. 移到 injectStdLib (init 一次性) 里, 减少每章节 ~5-10ms 开销.
     }
 
     /// 万象书屋: 注入 legado JS 的 `cache.*` 全局 KV store API.
@@ -767,6 +763,10 @@ public actor JSEngine {
         java.setObject(identity, forKeyedSubscript: "s2t" as NSString)
 
         ctx.setObject(java, forKeyedSubscript: "java" as NSString)
+
+        // 万象书屋 (M2.8 perf): cache.* 进程级 KV store, init 时注一次, 评估时不重注.
+        // 之前在 injectScopeVars 每次 evaluate 重注 7 个 closure 增加 ~5-10ms 开销.
+        injectCacheGlobal()
 
         // 万象书屋 (M2.8 fix bug): Rhino-style String.prototype polyfill — Android Legado 用的
         // Mozilla Rhino 把 Java String API 暴露给 JS, 大量源 author 写 `text.replaceAll(regex, x)`

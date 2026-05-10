@@ -195,11 +195,38 @@ public final class BookSourceEngine: @unchecked Sendable {
         return result
     }
 
+    /// 万象书屋 (M2.8 perf): fetchInfo 5 分钟内 LRU cache, 同书短时间反复进详情页 0 网络.
+    /// 用户场景: 看完详情进 reader 读两章, 退出后又点同书 — 之前每次都重新 fetchInfo.
+    private let infoCache = InfoCache()
+    private actor InfoCache {
+        private var cache: [String: (info: BookInfo, ts: Date)] = [:]
+        private let ttl: TimeInterval = 300  // 5 分钟
+        func get(_ key: String) -> BookInfo? {
+            guard let entry = cache[key], Date().timeIntervalSince(entry.ts) < ttl else { return nil }
+            return entry.info
+        }
+        func set(_ key: String, _ info: BookInfo) {
+            cache[key] = (info, Date())
+            // 简单 size cap, 60 条够用 (一次会话不会看 60 本书)
+            if cache.count > 60 {
+                let oldest = cache.min(by: { $0.value.ts < $1.value.ts })?.key
+                if let k = oldest { cache.removeValue(forKey: k) }
+            }
+        }
+    }
+
     public func fetchInfo(of book: SearchBook, in source: BookSource) async throws -> BookInfo {
+        // 万象书屋 (M2.8 perf): cache 命中直接返, 跳过网络 + JS
+        let cacheKey = source.bookSourceUrl + "::" + book.bookUrl
+        if let cached = await infoCache.get(cacheKey) {
+            return cached
+        }
         // 万象书屋 (M2.8 perf): round-robin 选 infoParser, 让多个 fetchInfo 真并发.
         let parser = pickInfoParser()
         do {
-            return try await parser.fetchInfo(of: book, in: source)
+            let info = try await parser.fetchInfo(of: book, in: source)
+            await infoCache.set(cacheKey, info)
+            return info
         } catch {
             Self.reportHealth(source: source, stage: "info", status: Self.classifyStatus(error),
                               errorMessage: String(describing: error), sampleUrl: book.bookUrl)
