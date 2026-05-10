@@ -38,6 +38,10 @@ public struct ReaderView: View {
     @State private var showChangeSource: Bool = false
     @StateObject private var autoRead = AutoReadController.shared
     @State private var showAutoReadConfig: Bool = false
+    /// 万象书屋 (M2.6.4): 阅读器内整本下载, 跟 BookDetailView.downloadRow 共用
+    /// `BookDownloader.shared` 单例, 不管在哪开始下载状态都同步.
+    @StateObject private var downloader = BookDownloader.shared
+    @State private var showCancelDownloadConfirm = false
 
     public init(book: ShelfBook, source: BookSource? = nil) {
         _engine = StateObject(wrappedValue: ReaderEngine(book: book, source: source))
@@ -192,6 +196,14 @@ public struct ReaderView: View {
         }
         .sheet(isPresented: $showAutoReadConfig) {
             AutoReadConfigSheet()
+        }
+        .confirmationDialog("取消下载", isPresented: $showCancelDownloadConfirm, titleVisibility: .visible) {
+            Button("取消下载", role: .destructive) {
+                downloader.cancel(bookUrl: engine.book.bookUrl)
+            }
+            Button("继续下载", role: .cancel) {}
+        } message: {
+            Text("已下载的章节会保留, 仍可离线阅读")
         }
         // 万象书屋: 进入 reader 启用音量键翻页, 退出关闭
         .onAppear {
@@ -463,19 +475,22 @@ public struct ReaderView: View {
                     Image(systemName: "speaker.wave.2.fill")
                         .foregroundStyle(.white)
                 }
-                // 万象书屋: 章节编辑 / 换源 / 自动翻页
+                // 万象书屋: 换源 / 下载 / 章节编辑 / 自动翻页
                 Menu {
+                    // 万象书屋 (M2.6.4): 阅读器内换源 — 用户读到一半发现源文质量差直接切.
+                    Button { showChangeSource = true } label: {
+                        Label("换源", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    // 万象书屋 (M2.6.4): 阅读器内整本下载 — 出门前点一下, 离线读全本.
+                    downloadMenuItem
+                    Divider()
                     Button {
                         Task { await engine.retryCurrentChapter() }
                     } label: { Label("重新加载", systemImage: "arrow.clockwise") }
                     Button { showContentEdit = true } label: {
                         Label("净化此章", systemImage: "sparkles")
                     }
-                    Button { showChangeSource = true } label: {
-                        Label("换源", systemImage: "arrow.triangle.2.circlepath")
-                    }
                     Divider()
-                    // 万象书屋: 自动翻页
                     Button {
                         autoRead.toggle(onTurn: { Task { await self.engine.nextChapter() } })
                     } label: {
@@ -486,14 +501,30 @@ public struct ReaderView: View {
                         Label("自动翻页设置", systemImage: "speedometer")
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundStyle(.white)
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "ellipsis.circle")
+                            .foregroundStyle(.white)
+                        // 万象书屋: 下载中给 ⋯ 按钮加个小红点, 让用户知道有任务在跑
+                        if let job = downloader.job(for: engine.book.bookUrl),
+                           job.status == .running {
+                            Circle()
+                                .fill(Color.orange)
+                                .frame(width: 6, height: 6)
+                                .offset(x: 2, y: -2)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.top, 50)
             .padding(.bottom, 12)
             .background(.black.opacity(0.7))
+
+            // 万象书屋 (M2.6.4): 下载中时菜单顶部 bar 下方显示一条进度, 让用户能直接看到
+            // 整本下载状态, 不用再点 ⋯ 进菜单.
+            if let job = downloader.job(for: engine.book.bookUrl), job.status == .running {
+                downloadProgressStrip(job: job)
+            }
 
             Spacer()
                 .contentShape(Rectangle())
@@ -563,6 +594,92 @@ public struct ReaderView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
         }
+    }
+
+    /// 万象书屋 (M2.6.4): 阅读器 ⋯ 菜单里的下载本书项, 三态:
+    ///   未下载  → "下载本书 (1453 章)" 点击立即开始
+    ///   下载中  → "下载中 234/1453 (16%)"  点击弹 confirm 取消
+    ///   已完成  → "已下载 1453 章"  点击重新下载
+    @ViewBuilder
+    private var downloadMenuItem: some View {
+        let bookUrl = engine.book.bookUrl
+        let job = downloader.job(for: bookUrl)
+        let chapterCount = engine.chapters.count
+        let canDownload = chapterCount > 0
+        if let job = job, job.status == .running {
+            Button {
+                showCancelDownloadConfirm = true
+            } label: {
+                Label("下载中 \(job.completed + job.failed)/\(job.total) · 取消",
+                      systemImage: "stop.circle")
+            }
+        } else if let job = job, job.status == .finished {
+            Button {
+                triggerDownloadFromReader()
+            } label: {
+                Label("已下载 \(job.completed) 章 · 重新下载",
+                      systemImage: "checkmark.circle")
+            }
+        } else if let job = job, job.status == .error {
+            Button {
+                triggerDownloadFromReader()
+            } label: {
+                Label("下载失败 · 重试", systemImage: "exclamationmark.triangle")
+            }
+        } else {
+            Button {
+                if canDownload { triggerDownloadFromReader() }
+            } label: {
+                if canDownload {
+                    Label("下载本书 (\(chapterCount) 章)",
+                          systemImage: "arrow.down.circle")
+                } else {
+                    Label("下载本书 (等目录…)",
+                          systemImage: "arrow.down.circle")
+                }
+            }
+            .disabled(!canDownload)
+        }
+    }
+
+    /// 阅读器内触发整本下载. 用 engine.book + engine 内部 source.
+    private func triggerDownloadFromReader() {
+        let source = BookSourceRegistry.shared.find(origin: engine.book.origin)
+        downloader.startDownload(book: engine.book, source: source)
+    }
+
+    /// menuOverlay 顶部下方的下载进度条 (仅 running 时显示).
+    @ViewBuilder
+    private func downloadProgressStrip(job: BookDownloader.Job) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.subheadline)
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("正在下载本书")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text("\(job.completed + job.failed)/\(job.total) · \(Int(job.progress * 100))%")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                ProgressView(value: job.progress)
+                    .tint(.orange)
+            }
+            Button {
+                showCancelDownloadConfirm = true
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.black.opacity(0.55))
     }
 
     private var currentPageText: String {
