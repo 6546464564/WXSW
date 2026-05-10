@@ -83,7 +83,7 @@ struct ChapterImageBlock: View {
     }
 
     private func tryLoadFromDisk() async {
-        guard let local = await ChapterImageCache.shared.localFileURL(for: imageUrl) else { return }
+        guard let local = ChapterImageCache.shared.localFileURL(for: imageUrl) else { return }
         guard let data = try? Data(contentsOf: local) else { return }
         guard let img = UIImage(data: data) else { return }
         await MainActor.run { self.loadedFromDisk = img }

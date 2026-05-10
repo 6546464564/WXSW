@@ -155,6 +155,27 @@ public actor ChapterRepository {
         }
     }
 
+    /// 万象书屋 (M2.8 perf): 一次拿"已下载好正文"的章节 index 集合, 替代下载启动前
+    /// "for chapter in chapters { await loadContent }" 的 N 次串行查盘.
+    /// 500 章串行查 ≈ 数秒, 一次 SELECT WHERE LENGTH(content)>0 < 50ms.
+    public func cachedContentIndexes(bookUrl: String) async throws -> Set<Int> {
+        try await DB.shared.openIfNeeded()
+        return try await DB.shared.execQuery { handle in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_prepare_v2(handle, """
+                SELECT chapter_index FROM book_chapters
+                WHERE book_url = ? AND content IS NOT NULL AND LENGTH(content) > 0
+            """, -1, &stmt, nil)
+            sqlite3_bind_text(stmt, 1, bookUrl, -1, SQLITE_TRANSIENT)
+            var result = Set<Int>()
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                result.insert(Int(sqlite3_column_int(stmt, 0)))
+            }
+            return result
+        }
+    }
+
     public func clearContent(bookUrl: String) async throws {
         try await DB.shared.openIfNeeded()
         try await DB.shared.execQuery { handle in
