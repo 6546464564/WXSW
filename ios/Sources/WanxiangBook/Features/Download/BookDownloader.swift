@@ -59,9 +59,17 @@ public final class BookDownloader: ObservableObject {
     /// beginBackgroundTask 是"我有未完任务, 给我 30s 收尾", 立即生效.
     private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
 
-    private init() {
-        // 万象书屋 (M2.8 C 档): 在初始化时申请通知权限 (provisional 模式: 用户不打扰直接弹横幅)
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
+    private init() {}
+
+    /// 万象书屋 (M2.8 fix): 通知权限懒申请 — 用户第一次点"下载本书"时才弹.
+    /// 之前在 init 时立即弹 → App 启动就遮屏, 没上下文 = 拒绝率高 + 阻挡其它 UI.
+    private var notificationAuthRequested = false
+    private func requestNotificationAuthIfNeeded() {
+        guard !notificationAuthRequested else { return }
+        notificationAuthRequested = true
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: [.alert, .badge, .sound]
+        ) { _, _ in }
     }
 
     // MARK: - 公共 API
@@ -71,6 +79,8 @@ public final class BookDownloader: ObservableObject {
     ///   跟 Android `CacheBook.start(book, start, end)` 等价, 让用户选"下载第 100-200 章".
     public func startDownload(book: ShelfBook, source: BookSource?, range: ClosedRange<Int>? = nil) {
         if tasks[book.bookUrl] != nil { return }
+        // 万象书屋 (M2.8 fix): 用户真正点下载时才申请通知权限, 不在 init 时打断启动.
+        requestNotificationAuthIfNeeded()
         beginBackgroundTaskIfNeeded()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
