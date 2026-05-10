@@ -184,9 +184,22 @@ public enum JsoupShim {
               first: function() { return wrap(__wx_jsoup_first(this._id)); },
               last: function() { return wrap(__wx_jsoup_last(this._id)); },
               eq: function(i) { return wrap(__wx_jsoup_get(this._id, i)); },
+              // 万象书屋 (M2.8 fix bug): Java Elements.isEmpty() / hasText() / parent()
+              // 等常用 method 补齐 — 禁忌书屋等用 isEmpty() 判 select 结果空, 之前没暴露
+              // 直接 TypeError ⇒ content 0 chars.
+              isEmpty: function() { return __wx_jsoup_size(this._id) === 0; },
+              hasText: function() { return (__wx_jsoup_text(this._id) || '').length > 0; },
               // alias
               ownText: function() { return __wx_jsoup_text(this._id); },
               data: function() { return __wx_jsoup_text(this._id); },
+              // forEach for els
+              forEach: function(fn) {
+                var n = __wx_jsoup_size(this._id);
+                for (var i = 0; i < n; i++) {
+                  var el = wrap(__wx_jsoup_get(this._id, i));
+                  if (el) fn(el, i);
+                }
+              },
             };
           }
           var Jsoup = {

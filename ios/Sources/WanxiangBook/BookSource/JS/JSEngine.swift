@@ -768,8 +768,53 @@ public actor JSEngine {
 
         ctx.setObject(java, forKeyedSubscript: "java" as NSString)
 
-        // 万象书屋: legado 还有 String.prototype 扩展 (htmlEncode/Decode 等), M1 暂不补
-        // 跑到具体源 require 时按需加
+        // 万象书屋 (M2.8 fix bug): Rhino-style String.prototype polyfill — Android Legado 用的
+        // Mozilla Rhino 把 Java String API 暴露给 JS, 大量源 author 写 `text.replaceAll(regex, x)`
+        // 期望 first arg 是 regex pattern (Java String.replaceAll). JS ES2021 的 replaceAll
+        // first arg 是 plain string (除非传 RegExp 必须带 /g flag). 这两个语义直接打架,
+        // 禁忌书屋/可乐小说网/篱笆好文学等多个源的 content rule 用 Java 风格全废.
+        //
+        // Polyfill: 检测 first arg 是 string 且含 regex meta 字符 (`[]()*+?{}|^$\` 或 `(?i)`),
+        // 当 RegExp 跑; 否则保持 ES2021 plain-string 行为不破坏标准用法.
+        ctx.evaluateScript("""
+        (function() {
+            var _origReplaceAll = String.prototype.replaceAll;
+            String.prototype.replaceAll = function(searchValue, replaceValue) {
+                if (typeof searchValue === 'string') {
+                    // 含 regex meta 或 (?i) 等 inline flag, 当 regex 跑 (Rhino 兼容)
+                    if (/[\\\\\\[\\]()*+?{}|^$]/.test(searchValue) || searchValue.indexOf('(?') === 0) {
+                        try {
+                            var pattern = searchValue;
+                            var flags = 'g';
+                            // Java (?i) inline flag → JS 'i' flag
+                            var m = pattern.match(/^\\(\\?([a-z]+)\\)(.*)/);
+                            if (m) {
+                                if (m[1].indexOf('i') >= 0) flags += 'i';
+                                if (m[1].indexOf('s') >= 0) flags += 's';
+                                if (m[1].indexOf('m') >= 0) flags += 'm';
+                                pattern = m[2];
+                            }
+                            return this.replace(new RegExp(pattern, flags), replaceValue);
+                        } catch (e) {
+                            // regex 编译失败 fallback ES 标准行为
+                        }
+                    }
+                }
+                return _origReplaceAll.call(this, searchValue, replaceValue);
+            };
+            // 万象书屋: Java String.equals → JS ===
+            String.prototype.equals = function(s) { return String(this) === String(s); };
+            String.prototype.equalsIgnoreCase = function(s) {
+                return String(this).toLowerCase() === String(s).toLowerCase();
+            };
+            // 万象书屋: Java String.contains → JS includes
+            if (!String.prototype.contains) {
+                String.prototype.contains = function(s) { return this.indexOf(s) >= 0; };
+            }
+            // 万象书屋: Java String.length() 是 method, JS .length 是 property
+            // (无法 polyfill — JS engine 不允许给 string property 加 method 同名 length)
+        })();
+        """)
     }
 
     /// 万象书屋: 把 SyncHTTPResponse 包成 JS 对象, 暴露 .header(name) / .body() / .code() / .headers() 方法
