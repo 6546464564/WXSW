@@ -87,26 +87,43 @@ public final class BookSourceEngine: @unchecked Sendable {
 
     /// 多源并发搜索. 边出边返回 (AsyncStream).
     ///
-    /// 万象书屋 (M2.4 perf):
-    /// - parser 已从 actor 改为 final class, 32 源真并发 (而非串行排队)
-    /// - 单源加 12s 硬超时, 防慢源 (HTTPFetcher 默认 retry 3 × 15s = 49s) 拖慢
-    ///   AsyncStream finish, 让 UI "边出边显示" 真正生效
+    /// 万象书屋 (M2.4 perf · 完全对齐 Android `SearchModel.startSearch`):
+    /// - parser 已从 actor 改为 final class, 真并发不再串行排队
+    /// - **并发数 9** = Android `MAX_THREAD = AppConst.MAX_THREAD` (`mapParallelSafe(threadCount=9)`).
+    ///   产线滚动模型: 始终保持 9 个 in-flight, 一个完成立即让位下一个源.
+    ///   之前 32 个全 fire 看似激进, 实际让 4 个 JSEngine pool 8:1 排队 + 慢源占着 task slot
+    ///   不退, TaskGroup 等所有 task 才 finish. 改 9 后慢源不阻塞其他源进入.
+    /// - **单源 30s 硬超时** = Android `withTimeout(30000L)`. 之前 12s 太激进, 一些慢但合法
+    ///   的源 (8-15s 抓页面) 被误杀.
     public func searchAll(in sources: [BookSource], key: String,
-                          perSourceTimeoutSec: TimeInterval = 12) -> AsyncStream<(BookSource, Result<[SearchBook], Error>)> {
+                          maxConcurrency: Int = 9,
+                          perSourceTimeoutSec: TimeInterval = 30) -> AsyncStream<(BookSource, Result<[SearchBook], Error>)> {
         AsyncStream { continuation in
             Task {
                 await withTaskGroup(of: (BookSource, Result<[SearchBook], Error>).self) { group in
-                    for source in sources {
+                    var iter = sources.makeIterator()
+                    let cap = max(1, min(maxConcurrency, sources.count))
+
+                    @discardableResult
+                    func addNext() -> Bool {
+                        guard let s = iter.next() else { return false }
                         group.addTask { [weak self] in
-                            guard let self else { return (source, .success([])) }
+                            guard let self else { return (s, .success([])) }
                             return await Self.searchWithTimeout(
-                                engine: self, source: source, key: key,
+                                engine: self, source: s, key: key,
                                 timeoutSec: perSourceTimeoutSec
                             )
                         }
+                        return true
                     }
-                    for await result in group {
-                        continuation.yield(result)
+
+                    // 先填满 cap 个 (例: 32 源 + cap=9 → 起跑 9 个)
+                    for _ in 0..<cap { _ = addNext() }
+
+                    // 一个完成立即放行下一个, 滚动窗口式始终 ≤ cap 个 in-flight
+                    while let r = await group.next() {
+                        continuation.yield(r)
+                        addNext()
                     }
                     continuation.finish()
                 }
