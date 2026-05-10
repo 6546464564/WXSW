@@ -67,6 +67,11 @@ public final class ContentParser: @unchecked Sendable {
                 urlString: currentUrl,
                 headers: source.parseHeaders(),
                 sourceKey: source.bookSourceUrl,
+                // 万象书屋 (M2.8 perf): retries: 1, 让上层 (BookDownloader / ReaderEngine)
+                // 控 retry 节奏. 之前 HTTPFetcher 默认 retries: 3, BookDownloader 外层
+                // 又 maxAttempts: 3, 双层 retry 叠加: 单章最坏 25s × 3 × 3 = 225s 卡死 worker.
+                // Android 是 BookHelp 一次拉, 失败 push 回队列, 不阻塞 worker — 等价 retries: 1.
+                retries: 1,
                 // 万象书屋 (M2.6 fix): 章节正文页 (一章 5-30k 字 + 反爬延迟) 用 25s 超时,
                 // 不能跟 search 共用 8s — 复现 case 是"永夜·小说之家", 8s × 3 retry 全超时
                 // = 用户报"阅读不了"; 30s 测试时同源 24k 字正文能完整拉到.

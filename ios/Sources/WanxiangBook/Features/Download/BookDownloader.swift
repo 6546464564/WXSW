@@ -283,10 +283,11 @@ public final class BookDownloader: ObservableObject {
     }
 
     private func downloadOne(bookUrl: String, chapter: BookChapter, source: BookSource) async -> Bool {
-        // 万象书屋 (M2.8 perf): 重试 attempt 数 3 → 2, backoff 0.8/1.6/3.2 → 0.3/0.6.
-        // 之前一个慢章累积 5.6s sleep 卡死整个 worker, 砍半为 0.9s. 失败的章用户可以
-        // 在下载管理页一键重试整本 (重试是免费的, retry 个别章不必 worker 内死等).
-        let maxAttempts = 2
+        // 万象书屋 (M2.8 perf v2): 跟 Android `errorDownloadMap < 3` 对齐 retry 3 次.
+        // 单层 retry — ContentParser 内层 retries: 1, 这里外层 retry 3, 总共最多 3 次拉,
+        // 单章最坏 25s × 3 + backoff = 76s. 之前双层 (内 3 × 外 2 = 6 次) 最坏 156s,
+        // 现在直接砍掉 80s 死等. 失败章这里不再阻塞 worker 5s+.
+        let maxAttempts = 3
         for attempt in 0..<maxAttempts {
             if Task.isCancelled { return false }
             do {
@@ -312,8 +313,9 @@ public final class BookDownloader: ObservableObject {
                 return false
             } catch {
                 if attempt < maxAttempts - 1 {
-                    let backoffMs: UInt64 = attempt == 0 ? 300 : 600
-                    try? await Task.sleep(nanoseconds: backoffMs * 1_000_000)
+                    // 万象书屋: 跟 Android `delay(1000)` 一致, 失败后等 1s retry.
+                    // 之前 0.3/0.6 太激进对真慢源不公平 (慢源刚 timeout 立马重试很可能再失败).
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
                     continue
                 }
                 return false

@@ -340,9 +340,11 @@ struct BookDetailView: View {
             .background(WanxiangColors.card)
             .clipShape(RoundedRectangle(cornerRadius: 10))
         } else {
-            // 未下载: 大按钮 (短按整本下, 长按弹范围 sheet)
+            // 万象书屋 (M2.8 fix UX): 跟 Android BaseReadBookActivity.showDownloadDialog 一致 —
+            // 点"下载本书"**先弹范围 sheet** 让用户选起止章再确认下载, 不再短按立即整本下.
+            // 用户反馈: "我下载要我主动点击下载, 而不是不问我过就下载".
             Button {
-                triggerDownload()
+                if canDownload { downloadRangeSheet = true }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.down.circle")
@@ -350,15 +352,9 @@ struct BookDetailView: View {
                         .font(.subheadline.weight(.semibold))
                     Spacer()
                     if canDownload {
-                        // 万象书屋 (M2.8 Gap 2): 副入口 — 长按 / 点 ⋯ 选范围
-                        Button {
-                            downloadRangeSheet = true
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                                .font(.subheadline)
-                                .foregroundStyle(WanxiangColors.primary)
-                        }
-                        .buttonStyle(.plain)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(WanxiangColors.primary.opacity(0.6))
                     } else {
                         ProgressView().scaleEffect(0.7)
                     }
@@ -371,9 +367,6 @@ struct BookDetailView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canDownload)
-            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                if canDownload { downloadRangeSheet = true }
-            })
         }
     }
 
