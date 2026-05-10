@@ -206,12 +206,13 @@ public final class ContentParser: @unchecked Sendable {
         s = s.replacingOccurrences(of: #"<br\s*/?>"#, with: "\n", options: .regularExpression)
         s = s.replacingOccurrences(of: #"</?p[^>]*>"#, with: "\n\n", options: [.regularExpression, .caseInsensitive])
         // 万象书屋 (M2.8 Gap 3): 在剥所有 tag 前先把 <img src="X"> 抽出来当占位段落.
-        // 用 \nWX_IMG_BEGIN_ url WX_IMG_END_\n 三段标记, 让 Reader 渲染时识别这种段并
-        // 用 AsyncImage / ChapterImageCache 渲染. 选用纯 ASCII 唯一字符串, 避免被
-        // 后续中文段落里的 [/] 字符误识别. 标记被字符级分页切断的概率极低 (整段总长 ~50 字).
+        // 标记用 INVISIBLE SEPARATOR (U+2063) 包起来, 这是 0 宽度不可见 unicode —
+        // 即使被字符级分页 (PaginationEngine 用 CTFramesetter) 切到中间, 用户看到的也是
+        // 残留 url 文字, 不是奇怪的可见控制符 (之前用 ␎ U+240E 是 Symbols-for-Control 显示
+        // 为可见 "SO" 字符, 切断时用户看到乱码).
         s = s.replacingOccurrences(
             of: #"<img[^>]+src=['"]([^'"]+)['"][^>]*>"#,
-            with: "\n␎WX_IMG[$1]␏\n",
+            with: "\n\u{2063}WX_IMG{$1}\u{2063}\n",
             options: [.regularExpression, .caseInsensitive]
         )
         s = s.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)

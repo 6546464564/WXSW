@@ -193,11 +193,18 @@ public struct DownloadCenterView: View {
 
     private func retryDownload(job: BookDownloader.Job) {
         Task {
-            // 从 BookshelfRepository 拿回真实 ShelfBook (拿 origin / coverUrl)
-            guard let book = try? await BookshelfRepository.shared.get(bookUrl: job.bookUrl) else { return }
+            // 万象书屋 (M2.8 fix): 优先用 Job 缓存的 originalBook (没加书架的书也能重试),
+            // 没缓存才从 BookshelfRepository 兜底.
+            let book: ShelfBook?
+            if let cached = job.originalBook {
+                book = cached
+            } else {
+                book = try? await BookshelfRepository.shared.get(bookUrl: job.bookUrl)
+            }
+            guard let book = book else { return }
             let source = BookSourceRegistry.shared.find(origin: book.origin)
             await MainActor.run {
-                downloader.startDownload(book: book, source: source)
+                downloader.startDownload(book: book, source: source, range: job.lastRange)
             }
         }
     }

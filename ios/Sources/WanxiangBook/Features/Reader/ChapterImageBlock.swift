@@ -167,7 +167,9 @@ enum ChapterPageSegment: Identifiable {
 }
 
 func parseChapterPageSegments(_ pageText: String) -> [ChapterPageSegment] {
-    let pattern = #"␎WX_IMG\[([^\]]+)\]␏"#
+    // 万象书屋 (M2.8 fix): 跟 ContentParser 的 marker 对齐, 用 U+2063 (INVISIBLE SEPARATOR)
+    // 包起来, 切到中间时不会显示可见乱码字符.
+    let pattern = "\u{2063}WX_IMG\\{([^}]+)\\}\u{2063}"
     guard let regex = try? NSRegularExpression(pattern: pattern) else {
         return [.text(pageText, id: "all")]
     }

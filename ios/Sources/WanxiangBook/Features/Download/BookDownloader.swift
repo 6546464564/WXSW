@@ -39,6 +39,10 @@ public final class BookDownloader: ObservableObject {
         public var status: Status
         /// 万象书屋 (M2.8 C 档): 已下载图片张数, 用户能看到"30/100 章 · 245 张图"
         public var imagesDownloaded: Int = 0
+        /// 万象书屋 (M2.8 fix): 缓存原始 ShelfBook + range, 让 DownloadCenterView 重试时
+        /// 不必从 BookshelfRepository 拉 (没加书架的书也能重试).
+        public var originalBook: ShelfBook? = nil
+        public var lastRange: ClosedRange<Int>? = nil
 
         public enum Status: String, Sendable {
             case running, paused, finished, error, cancelled
@@ -199,7 +203,8 @@ public final class BookDownloader: ObservableObject {
         // 2. 初始化 job
         var job = Job(
             bookUrl: book.bookUrl, bookName: book.name,
-            total: chapters.count, completed: 0, failed: 0, status: .running
+            total: chapters.count, completed: 0, failed: 0, status: .running,
+            originalBook: book, lastRange: range
         )
         jobs[book.bookUrl] = job
 
