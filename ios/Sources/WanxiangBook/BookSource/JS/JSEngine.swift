@@ -764,12 +764,42 @@ public actor JSEngine {
         if v.isBoolean { return v.toBool() }
         if v.isNumber { return v.toNumber() }
         if v.isArray {
-            return (v.toArray() as? [Any]) ?? []
+            // 万象书屋 (M2.8 fix bug): 之前直接 `as? [Any]` 拿到的是 NSArray 元素 (NSDictionary 等),
+            // 后续 stringify 里 JSONSerialization.data(withJSONObject:) 处理 NSDictionary 时
+            // 偶发取不到 dict 内容 (爱下电子书 toc rule 返回 [{title, url, ...}, ...] 之后
+            // selectString("title") 拿不到值 ⇒ toc 0 chapter). 显式深度递归转换.
+            let raw = v.toArray() ?? []
+            return raw.map { Self.deepBridgeToSwift($0) }
         }
         if v.isObject {
-            return v.toDictionary() as? [String: Any] ?? [:]
+            let raw = v.toDictionary() ?? [:]
+            return Self.deepBridgeDict(raw)
         }
         return v.toString()
+    }
+
+    /// 万象书屋: NSObject (NSArray / NSDictionary / NSNumber / NSString) 深度桥接成
+    /// 纯 Swift 类型. 让 `as? [String: Any]` / `JSONSerialization` 都能稳吃.
+    private nonisolated static func deepBridgeToSwift(_ x: Any) -> Any {
+        if let nsd = x as? [AnyHashable: Any] {
+            return deepBridgeDict(nsd)
+        }
+        if let nsa = x as? [Any] {
+            return nsa.map { deepBridgeToSwift($0) }
+        }
+        if let n = x as? NSNumber { return n }
+        if let s = x as? String { return s }
+        return x
+    }
+
+    private nonisolated static func deepBridgeDict(_ d: [AnyHashable: Any]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        out.reserveCapacity(d.count)
+        for (k, v) in d {
+            let key = (k as? String) ?? String(describing: k)
+            out[key] = deepBridgeToSwift(v)
+        }
+        return out
     }
 }
 

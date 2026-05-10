@@ -79,8 +79,15 @@ public final class TocParser: @unchecked Sendable {
                 nodeScope.bookSource = source
                 nodeScope.book = scopeBook
 
-                let nameRule = normalizeSimpleAttr(rule.chapterName ?? "text")
-                let urlRule = normalizeSimpleAttr(rule.chapterUrl ?? "href")
+                // 万象书屋 (M2.8 fix bug): node 是 JSON object 时 (chapterList JS 返回 dict 数组,
+                // e.g. 爱下电子书), chapterName="title" / chapterUrl="url" 是 JSON 字段名.
+                // 不能 normalizeSimpleAttr 转成 `body > *@title` 走 CSS 取属性.
+                // 改成用 nodeIsJsonObject 探测, JSON node 直接走 JSONPath `$.title`.
+                let nodeIsJson = isJsonObjectString(node)
+                let rawName = rule.chapterName ?? "text"
+                let rawUrl = rule.chapterUrl ?? "href"
+                let nameRule = nodeIsJson ? jsonPathify(rawName) : normalizeSimpleAttr(rawName)
+                let urlRule = nodeIsJson ? jsonPathify(rawUrl) : normalizeSimpleAttr(rawUrl)
                 let title = (try? await dispatcher.selectString(
                     rule: nameRule, source: node, baseUrl: baseUrl, jsContext: nodeScope
                 ))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -101,13 +108,16 @@ public final class TocParser: @unchecked Sendable {
                 if seenKeys.contains(key) { continue }
                 seenKeys.insert(key)
 
-                let isVolume = await readBoolFlag(rule.isVolume, html: node, baseUrl: baseUrl, scope: nodeScope)
-                let vipFromRule = await readBoolFlag(rule.isVip, html: node, baseUrl: baseUrl, scope: nodeScope)
-                let payFromRule = await readBoolFlag(rule.isPay, html: node, baseUrl: baseUrl, scope: nodeScope)
+                // 万象书屋 (M2.8 fix bug 续): updateTime / isVolume / isVip / isPay 也按
+                // node 是不是 JSON 选 jsonPathify (爱下 toc 用 "n" 字段做 updateTime).
+                let normUpd = nodeIsJson ? jsonPathify(rule.updateTime ?? "") : (rule.updateTime ?? "")
+                let isVolume = await readBoolFlag(maybeJsonPathify(rule.isVolume, json: nodeIsJson), html: node, baseUrl: baseUrl, scope: nodeScope)
+                let vipFromRule = await readBoolFlag(maybeJsonPathify(rule.isVip, json: nodeIsJson), html: node, baseUrl: baseUrl, scope: nodeScope)
+                let payFromRule = await readBoolFlag(maybeJsonPathify(rule.isPay, json: nodeIsJson), html: node, baseUrl: baseUrl, scope: nodeScope)
                 let isVip = urlSuffixVip || vipFromRule
                 let isPay = urlSuffixPay || payFromRule
                 let upd = (try? await dispatcher.selectString(
-                    rule: rule.updateTime ?? "",
+                    rule: normUpd,
                     source: node,
                     baseUrl: baseUrl,
                     jsContext: nodeScope
@@ -188,6 +198,29 @@ public final class TocParser: @unchecked Sendable {
             return "body > *@\(lower)"
         }
         return rule
+    }
+
+    /// 万象书屋 (M2.8 fix bug): node 是 JSON dict 字符串时, 把简单字段名 "title" / "url"
+    /// 转成 JSONPath `$.title` / `$.url`. 已经带前缀 ($./@ 等) 的 rule 直接保留.
+    private nonisolated func jsonPathify(_ rule: String) -> String {
+        let trimmed = rule.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return trimmed }
+        if trimmed.hasPrefix("$") || trimmed.hasPrefix("@") || trimmed.hasPrefix("//") {
+            return trimmed
+        }
+        return "$." + trimmed
+    }
+
+    private nonisolated func maybeJsonPathify(_ rule: String?, json: Bool) -> String? {
+        guard let rule, !rule.isEmpty else { return rule }
+        return json ? jsonPathify(rule) : rule
+    }
+
+    /// 万象书屋 (M2.8 fix bug): 判 source 是不是单个 JSON object (开头 {).
+    /// 用来探测 chapterList JS 返回 dict 数组之后, 每个 node 是 JSON 字段表而不是 HTML.
+    private nonisolated func isJsonObjectString(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.hasPrefix("{") && t.hasSuffix("}")
     }
 
     /// 万象书屋: 剥 legado 章节 URL 末尾的 `#vip` / `#pay` / `#dur=` 等元信息后缀,

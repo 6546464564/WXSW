@@ -98,7 +98,21 @@ public struct SelectorDispatcher: Sendable {
             let v = try await js.evaluate(script: String(rule.dropFirst(4)),
                                           source: source, baseUrl: baseUrl, scope: jsContext)
             if let arr = v as? [Any] {
-                return arr.map { String(describing: $0) }
+                // 万象书屋 (M2.8 fix bug): legado JS 经常返回 [{title, url, ...}, ...] 字典数组
+                // (e.g. 爱下电子书的 toc rule). 之前用 String(describing:) 转成 Swift
+                // 描述串, chapterName="title" 然后默认走 CSS 在奇怪串上找 <title> ⇒ 全空.
+                // 修复: dict 元素序列化为 JSON 字符串, selectString 路径检测 JSON object
+                // 时优先 JSONPath $.<key>.
+                return arr.map { item -> String in
+                    if let d = item as? [String: Any] {
+                        if let data = try? JSONSerialization.data(withJSONObject: d, options: []),
+                           let str = String(data: data, encoding: .utf8) {
+                            return str
+                        }
+                    }
+                    if let s = item as? String { return s }
+                    return String(describing: item)
+                }
             }
             if let s = v as? String { return [s] }
             return []
