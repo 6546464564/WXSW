@@ -53,7 +53,9 @@ public final class TocParser: @unchecked Sendable {
             let resp = try await fetcher.fetch(
                 urlString: currentUrl,
                 headers: source.parseHeaders(),
-                sourceKey: source.bookSourceUrl
+                sourceKey: source.bookSourceUrl,
+                // 万象书屋 (M2.6 fix): 目录页 (大书可能 1-2MB HTML) 25s 超时, 跟 ContentParser 一致
+                requestTimeoutSec: 25
             )
             let html = resp.bodyText
             let baseUrl = resp.finalURL?.absoluteString ?? currentUrl

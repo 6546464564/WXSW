@@ -53,7 +53,10 @@ public final class HTTPFetcher: @unchecked Sendable {
         // 的 12s 单源硬超时 + retries 默认 1, 让多源搜索整体能在 ~12s 内出齐结果, 跟 Android 体感
         // 持平. 之前 15s × 3 retry × 32 源串行 (actor 之前) ⇒ 90s+, 改并发后仍受单源 49s 拖累.
         cfg.timeoutIntervalForRequest = 8
-        cfg.timeoutIntervalForResource = 16
+        // 万象书屋 (M2.6 fix): 资源级超时给到 60s — 这是"task 总时长"上限, 包含
+        // retry 间隔 + 可能的 25s per-request × 3 retries. 之前 16s 让 content
+        // 在第二次 retry 中途被杀, 用户报"阅读不了".
+        cfg.timeoutIntervalForResource = 60
         cfg.waitsForConnectivity = true
         cfg.httpCookieAcceptPolicy = .always
         cfg.httpShouldSetCookies = true
@@ -73,13 +76,18 @@ public final class HTTPFetcher: @unchecked Sendable {
     ///   - headers: 自定义 header
     ///   - sourceKey: bookSourceUrl, 用来隔离 cookie
     ///   - retries: 失败重试次数
+    ///   - requestTimeoutSec: 单次请求超时 (覆盖 session 全局 8s).
+    ///     万象书屋 (M2.6 fix): 8s 全局超时是给 search 用的 (慢源快速 skip),
+    ///     但 fetchContent/fetchToc 一章正文要拉完整 HTML, 8s 经常不够 →
+    ///     retry 3 次全超时 = 用户"阅读不了". info/toc/content 路径主动传 25s.
     public func fetch(
         urlString: String,
         method: String = "GET",
         body: Data? = nil,
         headers: [String: String] = [:],
         sourceKey: String? = nil,
-        retries: Int = 3
+        retries: Int = 3,
+        requestTimeoutSec: TimeInterval? = nil
     ) async throws -> HTTPResponse {
         guard let url = URL(string: urlString) else {
             throw BookSourceEngineError.httpFailed("非法 URL: \(urlString)")
@@ -94,7 +102,8 @@ public final class HTTPFetcher: @unchecked Sendable {
                 print("[fetch] attempt \(attempt) GET \(url.absoluteString.prefix(60))")
             }
             do {
-                return try await fetchOnce(url: url, method: method, body: body, headers: headers, sourceKey: sourceKey)
+                return try await fetchOnce(url: url, method: method, body: body, headers: headers,
+                                           sourceKey: sourceKey, requestTimeoutSec: requestTimeoutSec)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -116,9 +125,16 @@ public final class HTTPFetcher: @unchecked Sendable {
         throw lastError ?? BookSourceEngineError.httpFailed("unknown")
     }
 
-    private func fetchOnce(url: URL, method: String, body: Data?, headers: [String: String], sourceKey: String?) async throws -> HTTPResponse {
+    private func fetchOnce(url: URL, method: String, body: Data?,
+                           headers: [String: String], sourceKey: String?,
+                           requestTimeoutSec: TimeInterval?) async throws -> HTTPResponse {
         var req = URLRequest(url: url)
         req.httpMethod = method.uppercased()
+        // 万象书屋 (M2.6 fix): per-request 超时覆盖 session 全局 8s.
+        // URLRequest.timeoutInterval 优先级高于 URLSessionConfiguration.timeoutIntervalForRequest.
+        if let t = requestTimeoutSec {
+            req.timeoutInterval = t
+        }
         if let body { req.httpBody = body }
         // 万象书屋: 不主动加 Content-Type, legado 大部分源不带 header 也能 work
         // (强制加 application/x-www-form-urlencoded 反而会让某些 PHP 站 400)

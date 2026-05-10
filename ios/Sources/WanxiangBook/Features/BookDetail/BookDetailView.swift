@@ -30,6 +30,9 @@ struct BookDetailView: View {
     @State private var addAlert: String? = nil
     @State private var tocSheet = false
     @State private var changeSourceSheet = false
+    /// 万象书屋 (debug arg `--AutoStartReading`): 详情拉完 toc 后自动 push 进 reader,
+    /// 给 GUI 自动化测试用 (cliclick 不稳).
+    @State private var autoStartReader = false
     /// 万象书屋 (M2.5.5.1 补丁): 详情页里"当前正在用"的 SearchBook / BookSource.
     /// 初始 = 入参; 用户在换源 sheet 里点了候选后 = 候选.
     @State private var currentBook: SearchBook
@@ -113,6 +116,11 @@ struct BookDetailView: View {
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 changeSourceSheet = true
             }
+            // 万象书屋 (debug arg `--AutoStartReading`): 详情拉完后自动 push 进 reader.
+            if args.contains("--AutoStartReading") || args.contains("-AutoStartReading") {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                autoStartReader = true
+            }
         }
         .alert(item: Binding(
             get: { addAlert.map { AlertText(text: $0) } },
@@ -139,6 +147,11 @@ struct BookDetailView: View {
             ChangeSourceView(searchBook: currentBook) { newBook, newSource in
                 Task { await onSourceSwitched(to: newBook, source: newSource) }
             }
+        }
+        // 万象书屋 (debug arg `--AutoStartReading`): 让 autoStartReader 触发 push reader.
+        // 这是 NavigationLink 的姐妹形式, 共用同一个 destination 让自动化路径跟用户路径完全等价.
+        .navigationDestination(isPresented: $autoStartReader) {
+            ReaderView(book: shelfBookFromSearch(), source: currentSource)
         }
     }
 

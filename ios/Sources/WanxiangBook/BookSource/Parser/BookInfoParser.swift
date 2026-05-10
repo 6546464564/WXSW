@@ -20,7 +20,9 @@ public final class BookInfoParser: @unchecked Sendable {
         let resp = try await fetcher.fetch(
             urlString: book.bookUrl,
             headers: source.parseHeaders(),
-            sourceKey: source.bookSourceUrl
+            sourceKey: source.bookSourceUrl,
+            // 万象书屋 (M2.6 fix): 详情页 25s 超时, 跟 ContentParser 一致 (info/toc/content 三件套统一)
+            requestTimeoutSec: 25
         )
         var html = resp.bodyText
         let baseUrl = resp.finalURL?.absoluteString ?? book.bookUrl
