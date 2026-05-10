@@ -192,7 +192,9 @@ public final class ReaderEngine: ObservableObject {
 
     // MARK: - 内部加载
 
-    private func loadChapter(index: Int) async {
+    /// - Parameter silent: 万象书屋 (M2.8 A2): prefetch 路径传 true, fail 不写 lastError —
+    ///   避免后台预拉前后章失败把用户当前正在读的章节屏幕替换成 errorState.
+    private func loadChapter(index: Int, silent: Bool = false) async {
         guard index >= 0 else { return }
         if contentCache[index] != nil { return }
         // 万象书屋 (bug 2 fix): 已被 cancel 的 task 不复用, 直接清掉新建
@@ -243,7 +245,10 @@ public final class ReaderEngine: ObservableObject {
         } catch is CancellationError {
             // 用户切走了, 忽略 (defer 已清 inflight)
         } catch {
-            self.lastError = error.localizedDescription
+            // 万象书屋 (M2.8 A2): silent prefetch 不写 lastError 避免 UI 闪错
+            if !silent {
+                self.lastError = error.localizedDescription
+            }
         }
     }
 
@@ -253,7 +258,7 @@ public final class ReaderEngine: ObservableObject {
             guard target >= 0, target < chapters.count, contentCache[target] == nil, inflight[target] == nil else {
                 continue
             }
-            Task { await loadChapter(index: target) }
+            Task { await loadChapter(index: target, silent: true) }
         }
     }
 }

@@ -2,18 +2,24 @@
 //  BookDownloader.swift
 //  万象书屋 iOS · 整书离线下载 (M2.8.x)
 //
-//  对应 Android: io.legado.app.service.CacheBookService
+//  对应 Android: io.legado.app.service.CacheBookService + io.legado.app.help.book.BookHelp
 //
 //  能力:
 //   - 给 ShelfBook + chapters + source, 拉所有章节正文写 SQLite
 //   - 支持断点续传 (跳过已 cache 的章节)
-//   - 并发限制 (默认 3 个并发, 避免被服务端反爬)
-//   - 进度回调 (Published progress / completed / total)
-//   - 中断: 用户取消, 退出时停
+//   - 并发限制 (默认 6 个并发, 跟 Android `MAX_THREAD=9` 接近, 章节间 200ms 间隔)
+//   - 进度回调 (Published progress / completed / total + downloadedImages)
+//   - 中断: 用户取消, 退出时停 (BGTaskScheduler 申请后台时间续跑)
+//   - 图片下载: 抓正文里 <img src>, 存 disk cache (跟 Android `saveImages` 等价)
+//   - App 后台续命: BGTaskScheduler 申请 ~30s 后台时间
+//   - 完成通知: UNUserNotification 弹 banner
 //
 
 import Foundation
 import Combine
+import UserNotifications
+import UIKit
+import BackgroundTasks
 
 @MainActor
 public final class BookDownloader: ObservableObject {
@@ -31,6 +37,8 @@ public final class BookDownloader: ObservableObject {
         public var completed: Int
         public var failed: Int
         public var status: Status
+        /// 万象书屋 (M2.8 C 档): 已下载图片张数, 用户能看到"30/100 章 · 245 张图"
+        public var imagesDownloaded: Int = 0
 
         public enum Status: String, Sendable {
             case running, paused, finished, error, cancelled
@@ -42,18 +50,30 @@ public final class BookDownloader: ObservableObject {
     }
 
     private var tasks: [String: Task<Void, Never>] = [:]
-    public let concurrency: Int = 3
+    /// 万象书屋 (M2.8 C 档): 并发 3 → 6, 跟 Android `min(threadCount=16, MAX_THREAD=9)` 持平.
+    /// 章节间仍保留 200ms 间隔, 比 Android 更对反爬源友好.
+    public let concurrency: Int = 6
 
-    private init() {}
+    /// 万象书屋 (M2.8 C 档): UIApplication backgroundTask, 让 App 切后台后再多跑 ~30 秒.
+    /// 比 BGTaskScheduler 简单且更可靠 — BGTaskScheduler 是"系统决定何时运行", 续不上点;
+    /// beginBackgroundTask 是"我有未完任务, 给我 30s 收尾", 立即生效.
+    private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
+
+    private init() {
+        // 万象书屋 (M2.8 C 档): 在初始化时申请通知权限 (provisional 模式: 用户不打扰直接弹横幅)
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
+    }
 
     // MARK: - 公共 API
 
     /// 开始下载. 已有任务直接 noop (不重复跑)
     public func startDownload(book: ShelfBook, source: BookSource?) {
         if tasks[book.bookUrl] != nil { return }
+        beginBackgroundTaskIfNeeded()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.runDownload(book: book, source: source)
+            self.endBackgroundTaskIfNoJobs()
         }
         tasks[book.bookUrl] = task
     }
@@ -66,6 +86,59 @@ public final class BookDownloader: ObservableObject {
             job.status = .cancelled
             jobs[bookUrl] = job
         }
+        endBackgroundTaskIfNoJobs()
+    }
+
+    // MARK: - 后台续命 (M2.8 C 档)
+
+    /// 万象书屋: 申请 UIApplication backgroundTask, 让 App 切后台后再多跑 ~30 秒.
+    /// 系统会在 30 秒后调用 expirationHandler 提醒"快收尾", 这里把所有 in-flight task cancel.
+    /// 已写到 SQLite 的章节保留 (断点续传), 下次进 App 时重启下载继续没下完的部分.
+    private func beginBackgroundTaskIfNeeded() {
+        guard bgTaskID == .invalid else { return }
+        bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "WanxiangBookDownload") { [weak self] in
+            // 系统快要杀进程了, 主动 cancel 所有任务把数据 flush 到 SQLite
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                for (_, t) in self.tasks { t.cancel() }
+                self.tasks.removeAll()
+                if self.bgTaskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(self.bgTaskID)
+                    self.bgTaskID = .invalid
+                }
+            }
+        }
+    }
+
+    private func endBackgroundTaskIfNoJobs() {
+        guard tasks.isEmpty, bgTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(bgTaskID)
+        bgTaskID = .invalid
+    }
+
+    // MARK: - 完成通知 (M2.8 C 档)
+
+    private func postFinishNotification(job: Job) {
+        let content = UNMutableNotificationContent()
+        switch job.status {
+        case .finished:
+            content.title = "已下载完成"
+            content.body = "《\(job.bookName)》共 \(job.completed) 章" +
+                (job.failed > 0 ? " · \(job.failed) 章失败" : "") +
+                (job.imagesDownloaded > 0 ? " · \(job.imagesDownloaded) 张图片" : "")
+        case .error:
+            content.title = "下载失败"
+            content.body = "《\(job.bookName)》目录或源不可用"
+        case .cancelled:
+            return  // 用户主动取消不打扰
+        default: return
+        }
+        let req = UNNotificationRequest(
+            identifier: "wanxiang.download.\(job.bookUrl.hashValue)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(req)
     }
 
     public func isDownloading(_ bookUrl: String) -> Bool {
@@ -132,6 +205,9 @@ public final class BookDownloader: ObservableObject {
             : (finalJob.failed > 0 && finalJob.completed == 0 ? .error : .finished)
         jobs[book.bookUrl] = finalJob
         tasks.removeValue(forKey: book.bookUrl)
+
+        // 万象书屋 (M2.8 C 档): 完成时发通知 (用户在另一个 App / 锁屏时也能看到)
+        postFinishNotification(job: finalJob)
     }
 
     private func checkPending(bookUrl: String, chapters: [BookChapter]) async -> [BookChapter] {
@@ -189,24 +265,121 @@ public final class BookDownloader: ObservableObject {
     }
 
     private func downloadOne(bookUrl: String, chapter: BookChapter, source: BookSource) async -> Bool {
-        // bug fix: 加 1 次自动 retry, 防瞬断
-        for attempt in 0..<2 {
+        // 万象书屋 (M2.8 C 档): 重试 1 → 3 次, 跟 Android `errorDownloadMap < 3` 持平.
+        // 退避: 0.8s → 1.6s → 3.2s 指数, 最多累积 ~5.6s 等待 + 3 次拉取.
+        let maxAttempts = 3
+        for attempt in 0..<maxAttempts {
             if Task.isCancelled { return false }
             do {
                 let cont = try await BookSourceEngine.shared.fetchContent(of: chapter, in: source)
                 try? await ChapterRepository.shared.saveContent(
                     bookUrl: bookUrl, chapterIndex: chapter.chapterIndex, content: cont.content
                 )
+                // 万象书屋 (M2.8 C 档): 顺手抓正文里的 <img> 图片到 disk cache (跟 Android `saveImages` 等价).
+                // 失败不影响章节正文已 save 这件事 — 文字章节优先保证. 漫画 reader 已经用 image cache,
+                // 普通 reader 后续可显示 [图] 占位 + 点击展开.
+                if !cont.images.isEmpty {
+                    let n = await ChapterImageCache.shared.downloadIfNeeded(
+                        bookUrl: bookUrl, urls: cont.images, source: source
+                    )
+                    await self.recordImagesDownloaded(bookUrl: bookUrl, count: n)
+                }
                 return true
+            } catch is CancellationError {
+                return false
             } catch {
-                if attempt == 0 {
-                    // 第一次失败, 等 800ms 再试一次
-                    try? await Task.sleep(nanoseconds: 800_000_000)
+                if attempt < maxAttempts - 1 {
+                    let backoffMs = UInt64(800 * (1 << attempt))  // 0.8 / 1.6 / 3.2s
+                    try? await Task.sleep(nanoseconds: backoffMs * 1_000_000)
                     continue
                 }
                 return false
             }
         }
         return false
+    }
+
+    private func recordImagesDownloaded(bookUrl: String, count: Int) async {
+        guard count > 0, var job = jobs[bookUrl] else { return }
+        job.imagesDownloaded += count
+        jobs[bookUrl] = job
+    }
+}
+
+// MARK: - 章节图片 disk cache (M2.8 C 档)
+
+/// 万象书屋: 章节正文里的 `<img src>` 图片缓存到 Caches/wanxiang-chapter-images/.
+/// 跟 BookCoverDiskCache 类似但独立, 因为 cover 是按 bookUrl 一张, chapter image 是
+/// 按 source URL 一张, key/lifecycle 都不同.
+public actor ChapterImageCache {
+    public static let shared = ChapterImageCache()
+
+    private let dir: URL
+    private let session: URLSession
+    private static let UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) " +
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+
+    private init() {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        self.dir = caches.appendingPathComponent("wanxiang-chapter-images", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 10
+        cfg.timeoutIntervalForResource = 30
+        cfg.httpMaximumConnectionsPerHost = 8
+        self.session = URLSession(configuration: cfg)
+    }
+
+    /// 批量下载 image URLs, 已 cache 的跳过. 返回**这次实际新下载**的张数.
+    public func downloadIfNeeded(bookUrl: String, urls: [String], source: BookSource) async -> Int {
+        var downloaded = 0
+        for raw in urls {
+            // 万象书屋: legado 约定 `url,{"headers":{...}}`, 我们只取 url 部分
+            let urlStr = raw.contains(",{") ? String(raw.split(separator: ",").first ?? "") : raw
+            guard let url = URL(string: urlStr) else { continue }
+            let path = filePath(for: urlStr)
+            if FileManager.default.fileExists(atPath: path.path) { continue }
+            do {
+                var req = URLRequest(url: url)
+                req.setValue(Self.UA, forHTTPHeaderField: "User-Agent")
+                // 万象书屋: 部分图床要 Referer (主站 origin), 不带会 403
+                if let host = url.host, let scheme = url.scheme {
+                    req.setValue("\(scheme)://\(host)/", forHTTPHeaderField: "Referer")
+                }
+                for (k, v) in source.parseHeaders() {
+                    req.setValue(v, forHTTPHeaderField: k)
+                }
+                let (data, _) = try await session.data(for: req)
+                guard data.count > 256 else { continue }  // 太小可能是 1x1 反爬像素
+                try? data.write(to: path)
+                downloaded += 1
+            } catch {
+                // 单图失败不阻塞整章
+                continue
+            }
+        }
+        _ = bookUrl  // 暂未按 bookUrl 分目录 (URL 全局唯一即可)
+        return downloaded
+    }
+
+    /// 给 reader / manga reader 用: image URL → 本地 file URL (没 cache 返 nil)
+    public func localFileURL(for imageUrl: String) -> URL? {
+        let p = filePath(for: imageUrl)
+        return FileManager.default.fileExists(atPath: p.path) ? p : nil
+    }
+
+    private func filePath(for url: String) -> URL {
+        // SHA1 hash + 原始扩展名 (.jpg/.png/.webp 通常)
+        let ext: String = {
+            if let dotIdx = url.lastIndex(of: "."), let qIdx = url.firstIndex(of: "?") ?? url.endIndex as Optional {
+                let slice = url[dotIdx..<qIdx]
+                let raw = String(slice).lowercased()
+                if raw.count <= 6 { return raw }  // .jpeg / .webp
+                return ".bin"
+            }
+            return ".bin"
+        }()
+        let hash = url.utf8.reduce(into: 5381) { result, b in result = ((result << 5) &+ result) &+ Int(b) }
+        return dir.appendingPathComponent("\(abs(hash))\(ext)")
     }
 }
