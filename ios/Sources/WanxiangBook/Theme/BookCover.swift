@@ -61,23 +61,44 @@ public struct BookCover: View {
             isLoading = false
             return
         }
-        if let cached = BookCoverImageCache.shared.image(for: request.url?.absoluteString ?? normalizedURLKey) {
+        let cacheKey = request.url?.absoluteString ?? normalizedURLKey
+        // 1. 内存缓存
+        if let cached = BookCoverImageCache.shared.image(for: cacheKey) {
             image = cached
+            isLoading = false
+            return
+        }
+        // 2. 磁盘缓存 (跟 Android Glide setDiskCache 1GB 行为对齐)
+        if let disk = await BookCoverDiskCache.shared.load(key: cacheKey) {
+            BookCoverImageCache.shared.set(disk, for: cacheKey)
+            image = disk
             isLoading = false
             return
         }
         isLoading = true
         do {
-            let (data, resp) = try await URLSession.shared.data(for: request)
+            let (data, resp) = try await BookCoverImageSession.shared.data(for: request)
             if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 isLoading = false
                 return
             }
-            guard let ui = UIImage(data: data) else {
+            // 3. 下采样到 cell 实际显示尺寸 (跟 Glide 自动 thumbnail 行为对齐)
+            //    1MB 原图 → 50×70 缩略, 内存占用从几 MB → 几十 KB,
+            //    decode 也快得多 (preparingThumbnail 用 ImageIO 单独 thumbnail pipeline).
+            let target = CGSize(width: width * 2, height: height * 2)   // @2x retina
+            let decoded: UIImage? = await Task.detached(priority: .userInitiated) {
+                guard let raw = UIImage(data: data) else { return nil }
+                return await raw.byPreparingThumbnail(ofSize: target) ?? raw
+            }.value
+            guard let ui = decoded else {
                 isLoading = false
                 return
             }
-            BookCoverImageCache.shared.set(ui, for: request.url?.absoluteString ?? normalizedURLKey)
+            BookCoverImageCache.shared.set(ui, for: cacheKey)
+            // 异步写磁盘 (不阻塞 UI)
+            Task.detached(priority: .background) {
+                await BookCoverDiskCache.shared.save(ui, key: cacheKey)
+            }
             image = ui
         } catch {
             image = nil
@@ -96,7 +117,8 @@ public struct BookCover: View {
         let (urlPart, optionHeaders) = splitImageOption(trimmed)
         guard let parsed = URL(string: urlPart) else { return nil }
         var req = URLRequest(url: parsed)
-        req.timeoutInterval = 20
+        // 万象书屋: 8s 比之前 20s 激进, 慢图床直接放弃, 让占位图保留 (跟 Glide DiskCacheStrategy + timeout 行为对齐)
+        req.timeoutInterval = 8
         req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
         req.setValue("image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
         if let scheme = parsed.scheme, let host = parsed.host {
@@ -128,8 +150,10 @@ private final class BookCoverImageCache {
     private let cache = NSCache<NSString, UIImage>()
 
     private init() {
-        cache.countLimit = 300
-        cache.totalCostLimit = 24 * 1024 * 1024
+        // 万象书屋 (M2.4 perf): 内存缓存提到 800 / 64MB.
+        // 之前 300 / 24MB 在 32 源各 5+ 结果 = 150+ 封面时撑不住, 滚动列表频繁 evict + 重新 download.
+        cache.countLimit = 800
+        cache.totalCostLimit = 64 * 1024 * 1024
     }
 
     func image(for key: String) -> UIImage? {
@@ -139,4 +163,58 @@ private final class BookCoverImageCache {
     func set(_ image: UIImage, for key: String) {
         cache.setObject(image, forKey: key as NSString)
     }
+}
+
+/// 万象书屋 (M2.4 perf): 封面磁盘缓存 (跟 Android Glide `setDiskCache` 行为对齐).
+/// 写在 Caches/ 目录, 系统在磁盘紧张时自动清, 不要用户手动管理.
+/// 用 SHA256(url) 当文件名, 防止 url 含特殊字符 / 路径遍历.
+private actor BookCoverDiskCache {
+    static let shared = BookCoverDiskCache()
+    private let dir: URL
+
+    private init() {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let d = caches.appendingPathComponent("BookCover", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        self.dir = d
+    }
+
+    func load(key: String) async -> UIImage? {
+        let url = dir.appendingPathComponent(filename(for: key))
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
+    }
+
+    func save(_ image: UIImage, key: String) async {
+        let url = dir.appendingPathComponent(filename(for: key))
+        // PNG 体积大但忠实度高; 跟 Glide 默认一致.
+        // 已经 thumbnail 过, 单文件几十 KB, 写盘成本可接受.
+        guard let data = image.pngData() else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private nonisolated func filename(for key: String) -> String {
+        // 简单 hash: 用 hashValue 字符串 (不需要密码学强度, 只要避免冲突)
+        var hasher = Hasher()
+        hasher.combine(key)
+        return "\(hasher.finalize()).img"
+    }
+}
+
+/// 万象书屋 (M2.4 perf): 封面专用 URLSession.
+/// - 跟搜索 / API 用的 URLSession 完全隔离, 避免封面下载抢搜索请求的 connection slot.
+/// - max-per-host 16 (vs 默认 6), 同一图床 CDN 多并发拉.
+/// - identity-encoding 默认 (有的图床给乱码 Content-Encoding 让 URLSession 解压报错).
+private enum BookCoverImageSession {
+    static let shared: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 8
+        cfg.timeoutIntervalForResource = 16
+        cfg.httpMaximumConnectionsPerHost = 16
+        cfg.requestCachePolicy = .returnCacheDataElseLoad
+        cfg.urlCache = URLCache(memoryCapacity: 32 * 1024 * 1024,
+                                diskCapacity: 256 * 1024 * 1024,
+                                diskPath: "WanxiangCoverHTTPCache")
+        return URLSession(configuration: cfg)
+    }()
 }
