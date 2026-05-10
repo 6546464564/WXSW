@@ -19,13 +19,28 @@ import SwiftUI
 
 struct BookDetailView: View {
 
+    /// 万象书屋: 入参的 book / source 是"初始展示用". 用户在详情页按"换源"切换后,
+    /// 当前正在用的源会切到 `currentBook` / `currentSource`, 重新拉详情 + 目录.
     let book: SearchBook
     /// 用于"加书架"时知道是哪个源 (源 URL = book.origin)
     let source: BookSource?
 
     @StateObject private var vm = BookDetailViewModel()
+    @StateObject private var downloader = BookDownloader.shared
     @State private var addAlert: String? = nil
     @State private var tocSheet = false
+    @State private var changeSourceSheet = false
+    /// 万象书屋 (M2.5.5.1 补丁): 详情页里"当前正在用"的 SearchBook / BookSource.
+    /// 初始 = 入参; 用户在换源 sheet 里点了候选后 = 候选.
+    @State private var currentBook: SearchBook
+    @State private var currentSource: BookSource?
+
+    init(book: SearchBook, source: BookSource?) {
+        self.book = book
+        self.source = source
+        self._currentBook = State(initialValue: book)
+        self._currentSource = State(initialValue: source)
+    }
 
     /// 万象书屋: SearchBook 字段优先用 fetchInfo 拿到的真实详情, 没拿到时 fallback
     private var displayedIntro: String {
@@ -60,6 +75,7 @@ struct BookDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 actionRow
+                downloadRow
                 if !displayedIntro.isEmpty {
                     introBlock(displayedIntro)
                 }
@@ -70,16 +86,33 @@ struct BookDetailView: View {
             .padding()
         }
         .background(WanxiangColors.background.ignoresSafeArea())
-        .navigationTitle(book.name)
+        .navigationTitle(currentBook.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    changeSourceSheet = true
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                }
+                .accessibilityLabel("换源")
+            }
+        }
         .task {
             // 万象书屋 (P0 fix · D-25):
             //   1) 刷新加架状态 (本来就有)
             //   2) 异步拉 fetchInfo 补齐 intro/kind/lastChapter/wordCount,
             //      避免详情页只能展示 SearchBook 的"摘要级"字段.
             //   3) 拉 toc 拿到章节总数 + 最新章, 给"开始阅读"和书架进度条用.
-            await vm.refreshShelfStatus(bookUrl: book.bookUrl)
-            await vm.loadDetails(book: book, source: source)
+            await vm.refreshShelfStatus(bookUrl: currentBook.bookUrl)
+            await vm.loadDetails(book: currentBook, source: currentSource)
+            // 万象书屋 (debug arg `--AutoChangeSource`): 进详情页后立即弹换源 sheet,
+            // 给外部 GUI 自动化做演示用.
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("--AutoChangeSource") || args.contains("-AutoChangeSource") {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                changeSourceSheet = true
+            }
         }
         .alert(item: Binding(
             get: { addAlert.map { AlertText(text: $0) } },
@@ -102,6 +135,11 @@ struct BookDetailView: View {
                 }
             }
         }
+        .sheet(isPresented: $changeSourceSheet) {
+            ChangeSourceView(searchBook: currentBook) { newBook, newSource in
+                Task { await onSourceSwitched(to: newBook, source: newSource) }
+            }
+        }
     }
 
     // MARK: - Sections
@@ -111,10 +149,10 @@ struct BookDetailView: View {
             BookCover(url: displayedCover, width: 100, height: 140)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(book.name)
+                Text(currentBook.name)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(WanxiangColors.textPrimary)
-                Text(book.author)
+                Text(currentBook.author)
                     .font(.subheadline)
                     .foregroundStyle(WanxiangColors.textSecondary)
                 if !displayedKind.isEmpty {
@@ -127,14 +165,31 @@ struct BookDetailView: View {
                         .clipShape(Capsule())
                 }
                 Spacer(minLength: 4)
-                HStack(spacing: 6) {
-                    Text("来源:\(book.originName)")
-                        .font(.caption2)
-                        .foregroundStyle(WanxiangColors.textSecondary)
-                    if vm.isLoadingDetail {
-                        ProgressView().scaleEffect(0.6)
+                // 万象书屋 (M2.5.5.1): 来源行做成可点的胶囊, 显示当前源 + 合并源数,
+                // 一秒就能看出"这本书一共几个源, 现在用的是哪个", 点开就能换.
+                Button {
+                    changeSourceSheet = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.caption2)
+                        Text("来源:\(currentBook.originName)")
+                            .font(.caption2)
+                            .lineLimit(1)
+                        if currentBook.distinctOriginCount > 1 {
+                            Text("\(currentBook.distinctOriginCount) 源")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(WanxiangColors.primary.opacity(0.18)))
+                                .foregroundStyle(WanxiangColors.primary)
+                        }
+                        if vm.isLoadingDetail {
+                            ProgressView().scaleEffect(0.6)
+                        }
                     }
+                    .foregroundStyle(WanxiangColors.textSecondary)
                 }
+                .buttonStyle(.plain)
             }
             Spacer(minLength: 0)
         }
@@ -162,7 +217,8 @@ struct BookDetailView: View {
                 // 万象书屋 (P0 fix · D-25):
                 //   ReaderView 内部 bootstrap 会自动 ensure 书在书架, 这里不再
                 //   依赖详情页先点"加书架". 直接进阅读 = 隐式加架.
-                ReaderView(book: shelfBookFromSearch(), source: source)
+                // 万象书屋 (M2.5.5.1): 用 `currentBook` / `currentSource` (换源后已切换)
+                ReaderView(book: shelfBookFromSearch(), source: currentSource)
             } label: {
                 HStack {
                     Image(systemName: "book.fill")
@@ -176,6 +232,117 @@ struct BookDetailView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
         }
+    }
+
+    /// 万象书屋 (M2.8 详情页下载): 让用户搜索完直接在详情页一键下载本书.
+    /// - 不依赖"先加书架"; 因为 ReaderEngine bootstrap 已经做了隐式加架, 这里也走相同心智模型.
+    /// - 下载中显示进度条 + 取消; 完成后切到"已下载"; 失败提供"重试".
+    /// - 章节正文持久化在 ChapterRepository (SQLite) — 跟"本地不保存源"政策不矛盾, 因为存的是**内容**而非源.
+    @ViewBuilder
+    private var downloadRow: some View {
+        let job = downloader.job(for: currentBook.bookUrl)
+        let chapterCount = vm.chapters.count
+        let canDownload = chapterCount > 0 && currentSource != nil
+
+        if let job = job, job.status == .running {
+            // 下载中: 进度条 + 取消按钮
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundStyle(WanxiangColors.primary)
+                        Text("下载中 \(job.completed + job.failed) / \(job.total)")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text("\(Int(job.progress * 100))%")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(WanxiangColors.textSecondary)
+                    }
+                    ProgressView(value: job.progress)
+                        .tint(WanxiangColors.primary)
+                }
+                Button {
+                    downloader.cancel(bookUrl: currentBook.bookUrl)
+                } label: {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background(WanxiangColors.card)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        } else if let job = job, job.status == .finished {
+            // 已下载: 简短提示
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("已下载 \(job.completed)/\(job.total) 章")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(WanxiangColors.textPrimary)
+                if job.failed > 0 {
+                    Text("\(job.failed) 章失败")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                Spacer()
+                Button("重新下载") {
+                    triggerDownload()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(WanxiangColors.primary)
+            }
+            .padding(12)
+            .background(WanxiangColors.card)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        } else if let job = job, job.status == .error {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("下载失败")
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Button("重试") { triggerDownload() }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(WanxiangColors.primary)
+            }
+            .padding(12)
+            .background(WanxiangColors.card)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        } else {
+            // 未下载: 大按钮
+            Button {
+                triggerDownload()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.down.circle")
+                    Text(downloadButtonTitle(chapterCount: chapterCount))
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    if !canDownload {
+                        ProgressView().scaleEffect(0.7)
+                    }
+                }
+                .padding(.vertical, 11).padding(.horizontal, 14)
+                .frame(maxWidth: .infinity)
+                .background(canDownload ? WanxiangColors.card : WanxiangColors.divider.opacity(0.4))
+                .foregroundStyle(canDownload ? WanxiangColors.primary : WanxiangColors.textSecondary)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canDownload)
+        }
+    }
+
+    private func downloadButtonTitle(chapterCount: Int) -> String {
+        if currentSource == nil { return "等待源加载…" }
+        if chapterCount == 0 { return "等待目录加载…" }
+        return "下载本书 (\(chapterCount) 章)"
+    }
+
+    private func triggerDownload() {
+        downloader.startDownload(book: shelfBookFromSearch(), source: currentSource)
     }
 
     private var tocSubtitle: String {
@@ -196,17 +363,19 @@ struct BookDetailView: View {
     }
 
     /// 从 SearchBook 构造一个 ShelfBook (用于阅读器入参)
+    /// 万象书屋 (M2.5.5.1): 始终使用 `currentBook` (换源后已切换), 不要回退到入参 `book`,
+    /// 否则用户换了源点"开始阅读"还会用旧源拉章节.
     private func shelfBookFromSearch() -> ShelfBook {
         ShelfBook(
-            bookUrl: book.bookUrl,
-            name: book.name,
-            author: book.author,
-            origin: book.origin,
-            originName: book.originName,
-            coverUrl: book.coverUrl,
-            intro: book.intro,
-            kind: book.kind,
-            tocUrl: book.bookUrl
+            bookUrl: currentBook.bookUrl,
+            name: currentBook.name,
+            author: currentBook.author,
+            origin: currentBook.origin,
+            originName: currentBook.originName,
+            coverUrl: currentBook.coverUrl,
+            intro: currentBook.intro,
+            kind: currentBook.kind,
+            tocUrl: currentBook.bookUrl
         )
     }
 
@@ -285,7 +454,7 @@ struct BookDetailView: View {
                     .foregroundStyle(WanxiangColors.textSecondary)
                 Spacer()
                 Button("重试") {
-                    Task { await vm.loadDetails(book: book, source: source) }
+                    Task { await vm.loadDetails(book: currentBook, source: currentSource) }
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(WanxiangColors.primary)
@@ -307,12 +476,30 @@ struct BookDetailView: View {
 
     private func onAddOrRemove() async {
         if vm.isInShelf {
-            await vm.remove(bookUrl: book.bookUrl)
+            await vm.remove(bookUrl: currentBook.bookUrl)
             addAlert = "已从书架移除"
         } else {
-            await vm.addToShelf(book: book)
+            await vm.addToShelf(book: currentBook)
             addAlert = "已加入书架"
         }
+    }
+
+    /// 万象书屋 (M2.5.5.1): 用户在换源 sheet 选了新源 → 切换 + 重新拉详情/目录.
+    /// 行为对齐 Android `ChangeBookSourceDialog.callBack.changeTo(newSearchBook)`:
+    ///   1. 切换 origin / bookUrl / originName / coverUrl 等"显示用"字段
+    ///   2. 清掉 vm.info / vm.chapters, 走一次完整 loadDetails
+    ///   3. 同步刷加架状态 (新源 bookUrl 在书架里可能不存在)
+    private func onSourceSwitched(to newBook: SearchBook, source newSource: BookSource) async {
+        // 把合并源信息 (mergedSourceURLs / mergedSourceNames) 透传过来,
+        // 用户切到 B 源后, 头部 "N 源" 角标仍然能看到一共还有几个源.
+        var b = newBook
+        b.mergedSourceURLs = currentBook.mergedSourceURLs
+        b.mergedSourceNames = currentBook.mergedSourceNames
+        currentBook = b
+        currentSource = newSource
+        vm.resetForSourceSwitch()
+        await vm.refreshShelfStatus(bookUrl: b.bookUrl)
+        await vm.loadDetails(book: b, source: newSource)
     }
 }
 
@@ -343,6 +530,17 @@ final class BookDetailViewModel: ObservableObject {
         let shelf = (try? await BookshelfRepository.shared.get(bookUrl: bookUrl))
         isInShelf = shelf != nil
         shelfDurChapterIndex = shelf?.durChapterIndex ?? -1
+    }
+
+    /// 万象书屋 (M2.5.5.1): 换源时把上一份源的详情/目录数据彻底清掉, 防止 UI 闪一下旧数据.
+    func resetForSourceSwitch() {
+        loadTask?.cancel()
+        info = nil
+        chapters = []
+        infoError = nil
+        tocError = nil
+        isLoadingDetail = false
+        isLoadingToc = false
     }
 
     /// 万象书屋 (P0 fix · D-25): 拉详情 + 拉目录, 让详情页不再"只用 SearchBook 的浅信息"
