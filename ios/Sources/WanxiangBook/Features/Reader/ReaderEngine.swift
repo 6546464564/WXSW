@@ -51,17 +51,24 @@ public final class ReaderEngine: ObservableObject {
 
     // MARK: - 公共 API
 
-    /// 启动: 拉/读目录, 拉首章
+    /// 启动: 拉/读目录, 拉首章.
+    ///
+    /// 万象书屋 (M2.6 perf · 对齐 Android `ReadBook.upChapterList` + `loadContent(true)`):
+    ///   - bookshelf.add / saveToc / updateTotalChapters 全是写库, 不在用户感知路径上 →
+    ///     `Task.detached` 后台 fire-and-forget, 不阻塞 loadChapter.
+    ///   - 当前章 + 上下章 **三章并发** load (Android 行为), curr 第一个完成即可呈现.
     public func bootstrap() async {
         loadingIndices.insert(currentChapterIndex)
         updateLoadingState()
-        // 万象书屋 (P0 fix · D-25):
-        //   阅读=隐式加书架. 用户从书城/搜索点开任意一本书直达 ReaderView 时,
-        //   若不先 ensure 一行 books, 后续 updateProgress 是纯 UPDATE → row 不
-        //   存在则静默丢进度, 退出阅读器后这本书"凭空消失"+ 下次进来从第 1 章
-        //   开始. 这里 add 是 idempotent (ON CONFLICT DO UPDATE 但不覆盖进度),
-        //   多次调用安全.
-        try? await BookshelfRepository.shared.add(book)
+
+        // 万象书屋 (M2.6 perf): bookshelf.add 后台跑, 不让 30ms SQLite write 拦在用户路径上.
+        // idempotent: 多次调用安全, 后续 updateProgress 时也会顺便 ensure.
+        let bookCopy = book
+        Task.detached(priority: .utility) {
+            try? await BookshelfRepository.shared.add(bookCopy)
+        }
+
+        // Step 1: 加载目录 (cache-first, 不能后台跑 — 后续 loadChapter 依赖 chapters).
         do {
             let cachedToc = try await ChapterRepository.shared.loadToc(bookUrl: book.bookUrl)
             if !cachedToc.isEmpty {
@@ -72,8 +79,12 @@ public final class ReaderEngine: ObservableObject {
                     coverUrl: book.coverUrl, tocUrl: book.tocUrl ?? book.bookUrl
                 )
                 let toc = try await BookSourceEngine.shared.fetchToc(of: info, in: s)
-                try await ChapterRepository.shared.saveToc(bookUrl: book.bookUrl, chapters: toc)
                 self.chapters = toc
+                // 万象书屋 (M2.6 perf): saveToc 后台跑, 不阻塞 loadChapter
+                let bookUrl = book.bookUrl
+                Task.detached(priority: .utility) {
+                    try? await ChapterRepository.shared.saveToc(bookUrl: bookUrl, chapters: toc)
+                }
             } else {
                 self.lastError = "找不到此书的源 \(book.origin),请在搜索/书城重新加入此书"
                 loadingIndices.remove(currentChapterIndex)
@@ -92,22 +103,28 @@ public final class ReaderEngine: ObservableObject {
             updateLoadingState()
             return
         }
-        // 万象书屋 (P0 fix · D-25): 回写 totalChapterNum + 最新章, 让书架进度条
-        // (durChapterIndex / totalChapterNum) 真正可用.
+
+        // Step 2: 回写 totalChapterNum / latestChapterTitle (后台, 不阻塞).
         let latestTitle = chapters.last?.title
-        try? await BookshelfRepository.shared.updateTotalChapters(
-            bookUrl: book.bookUrl,
-            total: chapters.count,
-            latestTitle: latestTitle
-        )
+        let total = chapters.count
+        let bookUrl = book.bookUrl
+        Task.detached(priority: .utility) {
+            try? await BookshelfRepository.shared.updateTotalChapters(
+                bookUrl: bookUrl, total: total, latestTitle: latestTitle
+            )
+        }
         var refreshed = book
-        refreshed.totalChapterNum = chapters.count
+        refreshed.totalChapterNum = total
         refreshed.latestChapterTitle = latestTitle
         self.book = refreshed
         loadingIndices.remove(currentChapterIndex)
         updateLoadingState()
-        await loadChapter(index: currentChapterIndex)
-        prefetchAround(currentChapterIndex)
+
+        // Step 3: 当前章 + 前后章 **三章并发** (跟 Android `loadContent(true)` 一样).
+        // 当前章必须 await (用户要看), 前后章 launch 即走, 不阻塞.
+        let curr = currentChapterIndex
+        prefetchAround(curr)
+        await loadChapter(index: curr)
     }
 
     /// 切到某章 (用户点目录 / 进度条 / 上下章)

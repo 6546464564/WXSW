@@ -587,8 +587,42 @@ final class BookDetailViewModel: ObservableObject {
                 self.tocError = error.localizedDescription
             }
             self.isLoadingToc = false
+
+            // 万象书屋 (M2.6 perf): 详情页拉到 toc 后, 后台默默预拉用户即将打开的章节正文.
+            // 用户在详情页一般停留 1-3 秒看简介, 这段时间足够拉一章 content (1-2 秒).
+            // 用户点"开始阅读" → ReaderEngine 走 SQLite cache hit 秒开 (0 网络).
+            // 跟 Android `BookInfoActivity` 不同 — Android 靠 `ReadBook` 全局单例 + 三章
+            // 并发 cover, iOS 没单例, 用预拉 cache 达到等价"秒开"效果.
+            await self.prefetchTargetChapterContent(book: book, source: source)
         }
         await loadTask?.value
+    }
+
+    /// 后台预拉用户即将打开的章节正文 (durChapterIndex, 默认 0).
+    /// 写 ChapterRepository SQLite, 后续 ReaderEngine.loadChapter 直接 cache hit.
+    private func prefetchTargetChapterContent(book: SearchBook, source: BookSource?) async {
+        guard let s = source, !chapters.isEmpty else { return }
+        let targetIdx = max(0, min(shelfDurChapterIndex, chapters.count - 1))
+        // 已经 cache 了就跳过
+        if let cached = try? await ChapterRepository.shared.loadContent(
+            bookUrl: book.bookUrl, chapterIndex: targetIdx
+        ), cached != nil {
+            return
+        }
+        guard targetIdx >= 0, targetIdx < chapters.count else { return }
+        let chapter = chapters[targetIdx]
+        // detached + utility prio: 不抢主路径资源, 拉到也不更新 UI (写 SQLite 即可).
+        let bookUrl = book.bookUrl
+        Task.detached(priority: .utility) {
+            do {
+                let cont = try await BookSourceEngine.shared.fetchContent(of: chapter, in: s)
+                try? await ChapterRepository.shared.saveContent(
+                    bookUrl: bookUrl, chapterIndex: targetIdx, content: cont.content
+                )
+            } catch {
+                // 预拉失败无所谓, 用户真点开始阅读时会再拉一次
+            }
+        }
     }
 
     func addToShelf(book: SearchBook) async {

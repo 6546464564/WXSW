@@ -255,11 +255,27 @@ public struct ReaderView: View {
     }
 
     private var loadingState: some View {
-        ZStack(alignment: .top) {
-            VStack(spacing: 12) {
+        // 万象书屋 (M2.6 perf): spinner 时同时显示当前章节标题, 避免空白 spinner
+        // 让用户感觉"卡住了". 章节标题来自 chapters[curr], 目录加载完就有.
+        let curIdx = engine.currentChapterIndex
+        let curTitle: String? = {
+            if curIdx >= 0, curIdx < engine.chapters.count {
+                return engine.chapters[curIdx].title
+            }
+            return nil
+        }()
+        return ZStack(alignment: .top) {
+            VStack(spacing: 14) {
+                if let title = curTitle, !title.isEmpty {
+                    Text(title)
+                        .font(.title3.weight(.medium))
+                        .foregroundStyle(config.theme.textColor)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
                 ProgressView()
                     .tint(config.theme.textColor)
-                Text("加载中…")
+                Text(curTitle == nil ? "加载目录…" : "加载正文…")
                     .font(.caption)
                     .foregroundStyle(config.theme.textColor.opacity(0.6))
             }
