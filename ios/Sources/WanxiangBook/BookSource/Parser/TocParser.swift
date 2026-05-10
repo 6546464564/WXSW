@@ -197,15 +197,37 @@ public final class TocParser: @unchecked Sendable {
             // body > * 取 body 第一个子元素 (即 node 本身), 然后 @attr 提取属性
             return "body > *@\(lower)"
         }
+        // 万象书屋 (M2.8 fix bug): 含 ## 链式正则的 rule, 拆出 base 部分单独 normalize.
+        // 猕猴桃漫画 chapterUrl = `href##(\d+)$##/api/comic/image/$1?page=1###`,
+        // base "href" 必须 normalize 成 `body > *@href` 才能在 <a> 节点上取到属性.
+        if rule.contains("##") {
+            let parts = rule.components(separatedBy: "##")
+            if let first = parts.first, attrs.contains(first.lowercased()) {
+                let normalized = "body > *@\(first.lowercased())"
+                let rest = parts.dropFirst().joined(separator: "##")
+                return normalized + "##" + rest
+            }
+        }
         return rule
     }
 
-    /// 万象书屋 (M2.8 fix bug): node 是 JSON dict 字符串时, 把简单字段名 "title" / "url"
-    /// 转成 JSONPath `$.title` / `$.url`. 已经带前缀 ($./@ 等) 的 rule 直接保留.
+    /// 万象书屋 (M2.8 fix bug): node 是 JSON dict 字符串时, 把**简单字段名** "title" / "url"
+    /// 转成 JSONPath `$.title` / `$.url`. 但要排除以下不该加 $. 前缀的情况:
+    ///   - 已经带前缀 ($./@/// 等)
+    ///   - 是完整 URL (含 :// , 番茄等源 chapterUrl 是 URL 模板)
+    ///   - 含 mustache 模板 {{ (要 expandTemplate 自己展开)
+    ///   - 含 @get / @put 指令
+    ///   - 含 ## 链式正则
+    ///   - 含 || && 复合规则
     private nonisolated func jsonPathify(_ rule: String) -> String {
         let trimmed = rule.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return trimmed }
         if trimmed.hasPrefix("$") || trimmed.hasPrefix("@") || trimmed.hasPrefix("//") {
+            return trimmed
+        }
+        if trimmed.contains("://") || trimmed.contains("{{") ||
+           trimmed.contains("@get") || trimmed.contains("@put") ||
+           trimmed.contains("##") || trimmed.contains("||") || trimmed.contains("&&") {
             return trimmed
         }
         return "$." + trimmed

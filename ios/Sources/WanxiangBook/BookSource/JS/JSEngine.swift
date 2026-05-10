@@ -334,11 +334,13 @@ public actor JSEngine {
     // MARK: - 注入隐式变量
 
     private func injectScopeVars(_ scope: JSContextScope) {
-        // 万象书屋: legado JS 大量这样写 `result.articleid` `result.title`,
-        // 期待 result 是对象. 我们的 result 经常是 JSON 字符串 (节点序列化后的) —
-        // 用 JS 引擎直接把 string 当 JSON parse 注入对象, 让 dot 访问能用.
-        let resultObj: Any = parseResultIfJson(scope.result)
-        ctx.setObject(resultObj, forKeyedSubscript: "result" as NSString)
+        // 万象书屋 (M2.8 fix bug): result 注入跟 Android Rhino 行为对齐 — 始终是 raw value,
+        // **不**预先 JSON.parse. 之前自动 parse 让番茄等源的 init JS `JSON.parse(result)`
+        // 直接 TypeError ("Unexpected identifier object" — 因为 JSON.parse 给到 object 而非 string).
+        // 模板里 `{{result.x}}` 的 dot access 在 LegadoRuleEngine.replaceMustache 里特化处理,
+        // 不依赖 result 已被 parse.
+        let resultRaw: Any = scope.result ?? NSNull()
+        ctx.setObject(resultRaw, forKeyedSubscript: "result" as NSString)
         ctx.setObject(scope.baseUrl ?? "", forKeyedSubscript: "baseUrl" as NSString)
         ctx.setObject(scope.src ?? "", forKeyedSubscript: "src" as NSString)
         ctx.setObject(scope.book ?? NSNull(), forKeyedSubscript: "book" as NSString)
@@ -350,6 +352,49 @@ public actor JSEngine {
         // 万象书屋: legado 给每段 JS 评估都注入 source / cookie / host 全局
         // 缺这些会让大量 "高级" 源 (动态 host / 用户 token / cookie 鉴权) 直接挂
         injectSourceContext(scope.bookSource)
+
+        // 万象书屋 (M2.8 fix bug): 注入 legado `cache.putMemory()` / `getFromMemory()` 等
+        // KV store JS API. 番茄小说源等的 ruleBookInfo.init 用 `cache.putMemory('articleid', ...)`
+        // 跨阶段传值, 后续 tocUrl 用 `{{cache.getFromMemory('articleid')}}` 取. iOS 之前没实现
+        // 直接 ReferenceError ⇒ init 失败 ⇒ tocUrl 拿不到 articleid ⇒ toc 0 chapter.
+        injectCacheGlobal()
+    }
+
+    /// 万象书屋: 注入 legado JS 的 `cache.*` 全局 KV store API.
+    /// API 跟 Android `io.legado.app.help.CacheManager` 对齐:
+    ///   - cache.putMemory(key, value)         内存存 (无过期, 进程内有效)
+    ///   - cache.getFromMemory(key)            内存取
+    ///   - cache.put(key, value, [saveTime])   持久存 (UserDefaults)
+    ///   - cache.get(key)                      持久取
+    ///   - cache.delete(key)                   删
+    private func injectCacheGlobal() {
+        let cache = JSValue(newObjectIn: ctx)!
+        let putMem: @convention(block) (String, Any?) -> Void = { key, value in
+            JSEngineCache.shared.putMemory(key: key, value: value)
+        }
+        let getMem: @convention(block) (String) -> Any? = { key in
+            JSEngineCache.shared.getMemory(key: key) ?? NSNull()
+        }
+        let put: @convention(block) (String, Any?, Any?) -> Void = { key, value, _ in
+            // saveTime 第三参 (秒), iOS 简化为永久 — UserDefaults 没原生 expire
+            if let s = value as? String {
+                UserDefaults.standard.set(s, forKey: "wx.jsCache." + key)
+            } else if let v = value {
+                UserDefaults.standard.set(String(describing: v), forKey: "wx.jsCache." + key)
+            }
+        }
+        let get: @convention(block) (String) -> String = { key in
+            UserDefaults.standard.string(forKey: "wx.jsCache." + key) ?? ""
+        }
+        let del: @convention(block) (String) -> Void = { key in
+            UserDefaults.standard.removeObject(forKey: "wx.jsCache." + key)
+        }
+        cache.setObject(putMem, forKeyedSubscript: "putMemory" as NSString)
+        cache.setObject(getMem, forKeyedSubscript: "getFromMemory" as NSString)
+        cache.setObject(put, forKeyedSubscript: "put" as NSString)
+        cache.setObject(get, forKeyedSubscript: "get" as NSString)
+        cache.setObject(del, forKeyedSubscript: "delete" as NSString)
+        ctx.setObject(cache, forKeyedSubscript: "cache" as NSString)
     }
 
     /// 注入 legado 的 `source` `cookie` `host` `book` 全局, 并 eval `jsLib`
@@ -808,6 +853,26 @@ public actor JSEngine {
 //   - 用 final class wrap 一个 mutable field 让 Task 跨线程回填
 final class _BrowserResultBox: @unchecked Sendable {
     var body: String = ""
+}
+
+/// 万象书屋: legado JS `cache.putMemory()` / `getFromMemory()` 的进程内 KV 存储.
+/// 跨多次 JSEngine.evaluate (多源并发) 共享 — 番茄等源用它跨 search→info→toc 阶段传 articleid.
+/// 跟 Android `io.legado.app.help.CacheManager` 内存 cache 对齐.
+public final class JSEngineCache: @unchecked Sendable {
+    public static let shared = JSEngineCache()
+    private let lock = NSLock()
+    private var memory: [String: Any] = [:]
+
+    public func putMemory(key: String, value: Any?) {
+        lock.lock(); defer { lock.unlock() }
+        if let v = value { memory[key] = v }
+        else { memory.removeValue(forKey: key) }
+    }
+
+    public func getMemory(key: String) -> Any? {
+        lock.lock(); defer { lock.unlock() }
+        return memory[key]
+    }
 }
 
 // MARK: - 哈希工具 (CommonCrypto)

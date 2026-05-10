@@ -163,13 +163,25 @@ public final class BookInfoParser: @unchecked Sendable {
         guard let toc, !toc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return fallbackBookUrl
         }
-        guard let u = URL(string: toc) else { return toc }
+        let trimmed = toc.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 万象书屋 (M2.8 fix bug): 七星阁等源 ruleBookInfo.tocUrl 写法太泛, 抽出来的是
+        // HTML 段落而不是 URL (e.g. "<header> <div...>"). 这种内容 URL(string:) 不会返
+        // nil — Foundation URL 接受很多奇怪字符串. 必须显式过滤: 包含 < > 或换行 → 不是 URL.
+        if trimmed.contains("<") || trimmed.contains(">") ||
+           trimmed.contains("\n") || trimmed.contains(" ") {
+            return fallbackBookUrl
+        }
+        // 万象书屋: tocUrl 不是 http/https 也不行 (相对路径 absolutize 后应该已经带 scheme)
+        if !trimmed.lowercased().hasPrefix("http://") && !trimmed.lowercased().hasPrefix("https://") {
+            return fallbackBookUrl
+        }
+        guard let u = URL(string: trimmed) else { return fallbackBookUrl }
         let path = u.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
         if path.isEmpty { return fallbackBookUrl }
         let badPathFragments = ["search", "s.php", "index", "home"]
         if badPathFragments.contains(where: { path == $0 || path.hasPrefix($0 + ".") }) {
             return fallbackBookUrl
         }
-        return toc
+        return trimmed
     }
 }

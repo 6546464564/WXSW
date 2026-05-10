@@ -416,6 +416,10 @@ public actor LegadoRuleEngine {
                                            baseUrl: ctx.baseUrl, scope: scope)
             return v
         } catch {
+            if ProcessInfo.processInfo.environment["WX_DEBUG_RULE"] != nil {
+                let errStr = String(describing: error).replacingOccurrences(of: "\n", with: " ")
+                print("[runJS.fail] \(script.prefix(60)) | err=\(errStr)")
+            }
             return nil
         }
     }
@@ -602,6 +606,17 @@ public actor LegadoRuleEngine {
                 value = (try? xpath.selectString(rule: inner, source: stringify(input), baseUrl: ctx.baseUrl)) ?? ""
             } else if inner.hasPrefix("@") || inner.hasPrefix(".") || inner.hasPrefix("#") {
                 value = (try? css.selectString(rule: inner, source: stringify(input), baseUrl: ctx.baseUrl)) ?? ""
+            } else if inner.hasPrefix("result.") {
+                // 万象书屋 (M2.8 fix bug): legado 模板 `{{result.x.y}}` 是字段路径简写, 在
+                // input (JSON 字符串) 上走 JSONPath 取. 之前直接当 JS 跑, scope.result 是
+                // string 时 `result.x` = undefined ⇒ 拿不到值. (番茄等源因为 init 调
+                // JSON.parse(result), result 必须是 string, 没法预先 parse 注入 object.)
+                let path = String(inner.dropFirst("result.".count))
+                value = (try? jsonp.selectString(rule: "$." + path, source: stringify(input), baseUrl: ctx.baseUrl)) ?? ""
+            } else if inner.contains("cache.getFromMemory") || inner.contains("cache.get") {
+                // 万象书屋: `{{cache.getFromMemory('key')}}` 直接调 KV store 取值, 不绕 JS
+                let v = await runJS(inner, result: input, ctx: ctx)
+                value = stringifyOptional(v)
             } else {
                 // 默认当 JS 表达式跑
                 let v = await runJS(inner, result: input, ctx: ctx)
