@@ -384,12 +384,27 @@ public struct CSSSelectorEngine: SelectorEngine {
 
     /// 万象书屋: legado `class.X` / `id.X` / `tag.X` 关键字翻译成标准 CSS
     /// 例: `class.searchresult` → `.searchresult`, `id.main` → `#main`
+    /// 万象书屋 (M2.8 fix bug): 支持 `class.foo bar` 多 class 写法 (空格分隔表
+    /// "同时具备多个 class"), 翻译成 `.foo.bar`. 例: 肉文小说的
+    /// `class.book chapterlist` ⇒ `.book.chapterlist`. 之前只剥 `class.` 前缀,
+    /// 留下 `book chapterlist` 当 CSS 跑被解释成"book 内的 chapterlist 后代"导致空.
     private func translateLegadoKeyword(_ s: String) -> String {
         if s.hasPrefix("class.") {
-            return "." + String(s.dropFirst(6))
+            let inner = String(s.dropFirst(6))
+            if inner.contains(" ") {
+                let parts = inner.split(separator: " ").filter { !$0.isEmpty }
+                return parts.map { "." + $0 }.joined()
+            }
+            return "." + inner
         }
         if s.hasPrefix("id.") {
             return "#" + String(s.dropFirst(3))
+        }
+        // 万象书屋 (M2.8 fix bug): 首段 selector 是 `tag.dd` / `tag.a` 等时, 转成
+        // jsoup tag selector. 之前只在 extractors 链路里处理, 首段不处理 ⇒ jsoup 收到
+        // `tag.dd` 当 class+tag 解析必定 0 命中. 肉文小说 chapterName="tag.dd@text" 复现.
+        if s.hasPrefix("tag.") {
+            return String(s.dropFirst(4))
         }
         return s
     }

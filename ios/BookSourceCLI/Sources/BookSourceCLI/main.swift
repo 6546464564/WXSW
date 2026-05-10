@@ -72,6 +72,13 @@ struct CLI {
                 let key = args.dropFirst().first ?? "斗破苍穹"
                 let filter = args.dropFirst(2).first
                 try await realDeep(key: key, sourceFilter: filter)
+            case "real-deep-file":
+                // 端到端但从本地 JSON 读源 (用户提供的额外源单).
+                // real-deep-file <path> "<keyword>" [<source-name-substring>]
+                let path = args.dropFirst().first ?? ""
+                let key = args.dropFirst(2).first ?? "斗破苍穹"
+                let filter = args.dropFirst(3).first
+                try await realDeepFromFile(path: path, key: key, sourceFilter: filter)
             case "merge-search":
                 // merge-search "<关键字>" [true|1]   # 第二参为「精准搜索」同 iOS App
                 let key = args.dropFirst().first ?? "斗破苍穹"
@@ -565,6 +572,20 @@ func debugSourceFromFile(path: String, nameSub: String, key: String) async throw
 
 // MARK: - 端到端实战 (search → info → toc → content)
 
+/// 万象书屋: 跟 realDeep 一样的端到端测试, 但 sources 从本地 legado JSON 文件读.
+/// 用户拿外部 JSON 源单时不必导入 backend 就能跑.
+func realDeepFromFile(path: String, key: String, sourceFilter: String?) async throws {
+    print("=== 端到端 (from file: \(path)) ===")
+    print("关键字: \(key)\n源过滤: \(sourceFilter ?? "(all)")\n")
+    var sources = try loadSourcesFromLegadoJson(path: path)
+    if let f = sourceFilter, !f.isEmpty {
+        sources = sources.filter { $0.bookSourceName.contains(f) }
+    }
+    sources = sources.filter { !$0.bookSourceUrl.isEmpty && !$0.bookSourceName.isEmpty }
+    print("待测 \(sources.count) 源\n")
+    await runRealDeep(sources: sources, key: key)
+}
+
 func realDeep(key: String, sourceFilter: String?) async throws {
     print("=== 端到端 (search → info → toc → 第 1 章正文) ===")
     print("关键字: \(key)\n源过滤: \(sourceFilter ?? "(all)")\n")
@@ -589,7 +610,11 @@ func realDeep(key: String, sourceFilter: String?) async throws {
         sources.append(bs)
     }
     print("待测 \(sources.count) 源\n")
+    await runRealDeep(sources: sources, key: key)
+}
 
+/// 端到端跑测的共用逻辑, 让 realDeep / realDeepFromFile 复用.
+func runRealDeep(sources: [BookSource], key: String) async {
     let timeoutSec: TimeInterval = TimeInterval(Int(ProcessInfo.processInfo.environment["WX_TIMEOUT"] ?? "20") ?? 20)
     let engine = await BookSourceEngine.shared
 
@@ -606,7 +631,6 @@ func realDeep(key: String, sourceFilter: String?) async throws {
                 details.append("\(label) 🔇 search 0 hit"); continue
             }
             nSearch += 1
-            // info
             let info: BookInfo
             do {
                 info = try await withTimeout(seconds: timeoutSec) {
@@ -616,7 +640,6 @@ func realDeep(key: String, sourceFilter: String?) async throws {
             } catch {
                 details.append("\(label) ❌ info fail (\(String(describing: error).prefix(60)))"); continue
             }
-            // toc
             let toc: [BookChapter]
             do {
                 toc = try await withTimeout(seconds: timeoutSec) {
@@ -629,7 +652,6 @@ func realDeep(key: String, sourceFilter: String?) async throws {
             } catch {
                 details.append("\(label) ❌ toc fail (\(String(describing: error).prefix(60)))"); continue
             }
-            // content (第 1 章)
             do {
                 let cn = try await withTimeout(seconds: timeoutSec) {
                     try await engine.fetchContent(of: toc[0], in: s)
