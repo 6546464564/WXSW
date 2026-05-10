@@ -24,6 +24,7 @@ import Foundation
 import AVFoundation
 import MediaPlayer
 import Combine
+import UIKit
 
 @MainActor
 public final class TtsEngine: NSObject, ObservableObject {
@@ -81,10 +82,22 @@ public final class TtsEngine: NSObject, ObservableObject {
     // MARK: - 公共 API
 
     /// 装载书 + 全部章节, 从指定章开始读
+    /// 万象书屋 (M2.8): 如果该书有上次听书断点 (UserDefaults), startIndex 优先用断点位置.
     public func load(book: ShelfBook, chapters: [BookChapter], startIndex: Int) {
         self.currentBook = book
         self.chapters = chapters
-        self.currentChapterIndex = max(0, min(startIndex, chapters.count - 1))
+        // 万象书屋 (M2.8): 上次中断恢复 — 如果同本书有断点, 优先从断点起.
+        let resumeIdx = UserDefaults.standard.object(forKey: "wx.tts.resume.\(book.bookUrl)") as? Int
+        let startWith = resumeIdx ?? startIndex
+        self.currentChapterIndex = max(0, min(startWith, chapters.count - 1))
+        // 万象书屋 (M2.8): 异步加载封面给锁屏 artwork
+        loadArtwork()
+    }
+
+    /// 万象书屋 (M2.8): 写断点. 退出 / 切书 / 整章读完时调.
+    private func saveBookmark() {
+        guard let book = currentBook else { return }
+        UserDefaults.standard.set(currentChapterIndex, forKey: "wx.tts.resume.\(book.bookUrl)")
     }
 
     /// 开始朗读 (从当前章 0 句开始)
@@ -123,6 +136,8 @@ public final class TtsEngine: NSObject, ObservableObject {
     }
 
     public func stop() {
+        // 万象书屋 (M2.8): 关之前先存断点
+        saveBookmark()
         synth.stopSpeaking(at: .immediate)
         state = .idle
         currentUtteranceIndex = 0
@@ -134,6 +149,7 @@ public final class TtsEngine: NSObject, ObservableObject {
         guard currentChapterIndex + 1 < chapters.count else { stop(); return }
         synth.stopSpeaking(at: .immediate)
         currentChapterIndex += 1
+        saveBookmark()
         await play()
     }
 
@@ -141,7 +157,25 @@ public final class TtsEngine: NSObject, ObservableObject {
         guard currentChapterIndex > 0 else { return }
         synth.stopSpeaking(at: .immediate)
         currentChapterIndex -= 1
+        saveBookmark()
         await play()
+    }
+
+    /// 万象书屋 (M2.8): 锁屏 / 控制中心快进 — 跳过 N 句 (~30 秒)
+    public func skipForward() {
+        let target = min(currentUtteranceIndex + 5, utterances.count - 1)
+        if target == currentUtteranceIndex { return }
+        synth.stopSpeaking(at: .immediate)
+        currentUtteranceIndex = target
+        speakCurrent()
+    }
+
+    public func skipBackward() {
+        let target = max(currentUtteranceIndex - 5, 0)
+        if target == currentUtteranceIndex { return }
+        synth.stopSpeaking(at: .immediate)
+        currentUtteranceIndex = target
+        speakCurrent()
     }
 
     /// 跳到指定句子 (UI 点 list)
@@ -206,11 +240,18 @@ public final class TtsEngine: NSObject, ObservableObject {
         if !voiceId.isEmpty, let v = AVSpeechSynthesisVoice(identifier: voiceId) {
             return v
         }
-        // fallback: 系统中文增强音 (Tingting / Sinji)
+        // 万象书屋 (M2.8): voice 优先级:
+        //   1. 用户明确选 (上面)
+        //   2. 中文增强音 (premium / enhanced quality, 听感最自然)
+        //   3. 中文 default (compact, 系统预装)
+        //   4. 任何 zh-* voice
+        let allChinese = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh") }
+        if let premium = allChinese.first(where: { $0.quality == .premium }) { return premium }
+        if let enhanced = allChinese.first(where: { $0.quality == .enhanced }) { return enhanced }
         if let v = AVSpeechSynthesisVoice(language: "zh-CN") {
             return v
         }
-        return AVSpeechSynthesisVoice.speechVoices().first { $0.language.hasPrefix("zh") }
+        return allChinese.first
     }
 
     // MARK: - 章节正文加载
@@ -313,6 +354,27 @@ public final class TtsEngine: NSObject, ObservableObject {
             Task { @MainActor in await self?.prevChapter() }
             return .success
         }
+        // 万象书屋 (M2.8): 锁屏快进/快退 30 秒
+        cc.skipForwardCommand.preferredIntervals = [30]
+        cc.skipForwardCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.skipForward() }
+            return .success
+        }
+        cc.skipBackwardCommand.preferredIntervals = [30]
+        cc.skipBackwardCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.skipBackward() }
+            return .success
+        }
+        // 万象书屋 (M2.8): 锁屏拖进度条改章节句子位置
+        cc.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let pos = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            Task { @MainActor in
+                guard let self = self, self.totalUtterances > 0 else { return }
+                let target = max(0, min(self.totalUtterances - 1, Int(pos.positionTime)))
+                self.jumpToSentence(target)
+            }
+            return .success
+        }
     }
 
     private func updateNowPlaying() {
@@ -323,6 +385,10 @@ public final class TtsEngine: NSObject, ObservableObject {
                 : book.name
             info[MPMediaItemPropertyArtist] = book.name
             info[MPMediaItemPropertyAlbumTitle] = book.author
+            // 万象书屋 (M2.8): 锁屏 / 控制中心显示书封面
+            if let coverImage = nowPlayingArtwork {
+                info[MPMediaItemPropertyArtwork] = coverImage
+            }
         }
         info[MPNowPlayingInfoPropertyPlaybackRate] = state == .speaking ? 1.0 : 0.0
         if totalUtterances > 0 {
@@ -330,6 +396,29 @@ public final class TtsEngine: NSObject, ObservableObject {
             info[MPMediaItemPropertyPlaybackDuration] = Double(totalUtterances)
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// 万象书屋 (M2.8): 当前书封面 (用于锁屏 artwork). 异步加载, 第一次为 nil,
+    /// loadArtwork 完成后下次 updateNowPlaying 就能显示.
+    private var nowPlayingArtwork: MPMediaItemArtwork? = nil
+
+    private func loadArtwork() {
+        guard let book = currentBook,
+              let urlStr = book.coverUrl,
+              let url = URL(string: urlStr) else {
+            nowPlayingArtwork = nil
+            return
+        }
+        Task {
+            // 万象书屋: 简单 URLSession 拉, BookCoverDiskCache 也行但这里独立拿
+            guard let (data, _) = try? await URLSession.shared.data(from: url),
+                  let image = UIImage(data: data) else { return }
+            await MainActor.run {
+                let art = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                self.nowPlayingArtwork = art
+                self.updateNowPlaying()
+            }
+        }
     }
 
     private func clearNowPlaying() {
@@ -344,12 +433,35 @@ extension TtsEngine: AVSpeechSynthesizerDelegate {
                                               didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
             self.currentUtteranceIndex += 1
+            // 万象书屋 (M2.8): 读到最后 5 句时, 后台预拉下一章 content (写 SQLite),
+            // 让下章接缝时不必等网络. 跟章节缓存一致, fire-and-forget.
+            if self.currentUtteranceIndex == max(0, self.utterances.count - 5) {
+                self.prefetchNextChapter()
+            }
             if self.currentUtteranceIndex >= self.utterances.count {
                 await self.nextChapter()
             } else {
                 self.speakCurrent()
                 self.updateNowPlaying()
             }
+        }
+    }
+
+    /// 万象书屋 (M2.8): 后台 fire-and-forget 预拉下章正文, 写 SQLite 缓存.
+    /// 下次 nextChapter() 调 loadChapterContent 时直接命中.
+    @MainActor
+    private func prefetchNextChapter() {
+        let nextIdx = currentChapterIndex + 1
+        guard let book = currentBook, nextIdx < chapters.count else { return }
+        let chap = chapters[nextIdx]
+        Task.detached(priority: .utility) { [bookUrl = book.bookUrl, origin = book.origin] in
+            // 已 cache 跳过
+            if let local = try? await ChapterRepository.shared.loadContent(
+                bookUrl: bookUrl, chapterIndex: chap.chapterIndex), !local.isEmpty { return }
+            guard let source = await BookSourceRegistry.shared.find(origin: origin) else { return }
+            guard let cont = try? await BookSourceEngine.shared.fetchContent(of: chap, in: source) else { return }
+            try? await ChapterRepository.shared.saveContent(
+                bookUrl: bookUrl, chapterIndex: chap.chapterIndex, content: cont.content)
         }
     }
 

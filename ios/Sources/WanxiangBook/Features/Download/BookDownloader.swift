@@ -415,9 +415,13 @@ public final class ChapterImageCache: @unchecked Sendable {
     }
 
     /// 给 reader / manga reader 用: image URL → 本地 file URL (没 cache 返 nil)
+    /// 万象书屋 (M2.8): 命中时 touch 文件 mtime, 实现 LRU "最近使用" 标记.
     public func localFileURL(for imageUrl: String) -> URL? {
         let p = filePath(for: imageUrl)
-        return FileManager.default.fileExists(atPath: p.path) ? p : nil
+        guard FileManager.default.fileExists(atPath: p.path) else { return nil }
+        // 读时 touch mtime (LRU 排序键), 让常读章节图片不被淘汰
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: p.path)
+        return p
     }
 
     private func filePath(for url: String) -> URL {
@@ -433,5 +437,72 @@ public final class ChapterImageCache: @unchecked Sendable {
         }()
         let hash = url.utf8.reduce(into: 5381) { result, b in result = ((result << 5) &+ result) &+ Int(b) }
         return dir.appendingPathComponent("\(abs(hash))\(ext)")
+    }
+
+    // MARK: - LRU 淘汰 (M2.8 fix)
+
+    /// 万象书屋: chapter image 长期累积会爆 disk. 加一个 max size + LRU 淘汰策略,
+    /// 跟 BookCoverDiskCache 类似但 size 上限更大 (漫画图片比 cover 大很多, 给 500MB).
+    /// 触发时机: App 启动 + 后台时机 (AppScenePhase 切到 background).
+    public static let maxBytes: Int64 = 500 * 1024 * 1024   // 500 MB
+    public static let trimTargetBytes: Int64 = 400 * 1024 * 1024  // 触发淘汰后裁到 400MB
+
+    /// 检查 dir 总大小, 超过 maxBytes 就按 mtime 升序 (老的先) 淘汰直到 < trimTargetBytes.
+    /// nonisolated + Task.detached 让它跑在后台 IO 队列, 不阻塞 reader.
+    public func trimIfNeeded() {
+        Task.detached(priority: .background) { [dir = self.dir] in
+            let fm = FileManager.default
+            guard let all = try? fm.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ) else { return }
+            // 计算总大小
+            var totalBytes: Int64 = 0
+            var entries: [(url: URL, size: Int64, mtime: Date)] = []
+            for u in all {
+                let v = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                let size = Int64(v?.fileSize ?? 0)
+                let mtime = v?.contentModificationDate ?? Date.distantPast
+                totalBytes += size
+                entries.append((u, size, mtime))
+            }
+            guard totalBytes > Self.maxBytes else { return }
+            // 按 mtime 升序 (最久没访问的最先淘汰)
+            entries.sort { $0.mtime < $1.mtime }
+            var freed: Int64 = 0
+            var deleted = 0
+            for e in entries {
+                if totalBytes - freed <= Self.trimTargetBytes { break }
+                if (try? fm.removeItem(at: e.url)) != nil {
+                    freed += e.size
+                    deleted += 1
+                }
+            }
+            NSLog("[ChapterImageCache] LRU trimmed \(deleted) files, freed \(freed / 1024 / 1024) MB, now \((totalBytes - freed) / 1024 / 1024) MB")
+        }
+    }
+
+    /// 当前 cache 总大小 (MB), 给设置页 / 用户主动清缓存按钮用.
+    public func currentSizeBytes() -> Int64 {
+        let fm = FileManager.default
+        guard let all = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        var total: Int64 = 0
+        for u in all {
+            let v = try? u.resourceValues(forKeys: [.fileSizeKey])
+            total += Int64(v?.fileSize ?? 0)
+        }
+        return total
+    }
+
+    /// 用户主动清空 chapter image cache (设置页 → "清理缓存")
+    public func clearAll() {
+        let fm = FileManager.default
+        guard let all = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        ) else { return }
+        for u in all { try? fm.removeItem(at: u) }
     }
 }

@@ -279,6 +279,10 @@ public struct ReaderView: View {
         Group {
             if engine.loadingChapter && engine.content(for: engine.currentChapterIndex) == nil {
                 loadingState
+            } else if engine.autoFallbackInProgress {
+                // 万象书屋 (M2.8): 当前源拉失败时, ReaderEngine 后台静默尝试其他源.
+                // 显示"正在尝试其他源…" 比直接 errorState 体验好.
+                autoFallbackState
             } else if let err = engine.lastError {
                 errorState(err)
             } else if pages.isEmpty {
@@ -344,6 +348,34 @@ public struct ReaderView: View {
                 Spacer()
             }
         }
+    }
+
+    /// 万象书屋 (M2.8): 当前源 fail 时 ReaderEngine 自动尝试其他源, 显示加载提示
+    private var autoFallbackState: some View {
+        ZStack {
+            VStack(spacing: 14) {
+                ProgressView().scaleEffect(1.1)
+                Text("当前源拉不到, 正在尝试其他源…")
+                    .font(.subheadline)
+                    .foregroundStyle(WanxiangColors.textSecondary)
+                Text("最长等 30 秒")
+                    .font(.caption)
+                    .foregroundStyle(WanxiangColors.textSecondary.opacity(0.6))
+            }
+            VStack {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2).foregroundStyle(WanxiangColors.textSecondary.opacity(0.5))
+                    }
+                    .padding(.leading, 16).padding(.top, 12)
+                    Spacer()
+                }
+                Spacer()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(WanxiangColors.background)
     }
 
     private func errorState(_ msg: String) -> some View {

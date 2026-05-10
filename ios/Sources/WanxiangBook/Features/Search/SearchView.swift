@@ -25,6 +25,58 @@ import Foundation
 // 万象书屋: BookSource 模块跟本 target 在同一编译单元 (project.yml 把整个 Sources/WanxiangBook 加进去),
 // 所以不需要 `import BookSource`. 类型直接可见.
 
+/// 万象书屋 (M2.8): 搜索结果二次过滤选项. 跟 Android Legado 搜索结果页的 sortFilter chips 对齐.
+public enum SearchResultFilter: String, Hashable {
+    case all
+    case multiSource    // 源数 ≥ 2 (被多个源收录, 通常质量高)
+    case longBook       // 字数 ≥ 100 万
+    case recentUpdate   // 30 天内更新过
+
+    public func apply(to books: [SearchBook]) -> [SearchBook] {
+        switch self {
+        case .all:
+            return books
+        case .multiSource:
+            return books.filter { $0.distinctOriginCount >= 2 }
+        case .longBook:
+            return books.filter { Self.parseWords($0.wordCount ?? "") >= 1_000_000 }
+        case .recentUpdate:
+            let cutoff = Date().addingTimeInterval(-30 * 86400)
+            return books.filter { Self.parseUpdateDate($0.updateTime ?? "") >= cutoff }
+        }
+    }
+
+    /// "327.2 万字" / "1234 字" / "327.2万" → Int 字数估算
+    private static func parseWords(_ s: String) -> Int {
+        let t = s.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "字", with: "")
+        // 形如 "327.2万" / "327万"
+        if t.contains("万") {
+            let head = t.replacingOccurrences(of: "万", with: "")
+            if let n = Double(head) { return Int(n * 10_000) }
+        }
+        if let n = Int(t) { return n }
+        return 0
+    }
+
+    /// "2024-09-01 10:23" / "2024-09-01" / "10-28 12:46:37" → Date 估算
+    private static func parseUpdateDate(_ s: String) -> Date {
+        let formats = [
+            "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd",
+            "yyyy/MM/dd HH:mm:ss", "yyyy/MM/dd",
+            "MM-dd HH:mm:ss", "MM-dd HH:mm"
+        ]
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        for fmt in formats {
+            f.dateFormat = fmt
+            if let d = f.date(from: trimmed) { return d }
+        }
+        return .distantPast
+    }
+}
+
 struct SearchView: View {
 
     @Environment(\.dismiss) private var dismiss
@@ -50,6 +102,9 @@ struct SearchView: View {
     /// 数组, 不会被 ancestor sheet 切换状态影响.
     @State private var navPath: [SearchBook] = []
 
+    /// 万象书屋 (M2.8): 搜索结果二次过滤. 默认全部, 用户点 chip 切换.
+    @State private var resultFilter: SearchResultFilter = .all
+
     init(initialKeyword: String = "") {
         self.initialKeyword = initialKeyword
         self._keyword = State(initialValue: initialKeyword)
@@ -68,6 +123,7 @@ struct SearchView: View {
                 } else if keyword.isEmpty {
                     historyList
                 } else {
+                    filterChipsBar
                     resultList
                 }
             }
@@ -221,6 +277,43 @@ struct SearchView: View {
         }
     }
 
+    /// 万象书屋 (M2.8): 搜索结果二次过滤. 84 源搜热门词常返 100+ 条, 加 chips
+    /// 让用户快速聚焦. 跟 Android Legado 搜索结果页的 sortFilter chips 对齐.
+    @ViewBuilder
+    private var filterChipsBar: some View {
+        if !vm.results.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    filterChip(.all, label: "全部")
+                    filterChip(.multiSource, label: "多源 (≥2)")
+                    filterChip(.longBook, label: "百万字+")
+                    filterChip(.recentUpdate, label: "近期更新")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            .background(WanxiangColors.background)
+        }
+    }
+
+    @ViewBuilder
+    private func filterChip(_ f: SearchResultFilter, label: String) -> some View {
+        let selected = resultFilter == f
+        Button {
+            resultFilter = f
+        } label: {
+            Text(label)
+                .font(.caption.weight(selected ? .semibold : .regular))
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Capsule().fill(selected
+                    ? WanxiangColors.primary.opacity(0.18)
+                    : WanxiangColors.divider.opacity(0.5)))
+                .foregroundStyle(selected ? WanxiangColors.primary : WanxiangColors.textSecondary)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var resultList: some View {
         let books = displayResults
         return List {
@@ -267,8 +360,9 @@ struct SearchView: View {
     ///   - 旧版本 q.count < 8 时按 title 前 10 字 dedupe, 把不同作者的同名书合一条.
     ///   - 现在只透传 ViewModel 已经按 (name+author) 去重过的 results, 保证
     ///     "捞尸人 / 陈十三", "捞尸人 / 纯洁滴小龙", "黄河捞尸人" 都正常显示.
+    /// 万象书屋 (M2.8): 加 resultFilter 二次过滤.
     private var displayResults: [SearchBook] {
-        return vm.results
+        return resultFilter.apply(to: vm.results)
     }
 
     // MARK: - 防抖
@@ -466,7 +560,11 @@ final class SearchViewModel: ObservableObject {
         errors = []
         dedupeRowIndex.removeAll()
         isSearching = true
-        let sources = await waitForSources(timeoutSec: 3)
+        let rawSources = await waitForSources(timeoutSec: 3)
+        // 万象书屋 (M2.8): 按历史成功率 + 平均响应时间排序源, 让稳定快的源先返结果.
+        // 84 源里很多反爬/死站, 没排序时用户得等所有源 timeout. 排序后头几条结果
+        // 通常是历史好源, 用户感知速度显著提升.
+        let sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
         activeSources = sources
 
         // 3. 没源时直接 stub 一条提示
@@ -481,6 +579,22 @@ final class SearchViewModel: ObservableObject {
             let stream = await BookSourceEngine.shared.searchAll(in: sources, key: key)
             for await (source, result) in stream {
                 if Task.isCancelled || generation != self.searchGeneration { break }
+                // 万象书屋 (M2.8): 记录单源 search 表现给 SourcePerformanceTracker.
+                // 没记 ms (BookSourceEngine.searchAll 没暴露 per-source duration);
+                // 用一个粗粒度估计 — 命中=快返 1500ms, 0 命中=可能慢=4000ms, 失败=8000ms.
+                let estMs: Int
+                let okFlag: Bool
+                switch result {
+                case .success(let books):
+                    okFlag = true
+                    estMs = books.isEmpty ? 4000 : 1500
+                case .failure:
+                    okFlag = false
+                    estMs = 8000
+                }
+                SourcePerformanceTracker.shared.record(
+                    sourceUrl: source.bookSourceUrl, ok: okFlag, durationMs: estMs
+                )
                 switch result {
                 case .success(let books):
                     self.recordSuccess(source.bookSourceUrl)
@@ -536,6 +650,8 @@ final class SearchViewModel: ObservableObject {
             if generation == self.searchGeneration {
                 self.applyLegadoStyleOrdering()
                 self.isSearching = false
+                // 万象书屋 (M2.8): 把这次 search 的 stats 落盘, 下次启动也能用上排序.
+                SourcePerformanceTracker.shared.persistToDisk()
             }
         }
     }

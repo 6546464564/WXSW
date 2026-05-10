@@ -25,6 +25,8 @@ public final class ReaderEngine: ObservableObject {
     @Published public private(set) var currentChapterIndex: Int = 0
     @Published public private(set) var loadingChapter: Bool = false
     @Published public private(set) var lastError: String? = nil
+    /// 万象书屋 (M2.8): 自动换源进行中标志, reader UI 显示"正在尝试其他源…"
+    @Published public private(set) var autoFallbackInProgress: Bool = false
 
     /// 章节正文内存缓存 (key=chapterIndex, val=正文)
     private var contentCache: [Int: String] = [:]
@@ -247,9 +249,76 @@ public final class ReaderEngine: ObservableObject {
         } catch {
             // 万象书屋 (M2.8 A2): silent prefetch 不写 lastError 避免 UI 闪错
             if !silent {
+                // 万象书屋 (M2.8 自动换源 fallback): 当前章 fail 时, 不立刻显示 errorState,
+                // 先后台静默尝试其他源. 找到能用的源就 changeSource(); 都不行才显示错误.
+                // 用户体感是"轻微卡顿后内容出来" 而不是 "目录为空" 错误页.
+                if index == currentChapterIndex {
+                    Task { await tryAutoChangeSource(failedAt: index) }
+                }
                 self.lastError = error.localizedDescription
             }
         }
+    }
+
+    // MARK: - 自动换源 fallback (M2.8)
+
+    /// 当前章拉失败时, 自动找其他能用的源静默切换. 只在 user-facing 主章 fail 时调,
+    /// prefetch fail 不调避免后台资源浪费.
+    ///
+    /// 流程:
+    /// 1. 用 (book.name + book.author) 在所有 BookSourceRegistry 源里搜
+    /// 2. 收到结果按 SourcePerformanceTracker 分数 + (name == name && author == author) 过滤
+    /// 3. 取前 3 个候选源 (排除当前源), 逐个 fetchInfo + fetchToc + fetchContent 验证
+    /// 4. 第一个成功的就调 changeSource() 切换, 用户回到正在读的章节但内容来自新源
+    /// 5. 所有失败 → 留在当前 errorState 让用户手动换源
+    private func tryAutoChangeSource(failedAt failIndex: Int) async {
+        guard !autoFallbackInProgress else { return }
+        autoFallbackInProgress = true
+        defer { autoFallbackInProgress = false }
+
+        let bookName = book.name
+        let bookAuthor = book.author
+        let currentOrigin = book.origin
+
+        // 1. 拿所有源 (排除当前)
+        let allSources = BookSourceRegistry.shared.sources
+        let rawCandidates = allSources.filter { $0.bookSourceUrl != currentOrigin }
+        let sortedCandidates = SourcePerformanceTracker.shared.sortByScore(rawCandidates)
+        // 限制候选数, 别拖太久
+        let candidates = Array(sortedCandidates.prefix(8))
+
+        // 2. 并发 search 找 (name == name && author == author) 的命中
+        let stream = await BookSourceEngine.shared.searchAll(in: candidates, key: bookName, maxConcurrency: 5, perSourceTimeoutSec: 8)
+        var pickedBook: SearchBook? = nil
+        var pickedSource: BookSource? = nil
+        for await (src, result) in stream {
+            if Task.isCancelled { break }
+            guard case .success(let books) = result else { continue }
+            // 找精确匹配
+            if let m = books.first(where: { $0.name == bookName && $0.author == bookAuthor }) {
+                pickedBook = m
+                pickedSource = src
+                break
+            }
+        }
+
+        guard let pickedBook, let pickedSource else { return }
+
+        // 3. 验证: fetchToc 看下能拉到目录吗
+        let info = BookInfo(
+            bookUrl: pickedBook.bookUrl, name: pickedBook.name, author: pickedBook.author,
+            coverUrl: pickedBook.coverUrl, tocUrl: pickedBook.bookUrl
+        )
+        guard let toc = try? await BookSourceEngine.shared.fetchToc(of: info, in: pickedSource),
+              !toc.isEmpty else { return }
+        // 把当前 chapter index 映射到新源 toc, 越界则取最后一章
+        let newIndex = min(failIndex, toc.count - 1)
+        guard let newChap = toc[safe: newIndex] else { return }
+        // 4. 拉本章正文验证能用
+        guard let _ = try? await BookSourceEngine.shared.fetchContent(of: newChap, in: pickedSource) else { return }
+
+        // 5. 验证通过, 真正 changeSource
+        await changeSource(to: pickedBook, source: pickedSource)
     }
 
     private func prefetchAround(_ index: Int) {

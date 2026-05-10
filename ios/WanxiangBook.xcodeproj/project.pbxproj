@@ -36,6 +36,7 @@
 		1F52DB9AF07C90AF83F95E41 /* GroupManageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF574E23475D46DAC26E566 /* GroupManageView.swift */; };
 		208D8C679B2EFF769D1249E5 /* JSEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40ABBC599570270F5968D13C /* JSEngine.swift */; };
 		21BF90BEE108EB4433FCA1FC /* AppClip.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E52C829DF8FC95368476D159 /* AppClip.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
+		238E46E0530FFB16D87B85B1 /* SourcePerformanceTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A3CB22EF233F4E2AB85306 /* SourcePerformanceTracker.swift */; };
 		361BDED74210CBF44A4B92CD /* MangaReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE648528EB23EC78D5BEF0A4 /* MangaReaderView.swift */; };
 		375A08994E78B029347D3521 /* CacheView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16DD7EDEFBDA6EF03B236C3F /* CacheView.swift */; };
 		381B7AECCAE3EC953CF2271A /* AppTrackingTransparency.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 841E0F607D2370D4C6668E49 /* AppTrackingTransparency.framework */; };
@@ -241,6 +242,7 @@
 		79F6D3949B41B637AB349E1E /* AVKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVKit.framework; path = System/Library/Frameworks/AVKit.framework; sourceTree = SDKROOT; };
 		7C7AE9B029ABB6ABA79BFA33 /* EpubImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpubImporter.swift; sourceTree = "<group>"; };
 		7F93C444AA0386E00AE8AED8 /* HTTPFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPFetcher.swift; sourceTree = "<group>"; };
+		81A3CB22EF233F4E2AB85306 /* SourcePerformanceTracker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SourcePerformanceTracker.swift; sourceTree = "<group>"; };
 		83AC8E78E1C78F96AE44EA58 /* InAppBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InAppBrowserView.swift; sourceTree = "<group>"; };
 		841E0F607D2370D4C6668E49 /* AppTrackingTransparency.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppTrackingTransparency.framework; path = System/Library/Frameworks/AppTrackingTransparency.framework; sourceTree = SDKROOT; };
 		871C17CDBFF3F857E0F26059 /* LegadoRuleParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegadoRuleParser.swift; sourceTree = "<group>"; };
@@ -405,6 +407,7 @@
 				7F93C444AA0386E00AE8AED8 /* HTTPFetcher.swift */,
 				117BE8F25F5B6BD1D0C0AE6B /* SourceRateLimiter.swift */,
 				875784CD63C05729D5CBDEE7 /* URLTemplate.swift */,
+				81A3CB22EF233F4E2AB85306 /* SourcePerformanceTracker.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -1063,6 +1066,7 @@
 				1447436E51D02E98C5BFBA88 /* DownloadRangeSheet.swift in Sources */,
 				CF631351D913155D805A0C69 /* ChapterImageBlock.swift in Sources */,
 				C5E42C815487AB45D31A741A /* CloudflareCookieStore.swift in Sources */,
+				238E46E0530FFB16D87B85B1 /* SourcePerformanceTracker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
