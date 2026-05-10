@@ -470,14 +470,33 @@ struct BookDetailView: View {
             }
             .buttonStyle(.plain)
         } else if vm.isLoadingToc {
-            HStack(spacing: 8) {
-                ProgressView().scaleEffect(0.8)
-                Text("正在加载目录…")
-                    .font(.caption)
-                    .foregroundStyle(WanxiangColors.textSecondary)
+            // 万象书屋 (M2.8 perf): toc 加载中也立刻给反馈 — 显示 search 阶段已经带过来的
+            // lastChapter (最新章名) 让用户感觉详情页第一时间有内容. 之前一片"正在加载目录…"
+            // 给人感觉啥都没有.
+            HStack(spacing: 12) {
+                Image(systemName: "list.bullet")
+                    .foregroundStyle(WanxiangColors.primary.opacity(0.6))
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("目录")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(WanxiangColors.textPrimary)
+                        ProgressView().scaleEffect(0.6)
+                    }
+                    if let last = currentBook.lastChapter, !last.isEmpty {
+                        Text("最新: \(last)")
+                            .font(.caption)
+                            .foregroundStyle(WanxiangColors.textSecondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("正在加载章节信息…")
+                            .font(.caption)
+                            .foregroundStyle(WanxiangColors.textSecondary)
+                    }
+                }
+                Spacer()
             }
             .padding(12)
-            .frame(maxWidth: .infinity)
             .background(WanxiangColors.card)
             .clipShape(RoundedRectangle(cornerRadius: 10))
         } else if vm.tocError != nil {

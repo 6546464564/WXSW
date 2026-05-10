@@ -38,6 +38,15 @@ public final class BookSourceEngine: @unchecked Sendable {
     private static let JS_POOL_SIZE = 4
     private let searchParserPool: [SearchParser]
     private let poolCounter = ManagedAtomicLite()
+    /// 万象书屋 (M2.8 perf): info/toc/content parser 也分 4 个 pool, 让 reader prefetch
+    /// 15 章时 JS 真并发. 之前共用单个 jsEngine, 即使 prefetch 启 15 个 task, JS 评估
+    /// 全在 1 个 actor 串行排队 — 后台预拉等于无效.
+    private let infoParserPool: [BookInfoParser]
+    private let tocParserPool: [TocParser]
+    private let contentParserPool: [ContentParser]
+    private let infoPoolCounter = ManagedAtomicLite()
+    private let tocPoolCounter = ManagedAtomicLite()
+    private let contentPoolCounter = ManagedAtomicLite()
 
     private init() {
         let js = JSEngine()
@@ -51,13 +60,35 @@ public final class BookSourceEngine: @unchecked Sendable {
         self.exploreParser = ExploreParser(dispatcher: dispatcher, jsEngine: js)
 
         // 万象书屋 (M2.4 perf): 多 SearchParser 实例池. 第 0 个复用上面的 searchParser (不浪费).
-        var pool: [SearchParser] = [self.searchParser]
+        var sPool: [SearchParser] = [self.searchParser]
+        var iPool: [BookInfoParser] = [self.infoParser]
+        var tPool: [TocParser] = [self.tocParser]
+        var cPool: [ContentParser] = [self.contentParser]
         for _ in 1..<Self.JS_POOL_SIZE {
             let extraJS = JSEngine()
             let extraDispatcher = SelectorDispatcher(js: extraJS)
-            pool.append(SearchParser(dispatcher: extraDispatcher, jsEngine: extraJS))
+            sPool.append(SearchParser(dispatcher: extraDispatcher, jsEngine: extraJS))
+            iPool.append(BookInfoParser(dispatcher: extraDispatcher))
+            tPool.append(TocParser(dispatcher: extraDispatcher))
+            cPool.append(ContentParser(dispatcher: extraDispatcher))
         }
-        self.searchParserPool = pool
+        self.searchParserPool = sPool
+        self.infoParserPool = iPool
+        self.tocParserPool = tPool
+        self.contentParserPool = cPool
+    }
+
+    private func pickInfoParser() -> BookInfoParser {
+        let i = infoPoolCounter.fetchAdd(1)
+        return infoParserPool[i % infoParserPool.count]
+    }
+    private func pickTocParser() -> TocParser {
+        let i = tocPoolCounter.fetchAdd(1)
+        return tocParserPool[i % tocParserPool.count]
+    }
+    private func pickContentParser() -> ContentParser {
+        let i = contentPoolCounter.fetchAdd(1)
+        return contentParserPool[i % contentParserPool.count]
     }
 
     // MARK: - 4 大主流程
@@ -165,8 +196,10 @@ public final class BookSourceEngine: @unchecked Sendable {
     }
 
     public func fetchInfo(of book: SearchBook, in source: BookSource) async throws -> BookInfo {
+        // 万象书屋 (M2.8 perf): round-robin 选 infoParser, 让多个 fetchInfo 真并发.
+        let parser = pickInfoParser()
         do {
-            return try await infoParser.fetchInfo(of: book, in: source)
+            return try await parser.fetchInfo(of: book, in: source)
         } catch {
             Self.reportHealth(source: source, stage: "info", status: Self.classifyStatus(error),
                               errorMessage: String(describing: error), sampleUrl: book.bookUrl)
@@ -175,8 +208,9 @@ public final class BookSourceEngine: @unchecked Sendable {
     }
 
     public func fetchToc(of info: BookInfo, in source: BookSource) async throws -> [BookChapter] {
+        let parser = pickTocParser()
         do {
-            let chapters = try await tocParser.fetchToc(of: info, in: source)
+            let chapters = try await parser.fetchToc(of: info, in: source)
             if chapters.isEmpty {
                 Self.reportHealth(source: source, stage: "toc", status: "zero",
                                   errorMessage: "0 chapters", sampleUrl: info.tocUrl ?? info.bookUrl)
@@ -196,8 +230,11 @@ public final class BookSourceEngine: @unchecked Sendable {
     public func fetchContent(of chapter: BookChapter,
                              in source: BookSource,
                              book: BookInfo? = nil) async throws -> ChapterContent {
+        // 万象书屋 (M2.8 perf): round-robin contentParser, 让 reader prefetch 15 章 JS 真并发.
+        // 之前共用单个 contentParser, 即使 prefetch 启 15 个 task, JS 评估都被 actor 串行化.
+        let parser = pickContentParser()
         do {
-            let content = try await contentParser.fetchContent(of: chapter, in: source, book: book)
+            let content = try await parser.fetchContent(of: chapter, in: source, book: book)
             if content.content.isEmpty {
                 Self.reportHealth(source: source, stage: "content", status: "zero",
                                   errorMessage: "empty content", sampleUrl: chapter.chapterUrl)
