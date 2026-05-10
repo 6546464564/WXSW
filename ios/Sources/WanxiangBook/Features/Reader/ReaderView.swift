@@ -293,15 +293,27 @@ public struct ReaderView: View {
                     .foregroundStyle(config.theme.textColor)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
-                HStack(spacing: 12) {
-                    Button {
-                        Task { await engine.retryCurrentChapter() }
-                    } label: {
-                        Label("重试", systemImage: "arrow.clockwise")
-                            .padding(.horizontal, 16).padding(.vertical, 8)
-                            .background(WanxiangColors.primary)
-                            .foregroundStyle(.white)
-                            .clipShape(Capsule())
+                VStack(spacing: 10) {
+                    HStack(spacing: 12) {
+                        Button {
+                            Task { await engine.retryCurrentChapter() }
+                        } label: {
+                            Label("重试", systemImage: "arrow.clockwise")
+                                .padding(.horizontal, 16).padding(.vertical, 8)
+                                .background(WanxiangColors.primary)
+                                .foregroundStyle(.white)
+                                .clipShape(Capsule())
+                        }
+                        // 万象书屋 (P1 fix): "找不到此书的源" 是后端撤源 / 用户改源后最常见错误,
+                        // 之前只能"返回搜索重新加入". 这里直接给"换源"入口, 复用菜单里同一个 sheet.
+                        // 用户点 → ChangeSourceView 全网搜本书 → 选新源 → engine.changeSource → 从此用新源.
+                        Button { showChangeSource = true } label: {
+                            Label("换源", systemImage: "arrow.triangle.2.circlepath")
+                                .padding(.horizontal, 16).padding(.vertical, 8)
+                                .background(WanxiangColors.accent)
+                                .foregroundStyle(.white)
+                                .clipShape(Capsule())
+                        }
                     }
                     // 万象书屋 (P0 fix): 出错状态也得能返回 (顶部 nav 默认隐藏, 这里给 fallback)
                     Button { dismiss() } label: {
