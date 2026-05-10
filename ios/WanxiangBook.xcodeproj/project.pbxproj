@@ -104,6 +104,7 @@
 		9D4DA9E075873EEE9F339A52 /* MobileCoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AFB7C7B97A4AB79754649554 /* MobileCoreServices.framework */; };
 		A07E1DA2222A2171F8EDC14E /* QidianBook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF2C82EC1801B05941B87E6 /* QidianBook.swift */; };
 		A43B87758683332CE286FE30 /* MobiImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AE9D1EB2146E4575A5D905A /* MobiImporter.swift */; };
+		A4B00B3F3A682B42F6F72948 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1FD71C116DA69646CD94A1E4 /* Assets.xcassets */; };
 		A7CDA4BFE0F011564D0F8B31 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DD645CB7C9A48D5A74EC829C /* SystemConfiguration.framework */; };
 		AEE1DE92C3F13C540704FC01 /* SafeRegex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D8B8C0D9D9C3DE4AADD759 /* SafeRegex.swift */; };
 		AF591D207941A8ED4BFB3926 /* BookGroupRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87A9880E31057A98D27D7192 /* BookGroupRepository.swift */; };
@@ -176,6 +177,7 @@
 		1D74D7E0AFA8B0C8C02E6CA8 /* ChangeSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSourceView.swift; sourceTree = "<group>"; };
 		1E2CBACD33F8FF232AE9B305 /* CrashHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashHandler.swift; sourceTree = "<group>"; };
 		1F175D2AFF6477148D8717B8 /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = System/Library/Frameworks/CoreMotion.framework; sourceTree = SDKROOT; };
+		1FD71C116DA69646CD94A1E4 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Sources/WanxiangBook/Resources/Assets.xcassets; sourceTree = "<group>"; };
 		2167D285604662CF7070F4DD /* JsLibCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsLibCache.swift; sourceTree = "<group>"; };
 		2203A3717341B484C8FA22DF /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		222426F47071C1B7BC0CC244 /* LegadoRuleEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegadoRuleEngine.swift; sourceTree = "<group>"; };
@@ -616,6 +618,7 @@
 				02DB4C15715BB9D35149CBA6 /* Tests */,
 				DA76A25F87F66DFFB4BCA644 /* Frameworks */,
 				336ADCB52099E38BEDBFF9E1 /* Products */,
+				1FD71C116DA69646CD94A1E4 /* Assets.xcassets */,
 			);
 			sourceTree = "<group>";
 		};
@@ -844,6 +847,7 @@
 			buildPhases = (
 				8BC35C0E280D8FBEE601F3E8 /* Sources */,
 				11694AAD0A7B176B4959747F /* Frameworks */,
+				2AAC6991D0D80207F072CD77 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -902,6 +906,7 @@
 				6C5349A68174FC888C1667DF /* XCRemoteSwiftPackageReference "SwiftSoup" */,
 				3F8BFF75781509F455CBBD95 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 			);
+			productRefGroup = 336ADCB52099E38BEDBFF9E1 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -910,6 +915,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2AAC6991D0D80207F072CD77 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A4B00B3F3A682B42F6F72948 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		83B2BFD819138422BC93138F /* Sources */ = {
