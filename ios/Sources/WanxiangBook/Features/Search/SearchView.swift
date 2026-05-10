@@ -42,8 +42,13 @@ struct SearchView: View {
     /// 万象书屋 (debug): 从 launch arg `--OpenSearchTopHit <key>` 进来时,
     /// 第一次拿到非空 results + 搜索结束时, 自动 push 到 #1 的详情页.
     /// (只为外部脚本/截图自动化用, 用户走交互路径感知不到这个 state.)
-    @State private var autoTopHit: SearchBook? = nil
     @State private var autoNavigatedOnce = false
+
+    /// 万象书屋 (M2.4 perf): 用 NavigationStack(path:) 取代 navigationDestination(item:).
+    /// 后者跟"sheet 内嵌套"一起用时, SwiftUI 偶发把 binding 自动 reset 到 nil 让 push 被 pop —
+    /// 这是阻止"sheet→nav→sheet"三层链路自动化的根因. NavigationStack(path:) 由我们自己控制
+    /// 数组, 不会被 ancestor sheet 切换状态影响.
+    @State private var navPath: [SearchBook] = []
 
     init(initialKeyword: String = "") {
         self.initialKeyword = initialKeyword
@@ -51,7 +56,7 @@ struct SearchView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navPath) {
             VStack(spacing: 0) {
                 searchBar
                 Divider()
@@ -102,7 +107,10 @@ struct SearchView: View {
                 let wants = args.contains("--OpenSearchTopHit") || args.contains("-OpenSearchTopHit")
                 guard wants, let first = vm.results.first else { return }
                 autoNavigatedOnce = true
-                autoTopHit = first
+                navPath = [first]
+            }
+            .navigationDestination(for: SearchBook.self) { book in
+                BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
             }
         }
     }
@@ -221,9 +229,10 @@ struct SearchView: View {
                 // 避免某些源 (例: QQ浏览器柳树) bookUrl 因解析 bug 全相同时, SwiftUI
                 // 把不同书识别成同一行, 用户体感"19 本书全是同一本".
                 ForEach(books, id: \.listRowId) { book in
-                    NavigationLink {
-                        BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
-                    } label: {
+                    // 万象书屋 (M2.4 perf): NavigationLink(value:) 让 SwiftUI 走稳定的
+                    // path-based 路径 (跟 navigationDestination(for:SearchBook.self) 配套),
+                    // 多层 sheet 嵌套时不会被 reset.
+                    NavigationLink(value: book) {
                         SearchResultRow(book: book)
                     }
                 }
@@ -251,9 +260,6 @@ struct SearchView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(WanxiangColors.background)
-        .navigationDestination(item: $autoTopHit) { book in
-            BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
-        }
     }
 
     /// 万象书屋 (P0 修复): 渲染层不再做"按标题前 N 字"的全局去重.
