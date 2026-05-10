@@ -97,6 +97,9 @@ public final class WKWebViewBridge: BrowserBridge {
         for c in cookies {
             HTTPCookieStorage.shared.setCookie(c)
         }
+        // 万象书屋 (M2.8): cookie 同步后落盘. 让 App 重启后 30 分钟内不必再跑
+        // webview challenge — 反爬源点详情/章节直接秒拉, 不再每次 25s 等 CF 5s 挑战.
+        CloudflareCookieStore.shared.persistToDisk()
     }
 }
 

@@ -120,6 +120,7 @@
 		C1B26B192A9405162E322015 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCF4353E5A4CB18AECB2869 /* RootView.swift */; };
 		C3BF13F54313B10FE52EF798 /* CookieJarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F9E4237B83261C8BF10757D /* CookieJarStore.swift */; };
 		C4F28FF0FA41ACF96E39BCC4 /* SplashAdView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC292555D91ED176116EFB76 /* SplashAdView.swift */; };
+		C5E42C815487AB45D31A741A /* CloudflareCookieStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4F103DD1B9EFC5E85204E47 /* CloudflareCookieStore.swift */; };
 		C6FFD202F23675F7D58509F1 /* TocParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD3097C4E1CD9AF7E5B22DB4 /* TocParser.swift */; };
 		C74B17EBC4D7D993CD6E40BC /* ChangeSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D74D7E0AFA8B0C8C02E6CA8 /* ChangeSourceView.swift */; };
 		C84297DCA999694B9E02FEB1 /* SearchDedupeFixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326F87BFAA59B1CE4CC4C8AA /* SearchDedupeFixTests.swift */; };
@@ -285,6 +286,7 @@
 		CB3E85EAFF2BEE3B1BDBD94A /* PageViewTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageViewTracker.swift; sourceTree = "<group>"; };
 		CB505517EBD716C5705B4B09 /* AdManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdManager.swift; sourceTree = "<group>"; };
 		CD3097C4E1CD9AF7E5B22DB4 /* TocParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TocParser.swift; sourceTree = "<group>"; };
+		D4F103DD1B9EFC5E85204E47 /* CloudflareCookieStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudflareCookieStore.swift; sourceTree = "<group>"; };
 		D7DE8C468AD3A9A99F895B80 /* AudioPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerView.swift; sourceTree = "<group>"; };
 		DD645CB7C9A48D5A74EC829C /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		DD859F0C86C1145BA43C3E58 /* AdSupport.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AdSupport.framework; path = System/Library/Frameworks/AdSupport.framework; sourceTree = SDKROOT; };
@@ -546,6 +548,7 @@
 			children = (
 				4EE8D12571EC2A6D0CF0D3CD /* BrowserBridge.swift */,
 				659A2BCB071C83BB048BD98B /* WKWebViewBridge.swift */,
+				D4F103DD1B9EFC5E85204E47 /* CloudflareCookieStore.swift */,
 			);
 			path = Browser;
 			sourceTree = "<group>";
@@ -1059,6 +1062,7 @@
 				801963CF8A5969133A10D7BF /* DownloadCenterView.swift in Sources */,
 				1447436E51D02E98C5BFBA88 /* DownloadRangeSheet.swift in Sources */,
 				CF631351D913155D805A0C69 /* ChapterImageBlock.swift in Sources */,
+				C5E42C815487AB45D31A741A /* CloudflareCookieStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -65,6 +65,10 @@ final class AppState: ObservableObject {
         await BrowserBridgeRegistry.shared.set(
             await MainActor.run { WKWebViewBridge() }
         )
+        // 万象书屋 (M2.8): 启动时 restore Cloudflare 反爬 cookie. 让用户重启 App 后
+        // 30 分钟内访问反爬源 (顶点 / 随梦 / 海棠 / UAA 等) 直接秒拉, 不必再跑
+        // 25s webview challenge.
+        CloudflareCookieStore.shared.restoreFromDisk()
         // 万象书屋: 确保新表 schema 存在 (book_groups 等)
         try? await BookGroupRepository.shared.ensureSchema()
         // 万象书屋: 注入解析器健康上报 sink (BookSource 模块不直接依赖 WanxiangAPI)
