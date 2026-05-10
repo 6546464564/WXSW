@@ -451,14 +451,17 @@ final class SearchViewModel: ObservableObject {
         // 1. 入历史
         addToHistory(key)
 
-        // 2. 拉本地缓存的源 + 熔断过滤
-        let allSources = loadCachedSources()
-        let sources = allSources.filter { !isBlocked($0.bookSourceUrl) }
-        activeSources = sources
+        // 2. 拉本地缓存的源 + 熔断过滤.
+        //    万象书屋 (M2.4 perf): deeplink 跳过 splash 后, App 启动 1-2s 内
+        //    BookSourceRegistry.bootstrap 还在拉源, enabledSources 此刻可能是空.
+        //    死等 sources ready 最多 3s (bootstrap 通常 1s 内完成), 避免 search 立刻
+        //    return 0 条把 UI 打到 empty state.
         results = []
         errors = []
         dedupeRowIndex.removeAll()
         isSearching = true
+        let sources = await waitForSources(timeoutSec: 3)
+        activeSources = sources
 
         // 3. 没源时直接 stub 一条提示
         guard !sources.isEmpty else {
@@ -544,6 +547,27 @@ final class SearchViewModel: ObservableObject {
     /// 万象书屋 (P1 fix): 走 BookSourceRegistry, 它启动时就从 /api/sources 拉了
     private func loadCachedSources() -> [BookSource] {
         return BookSourceRegistry.shared.enabledSources
+    }
+
+    /// 万象书屋 (M2.4 perf): 等 BookSourceRegistry 就绪 (`isLoaded=true`) 再返回 sources;
+    /// 超时仍返回当前内存里的 (可能空). deeplink 跳过 splash 后用户立即触发搜索时关键 —
+    /// bootstrap 拉源通常 < 1s, 用户感知不到这个等待.
+    private func waitForSources(timeoutSec: Double) async -> [BookSource] {
+        let registry = BookSourceRegistry.shared
+        let allSources = registry.enabledSources
+        if registry.isLoaded && !allSources.isEmpty {
+            return allSources.filter { !isBlocked($0.bookSourceUrl) }
+        }
+        let deadline = Date().addingTimeInterval(timeoutSec)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let s = registry.enabledSources
+            if registry.isLoaded && !s.isEmpty {
+                return s.filter { !isBlocked($0.bookSourceUrl) }
+            }
+            if Task.isCancelled { break }
+        }
+        return registry.enabledSources.filter { !isBlocked($0.bookSourceUrl) }
     }
 
     // MARK: - 历史

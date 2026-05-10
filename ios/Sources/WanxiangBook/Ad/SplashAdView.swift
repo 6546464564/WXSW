@@ -26,9 +26,21 @@ struct SplashAdView: View {
     let onFinish: () -> Void
 
     /// 最长停留时长. 跟 Android `splash.timeoutMs` (通常 5000ms) 同款.
-    /// 没有 AD 时缩短到 1.0s, 避免"加载慢"错觉.
-    private static let brandOnlyDurationSec: Double = 1.0
+    /// 万象书屋 (M2.4 perf): 没 AD 时从 1.0s 缩到 0.4s — 系统 LaunchScreen 已经覆盖
+    /// 启动 ~0.3-0.5s 黑屏期, 我们再叠一个 0.4s 品牌渐隐过渡足够"无缝"; 1.0s 反而让
+    /// 用户感觉"App 在加载", Android 也没这么长.
+    private static let brandOnlyDurationSec: Double = 0.4
     private static let withAdDurationSec: Double = 5.0
+
+    /// 万象书屋 (M2.4 perf): 任何 deeplink 触发的启动 (--Search / --OpenBook / --OpenTts /
+    /// --AddDemoBook 等) 直接跳过 splash 进 RootView. 这些场景用户/外部脚本目标明确是某个具体
+    /// 功能, splash 只增加等待时间, 没意义.
+    private static var hasDeeplinkArg: Bool {
+        let triggers = ["--Search", "-Search", "--OpenBook", "-OpenBook",
+                        "--OpenTts", "-OpenTts", "--AddDemoBook", "-AddDemoBook"]
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains(where: { triggers.contains($0) })
+    }
 
     @State private var jumped = false
     @State private var adShowing = false
@@ -60,6 +72,12 @@ struct SplashAdView: View {
     @MainActor
     private func runSplashFlow() async {
         guard !jumped else { return }
+
+        // 万象书屋 (M2.4 perf): deeplink 模式直接进 RootView, 跳过任何 splash 停留.
+        if Self.hasDeeplinkArg {
+            finish()
+            return
+        }
 
         let ad = AdManager.shared
         let consented = ad.consented
