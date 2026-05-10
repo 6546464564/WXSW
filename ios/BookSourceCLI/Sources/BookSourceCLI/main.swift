@@ -873,8 +873,7 @@ func realSearch(key: String, sourceFilter: String?) async throws {
 
 // MARK: - merge-search (iOS SearchViewModel 等价快照)
 
-/// 与 iOS `SearchViewModel` + `SearchLegadoOrdering` 一致: 多源并发 → `dedupeKey` 首条保留 → 分层排序.
-/// Android 另会把同名同作者多源合成一条 (`addOrigin`), 故 Android 行数 ≤ 本列表行数.
+/// 与 iOS `SearchViewModel` + `SearchLegadoOrdering` 一致: 多源并发 → `dedupeKey` 合并多源 (`mergedSource*`) → 分层排序.
 private func relevanceTierMergeSearch(book: SearchBook, k: String) -> Int {
     if book.name == k || book.author == k { return 0 }
     if book.name.contains(k) || book.author.contains(k) { return 1 }
@@ -884,22 +883,21 @@ private func relevanceTierMergeSearch(book: SearchBook, k: String) -> Int {
 private func sortMergedLikeIosSearchView(books: [SearchBook], key k: String, precision: Bool) -> [SearchBook] {
     let key = k.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !key.isEmpty else { return books }
-    var arr = books
+    let indexed = books.enumerated().map { ($0.offset, $0.element) }
+    var filtered = indexed
     if precision {
-        arr = arr.filter { relevanceTierMergeSearch(book: $0, k: key) < 2 }
+        filtered = indexed.filter { relevanceTierMergeSearch(book: $0.1, k: key) < 2 }
     }
-    arr.sort { a, b in
-        let ta = relevanceTierMergeSearch(book: a, k: key)
-        let tb = relevanceTierMergeSearch(book: b, k: key)
+    let sorted = filtered.sorted { lhs, rhs in
+        let ta = relevanceTierMergeSearch(book: lhs.1, k: key)
+        let tb = relevanceTierMergeSearch(book: rhs.1, k: key)
         if ta != tb { return ta < tb }
-        let ap = a.name.hasPrefix(key) || a.author.hasPrefix(key)
-        let bp = b.name.hasPrefix(key) || b.author.hasPrefix(key)
-        if ap != bp { return ap && !bp }
-        if a.name.count != b.name.count { return a.name.count < b.name.count }
-        if a.name != b.name { return a.name < b.name }
-        return a.author < b.author
+        let ca = lhs.1.distinctOriginCount
+        let cb = rhs.1.distinctOriginCount
+        if ca != cb { return ca > cb }
+        return lhs.0 < rhs.0
     }
-    return arr
+    return sorted.map { $0.1 }
 }
 
 func mergeSearch(key rawKey: String, precision: Bool) async throws {
@@ -932,15 +930,40 @@ func mergeSearch(key rawKey: String, precision: Bool) async throws {
 
     let engine = await BookSourceEngine.shared
     var merged: [SearchBook] = []
-    var seenKeys = Set<String>()
+    var dedupeRowIndex: [String: Int] = [:]
     let stream = await engine.searchAll(in: sources, key: key)
     for await (_, result) in stream {
         switch result {
         case .success(let books):
             for b in books {
                 if precision && relevanceTierMergeSearch(book: b, k: key) >= 2 { continue }
-                if seenKeys.insert(b.dedupeKey).inserted {
-                    merged.append(b)
+                let dk = b.androidStrictMergeKey
+                if let idx = dedupeRowIndex[dk] {
+                    var row = merged[idx]
+                    var seen = Set<String>([row.origin])
+                    seen.formUnion(row.mergedSourceURLs)
+                    if !seen.contains(b.origin) {
+                        row.mergedSourceURLs.append(b.origin)
+                        row.mergedSourceNames.append(b.originName)
+                    }
+                    let rowIntroEmpty = row.intro.map {
+                        $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    } ?? true
+                    if rowIntroEmpty,
+                       let bi = b.intro?.trimmingCharacters(in: .whitespacesAndNewlines), !bi.isEmpty {
+                        row.intro = b.intro
+                    }
+                    if (row.coverUrl?.isEmpty ?? true), let c = b.coverUrl, !c.isEmpty { row.coverUrl = c }
+                    if (row.lastChapter?.isEmpty ?? true), let l = b.lastChapter, !l.isEmpty {
+                        row.lastChapter = l
+                    }
+                    merged[idx] = row
+                } else {
+                    var first = b
+                    first.mergedSourceURLs = []
+                    first.mergedSourceNames = []
+                    dedupeRowIndex[dk] = merged.count
+                    merged.append(first)
                 }
             }
         case .failure(let err):
@@ -948,12 +971,31 @@ func mergeSearch(key rawKey: String, precision: Bool) async throws {
         }
     }
     let sorted = sortMergedLikeIosSearchView(books: merged, key: key, precision: precision)
-    print("去重后 \(sorted.count) 条 (dedupeKey 首条保留, 与 iOS SearchViewModel 流式一致)\n")
-    print("--- 前 45 条 (书名 / 作者 | 源名) ---")
+    print("合并后 \(sorted.count) 条 (dedupeKey 多源合并, 与 iOS SearchViewModel 一致)\n")
+    print("--- 前 45 条 (书名 / 作者 | 全部源名) ---")
     for (i, b) in sorted.prefix(45).enumerated() {
         let idx = i + 1
-        let line = "\(idx). \(b.name) / \(b.author)  |  \(b.originName)"
+        let n = b.distinctOriginCount
+        let allNames = ([b.originName] + b.mergedSourceNames)
+            .map { $0.replacingOccurrences(of: "\n", with: " ").prefix(20) }
+            .joined(separator: ", ")
+        let line = "\(idx). \(b.name) / \(b.author)  |  ×\(n)  [\(allNames)]"
         print(line)
+    }
+    // 万象书屋: 如果用户搜某关键词时关心特定源 (例如 "为什么 iOS 没显示速读谷?"),
+    // 单独打印每个源命中的全部书 (按"主源"或"合并源"维度) 帮助排查.
+    let interestingSources = ["速读谷", "QQ浏览器柳树", "🍅番茄", "番茄"]
+    for needle in interestingSources {
+        let lines = sorted.enumerated().compactMap { (i, b) -> String? in
+            let allNames = [b.originName] + b.mergedSourceNames
+            guard allNames.contains(where: { $0.contains(needle) }) else { return nil }
+            let role = b.originName.contains(needle) ? "主源" : "合并"
+            return "  #\(i + 1)  \(role)  \(b.name) / \(b.author)"
+        }
+        if !lines.isEmpty {
+            print("\n--- 命中 \"\(needle)\" 的行 (共 \(lines.count) 条) ---")
+            lines.prefix(20).forEach { print($0) }
+        }
     }
 }
 

@@ -65,6 +65,13 @@ final class SearchDedupeFixTests: XCTestCase {
                       "name+author 相同 (同一本书不同源) 必须 dedupeKey 一致, UI 上合一条")
     }
 
+    func test_distinctOriginCount_mergedURLs() {
+        var row = makeSearchBook(name: "诡秘之主", author: "爱潜水的乌贼", origin: "https://a")
+        row.mergedSourceURLs = ["https://b", "https://c"]
+        row.mergedSourceNames = ["B", "C"]
+        XCTAssertEqual(row.distinctOriginCount, 3)
+    }
+
     /// 万象书屋: 标题前后空白 / 全角空格 / 大小写差异不应阻碍合并
     func test_dedupeKey_normalizationCoversWhitespaceAndCase() {
         let a = makeSearchBook(name: " 捞尸人 ", author: "陈十三", origin: "https://a")

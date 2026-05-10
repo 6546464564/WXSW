@@ -39,6 +39,12 @@ struct SearchView: View {
     /// 万象书屋: 从书城点 stub 书时, 自动预填关键词 + 立即开搜
     let initialKeyword: String
 
+    /// 万象书屋 (debug): 从 launch arg `--OpenSearchTopHit <key>` 进来时,
+    /// 第一次拿到非空 results + 搜索结束时, 自动 push 到 #1 的详情页.
+    /// (只为外部脚本/截图自动化用, 用户走交互路径感知不到这个 state.)
+    @State private var autoTopHit: SearchBook? = nil
+    @State private var autoNavigatedOnce = false
+
     init(initialKeyword: String = "") {
         self.initialKeyword = initialKeyword
         self._keyword = State(initialValue: initialKeyword)
@@ -88,6 +94,15 @@ struct SearchView: View {
             .onChange(of: precisionSearch) { _, _ in
                 guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                 Task { await vm.search(key: keyword, precisionSearch: precisionSearch) }
+            }
+            // 万象书屋 (debug arg `--OpenSearchTopHit`): 搜索结束 + 有结果时, 自动 push 到 #1
+            .onChange(of: vm.isSearching) { _, isSearching in
+                guard !isSearching, !autoNavigatedOnce else { return }
+                let args = ProcessInfo.processInfo.arguments
+                let wants = args.contains("--OpenSearchTopHit") || args.contains("-OpenSearchTopHit")
+                guard wants, let first = vm.results.first else { return }
+                autoNavigatedOnce = true
+                autoTopHit = first
             }
         }
     }
@@ -236,6 +251,9 @@ struct SearchView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(WanxiangColors.background)
+        .navigationDestination(item: $autoTopHit) { book in
+            BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
+        }
     }
 
     /// 万象书屋 (P0 修复): 渲染层不再做"按标题前 N 字"的全局去重.
@@ -297,6 +315,15 @@ private struct SearchResultRow: View {
                         .background(WanxiangColors.primary.opacity(0.15))
                         .foregroundStyle(WanxiangColors.primary)
                         .clipShape(Capsule())
+                    if book.distinctOriginCount > 1 {
+                        Text("\(book.distinctOriginCount)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .padding(.horizontal, 4)
+                            .background(Capsule().fill(WanxiangColors.primary.opacity(0.85)))
+                            .accessibilityLabel("\(book.distinctOriginCount) 个书源")
+                    }
                     if let last = book.lastChapter, !last.isEmpty {
                         Text(last)
                             .font(.caption2)
@@ -313,8 +340,15 @@ private struct SearchResultRow: View {
 
 // MARK: - 对齐 Android SearchModel.mergeItems 的排序 (可单测)
 
-/// 万象书屋: Android 端 `SearchModel.mergeItems` 把结果分成「完全匹配 / 包含 / 其余」三档再拼接;
-/// iOS 之前按各书源 AsyncStream 完成顺序追加, 同一关键词下列表顺序与安卓差很多.
+/// 万象书屋: 完全照搬 Android `SearchModel.mergeItems` 的最终排序行为.
+///
+/// Android 真实规则只有两层 (`SearchModel.kt#mergeItems`):
+///   1. 三档分桶: equal (name 或 author **等于** key) → contains (包含) → other (precision=true 时丢)
+///   2. 每个桶**只**按 `origins.size` 降序; 相同源数时**保留输入顺序** (各源回包先后)
+///
+/// iOS 旧版还做了 `hasPrefix` / `name.count` / 字典序 三个次级排序键, 它们会盖过
+/// `origins.size`, 让「8 个源都收录」的书反而被「书名以关键词开头但只有 1 个源」的书压下去.
+/// 这次完全退化, 让两端列表观感一致.
 enum SearchLegadoOrdering {
     /// - 0: 书名或作者**等于**关键词
     /// - 1: 书名或作者**包含**关键词
@@ -328,23 +362,23 @@ enum SearchLegadoOrdering {
     static func sort(books: [SearchBook], key: String, precision: Bool) -> [SearchBook] {
         let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !k.isEmpty else { return books }
-        var arr = books
+        // Swift `Array.sort` 是 introsort, 不保证稳定. 用 enumerated index
+        // 作为最后的 tie-breaker, 实现 Android `sortByDescending` 那种稳定排序.
+        let indexed = books.enumerated().map { ($0.offset, $0.element) }
+        var filtered = indexed
         if precision {
-            arr = arr.filter { relevanceTier(book: $0, key: k) < 2 }
+            filtered = indexed.filter { relevanceTier(book: $0.1, key: k) < 2 }
         }
-        arr.sort { a, b in
-            let ta = relevanceTier(book: a, key: k)
-            let tb = relevanceTier(book: b, key: k)
+        let sorted = filtered.sorted { lhs, rhs in
+            let ta = relevanceTier(book: lhs.1, key: k)
+            let tb = relevanceTier(book: rhs.1, key: k)
             if ta != tb { return ta < tb }
-            // 同档: 书名以关键词开头的优先 (「青山之恋」应排在「住在青山」前)
-            let ap = a.name.hasPrefix(k) || a.author.hasPrefix(k)
-            let bp = b.name.hasPrefix(k) || b.author.hasPrefix(k)
-            if ap != bp { return ap && !bp }
-            if a.name.count != b.name.count { return a.name.count < b.name.count }
-            if a.name != b.name { return a.name < b.name }
-            return a.author < b.author
+            let ca = lhs.1.distinctOriginCount
+            let cb = rhs.1.distinctOriginCount
+            if ca != cb { return ca > cb }
+            return lhs.0 < rhs.0
         }
-        return arr
+        return sorted.map { $0.1 }
     }
 }
 
@@ -363,7 +397,9 @@ final class SearchViewModel: ObservableObject {
     private static let kMaxHistory = 20
     private var currentTask: Task<Void, Never>? = nil
     private var searchGeneration: Int = 0
-    private var resultKeys = Set<String>()
+    /// `androidStrictMergeKey` → `results` 下标, 同名同作者跨源合并为一行 (对齐 Android `addOrigin`).
+    /// 用 Android 严格 `==` 等价 key, 不再 normalize, 行为与 Android 完全一致.
+    private var dedupeRowIndex: [String: Int] = [:]
     /// 当前这次搜索的关键词 (用于对齐 Android 的相关性排序)
     private var activeSearchKey: String = ""
     /// 对齐 Android `precisionSearch`: 为 true 时丢弃书名/作者都不含关键词的条目
@@ -421,7 +457,7 @@ final class SearchViewModel: ObservableObject {
         activeSources = sources
         results = []
         errors = []
-        resultKeys.removeAll()
+        dedupeRowIndex.removeAll()
         isSearching = true
 
         // 3. 没源时直接 stub 一条提示
@@ -445,16 +481,37 @@ final class SearchViewModel: ObservableObject {
                            SearchLegadoOrdering.relevanceTier(book: b, key: self.activeSearchKey) >= 2 {
                             continue
                         }
-                        // 万象书屋 (P0 修复): 只按 name+author 合并真正的"同一本书".
-                        //   - 之前还按 titleDedupeKey (name 前 14 字) 二次去重, 把
-                        //     《捞尸人》by 陈十三 / 《捞尸人》by 纯洁滴小龙 / 《黄河捞尸人》
-                        //     这种"同名不同书 / 同名不同源不同作者"全揉成一条,
-                        //     用户体感"搜出来全是同一本".
-                        //   - 真正的同一本不同源 (常见: 番茄 vs 速读谷 都收录某书) 仍按
-                        //     dedupeKey 合并, 因为它们 name+author 完全一致.
-                        if self.resultKeys.contains(b.dedupeKey) { continue }
-                        self.resultKeys.insert(b.dedupeKey)
-                        self.results.append(b)
+                        // 万象书屋: 完全对齐 Android `SearchModel.mergeItems` —
+                        //   `pBook.name == nBook.name && pBook.author == nBook.author` 严格比.
+                        // 不再用 normalize 过的 dedupeKey, 否则会比 Android 多合并一些条目, 行数对不上.
+                        let dk = b.androidStrictMergeKey
+                        if let idx = self.dedupeRowIndex[dk] {
+                            var row = self.results[idx]
+                            var seen = Set<String>([row.origin])
+                            seen.formUnion(row.mergedSourceURLs)
+                            if !seen.contains(b.origin) {
+                                row.mergedSourceURLs.append(b.origin)
+                                row.mergedSourceNames.append(b.originName)
+                            }
+                            let rowIntroEmpty = row.intro.map {
+                                $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            } ?? true
+                            if rowIntroEmpty,
+                               let bi = b.intro?.trimmingCharacters(in: .whitespacesAndNewlines), !bi.isEmpty {
+                                row.intro = b.intro
+                            }
+                            if (row.coverUrl?.isEmpty ?? true), let c = b.coverUrl, !c.isEmpty { row.coverUrl = c }
+                            if (row.lastChapter?.isEmpty ?? true), let l = b.lastChapter, !l.isEmpty {
+                                row.lastChapter = l
+                            }
+                            self.results[idx] = row
+                        } else {
+                            var first = b
+                            first.mergedSourceURLs = []
+                            first.mergedSourceNames = []
+                            self.dedupeRowIndex[dk] = self.results.count
+                            self.results.append(first)
+                        }
                     }
                     // 万象书屋: 对齐 Android SearchModel.mergeItems 的最终展示顺序 —
                     // 先「书名或作者完全等于关键词」, 再「包含关键词」, 其余按非精准模式保留.

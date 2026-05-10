@@ -9,6 +9,7 @@
 import Foundation
 
 /// 搜索结果中的一条书 (从源解析出来, 还没入书架)
+/// 对齐 Android `SearchBook.origins` + `addOrigin`: 同名同作者多源合并为一行, `mergedSourceURLs` 叠其余源 URL.
 public struct SearchBook: Codable, Hashable, Sendable {
     public var origin: String
     public var originName: String
@@ -21,6 +22,14 @@ public struct SearchBook: Codable, Hashable, Sendable {
     public var lastChapter: String?
     public var updateTime: String?
     public var wordCount: String?
+    /// 合并进来的其它书源 URL (与 `mergedSourceNames` 一一对应); 首条仍用 `origin` / `originName`.
+    public var mergedSourceURLs: [String] = []
+    public var mergedSourceNames: [String] = []
+
+    enum CodingKeys: String, CodingKey {
+        case origin, originName, name, author, bookUrl, coverUrl, intro, kind, lastChapter, updateTime, wordCount
+        case mergedSourceURLs, mergedSourceNames
+    }
 
     public init(
         origin: String,
@@ -33,7 +42,9 @@ public struct SearchBook: Codable, Hashable, Sendable {
         kind: String? = nil,
         lastChapter: String? = nil,
         updateTime: String? = nil,
-        wordCount: String? = nil
+        wordCount: String? = nil,
+        mergedSourceURLs: [String] = [],
+        mergedSourceNames: [String] = []
     ) {
         self.origin = origin
         self.originName = originName
@@ -46,6 +57,44 @@ public struct SearchBook: Codable, Hashable, Sendable {
         self.lastChapter = lastChapter
         self.updateTime = updateTime
         self.wordCount = wordCount
+        self.mergedSourceURLs = mergedSourceURLs
+        self.mergedSourceNames = mergedSourceNames
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        origin = try c.decode(String.self, forKey: .origin)
+        originName = try c.decode(String.self, forKey: .originName)
+        name = try c.decode(String.self, forKey: .name)
+        author = try c.decode(String.self, forKey: .author)
+        bookUrl = try c.decode(String.self, forKey: .bookUrl)
+        coverUrl = try c.decodeIfPresent(String.self, forKey: .coverUrl)
+        intro = try c.decodeIfPresent(String.self, forKey: .intro)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        lastChapter = try c.decodeIfPresent(String.self, forKey: .lastChapter)
+        updateTime = try c.decodeIfPresent(String.self, forKey: .updateTime)
+        wordCount = try c.decodeIfPresent(String.self, forKey: .wordCount)
+        mergedSourceURLs = try c.decodeIfPresent([String].self, forKey: .mergedSourceURLs) ?? []
+        mergedSourceNames = try c.decodeIfPresent([String].self, forKey: .mergedSourceNames) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(origin, forKey: .origin)
+        try c.encode(originName, forKey: .originName)
+        try c.encode(name, forKey: .name)
+        try c.encode(author, forKey: .author)
+        try c.encode(bookUrl, forKey: .bookUrl)
+        try c.encodeIfPresent(coverUrl, forKey: .coverUrl)
+        try c.encodeIfPresent(intro, forKey: .intro)
+        try c.encodeIfPresent(kind, forKey: .kind)
+        try c.encodeIfPresent(lastChapter, forKey: .lastChapter)
+        try c.encodeIfPresent(updateTime, forKey: .updateTime)
+        try c.encodeIfPresent(wordCount, forKey: .wordCount)
+        if !mergedSourceURLs.isEmpty {
+            try c.encode(mergedSourceURLs, forKey: .mergedSourceURLs)
+            try c.encode(mergedSourceNames, forKey: .mergedSourceNames)
+        }
     }
 
     /// 万象书屋: 去重 key (book name + author 归一化)
@@ -63,12 +112,28 @@ public struct SearchBook: Codable, Hashable, Sendable {
         String(Self.normalizeKey(name).prefix(14))
     }
 
+    /// 万象书屋: 搜索合并用的严格 key, 完全对齐 Android `SearchModel.mergeItems`:
+    ///   `pBook.name == nBook.name && pBook.author == nBook.author`
+    /// 不做归一化 (Android 也是直接 `==`); 这样不同空白/标点不会被错误合并,
+    /// 行数 / 顺序与 Android 完全一致.
+    public var androidStrictMergeKey: String {
+        "\(name)|\(author)"
+    }
+
+    /// 去重后的不同书源个数 (对齐 Android `origins.size`).
+    public var distinctOriginCount: Int {
+        var s = Set<String>()
+        if !origin.isEmpty { s.insert(origin) }
+        for u in mergedSourceURLs where !u.isEmpty { s.insert(u) }
+        return s.count
+    }
+
     /// 万象书屋 (D-25 fix): SwiftUI ForEach 的稳定 id.
     /// bookUrl 在某些源 (如 QQ浏览器柳树) 解析时会因 query 拼接问题全部为同一个,
     /// 直接用 id: \.bookUrl 会让 19 本不同的书在 List 上 render 成同一条 cell 的复制,
-    /// 用户体感"搜出来全是同一本". 这里用 (origin + name + author + bookUrl) 拼一个稳定 id.
+    /// 用户体感"搜出来全是同一本". 合并多源后一书一行, 用 `dedupeKey` + 首条 `bookUrl` 稳定区分不同书.
     public var listRowId: String {
-        "\(origin)|\(name)|\(author)|\(bookUrl)"
+        "row|\(dedupeKey)|\(bookUrl)"
     }
 
     private static func normalizeKey(_ raw: String) -> String {
