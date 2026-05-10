@@ -13,7 +13,11 @@
 
 import Foundation
 
-public actor SearchParser {
+/// 万象书屋: 改为 final class 让多源 search 真并发跑.
+/// 之前 `actor` 把所有源的 search 串行化, 32 源耗时 30-90s; 改后 5-15s 跟 Android 持平.
+/// 内部无 mutable state (3 个属性都是 let), 多线程安全; JS 求值仍走 JSEngine actor 串行,
+/// HTTP/HTML 解析变并发.
+public final class SearchParser: @unchecked Sendable {
 
     public let dispatcher: SelectorDispatcher
     public let fetcher: HTTPFetcher
@@ -68,7 +72,7 @@ public actor SearchParser {
                     body: rendered.body,
                     headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
                     sourceKey: source.bookSourceUrl,
-                    retries: rendered.retry ?? 3
+                    retries: rendered.retry ?? 1   // 万象书屋 (M2.4 perf): search 不 retry, 单源失败立即让位多源并发
                 )
                 bodyText = resp.bodyText
                 finalBaseUrl = resp.finalURL?.absoluteString ?? rendered.url
@@ -80,7 +84,7 @@ public actor SearchParser {
                 body: rendered.body,
                 headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
                 sourceKey: source.bookSourceUrl,
-                retries: rendered.retry ?? 3
+                retries: rendered.retry ?? 1   // 万象书屋 (M2.4 perf): search 不 retry, 单源失败立即让位多源并发
             )
             bodyText = resp.bodyText
             finalBaseUrl = resp.finalURL?.absoluteString ?? rendered.url

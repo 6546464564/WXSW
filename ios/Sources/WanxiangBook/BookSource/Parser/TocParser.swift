@@ -10,7 +10,8 @@
 
 import Foundation
 
-public actor TocParser {
+/// 万象书屋: 改为 final class, 目录解析无 mutable state, 多并发安全.
+public final class TocParser: @unchecked Sendable {
 
     public let dispatcher: SelectorDispatcher
     public let fetcher: HTTPFetcher

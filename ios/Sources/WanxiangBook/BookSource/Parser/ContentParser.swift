@@ -11,7 +11,8 @@
 
 import Foundation
 
-public actor ContentParser {
+/// 万象书屋: 改为 final class, 正文解析无 mutable state, 多并发安全.
+public final class ContentParser: @unchecked Sendable {
 
     public let dispatcher: SelectorDispatcher
     public let fetcher: HTTPFetcher

@@ -34,20 +34,26 @@ public struct HTTPResponse: Sendable {
     public let finalURL: URL?
 }
 
-public actor HTTPFetcher {
+/// 万象书屋: 改为 final class 让多源 HTTP 抓真并发跑.
+/// 之前 `actor` 把所有 fetch 调用串行化, 32 源搜索 = 32 次 HTTP 排队 = 30s+;
+/// URLSession 本身是 thread-safe (内部已用 dispatch queue), 包 actor 是冗余.
+/// `cookieJars` 是 dead 字段从未被读写, 一并删掉.
+public final class HTTPFetcher: @unchecked Sendable {
 
     public static let shared = HTTPFetcher()
 
     private let session: URLSession
-    private var cookieJars: [String: HTTPCookieStorage] = [:]
 
     public static let defaultUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) " +
         "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
     private init() {
         let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 15
-        cfg.timeoutIntervalForResource = 30
+        // 万象书屋 (M2.4 perf): 单次 HTTP 抓 8s 超时 (之前 15). 配合 BookSourceEngine.searchAll
+        // 的 12s 单源硬超时 + retries 默认 1, 让多源搜索整体能在 ~12s 内出齐结果, 跟 Android 体感
+        // 持平. 之前 15s × 3 retry × 32 源串行 (actor 之前) ⇒ 90s+, 改并发后仍受单源 49s 拖累.
+        cfg.timeoutIntervalForRequest = 8
+        cfg.timeoutIntervalForResource = 16
         cfg.waitsForConnectivity = true
         cfg.httpCookieAcceptPolicy = .always
         cfg.httpShouldSetCookies = true
@@ -81,14 +87,29 @@ public actor HTTPFetcher {
 
         var lastError: Error?
         for attempt in 0..<max(1, retries) {
+            // 万象书屋 (M2.4 perf): 每次 retry 前响应外层 Task cancellation,
+            // 否则 searchAll 的 12s 单源超时根本起不了作用 (3 次 retry × 15s = 49s 实际跑满).
+            try Task.checkCancellation()
+            if ProcessInfo.processInfo.environment["WX_LOG_FETCH"] != nil {
+                print("[fetch] attempt \(attempt) GET \(url.absoluteString.prefix(60))")
+            }
             do {
                 return try await fetchOnce(url: url, method: method, body: body, headers: headers, sourceKey: sourceKey)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 lastError = error
+                // 万象书屋: NSURLErrorCancelled 也按 cancellation 处理, URLSession 把 task cancel
+                // 翻译成 NSError(domain=NSURLErrorDomain code=-999), 而非 CancellationError.
+                let nsErr = error as NSError
+                if nsErr.domain == NSURLErrorDomain && nsErr.code == NSURLErrorCancelled {
+                    throw CancellationError()
+                }
                 if attempt < retries - 1 {
                     // 指数退避: 0.5s, 1s, 2s
                     let backoffMs = UInt64(500 * (1 << attempt))
-                    try? await Task.sleep(nanoseconds: backoffMs * 1_000_000)
+                    // 万象书屋: 不用 try?, 让 cancellation 真正抛上去
+                    try await Task.sleep(nanoseconds: backoffMs * 1_000_000)
                 }
             }
         }
