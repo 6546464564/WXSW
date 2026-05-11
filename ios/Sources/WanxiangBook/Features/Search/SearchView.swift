@@ -428,79 +428,130 @@ struct SearchView: View {
 private struct SearchResultRow: View {
     let book: SearchBook
 
+    /// 对齐 Android `BaseBook.getKindList`: 先字数, 再 kind 按分隔符拆开.
+    private var kindTags: [String] {
+        var tags: [String] = []
+        var seen = Set<String>()
+        func push(_ raw: String) {
+            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty, !seen.contains(t) else { return }
+            seen.insert(t)
+            tags.append(t)
+        }
+        if let w = book.wordCount { push(w) }
+        if let raw = book.kind?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+            let parts = raw.split { ch in
+                ",，、|｜/\n".contains(ch)
+            }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            for p in parts { push(p) }
+        }
+        return tags
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // 万象书屋 (P0 fix): 真加载 coverUrl, 没 URL 才用占位
-            BookCover(url: book.coverUrl, width: 50, height: 70)
+            BookCover(url: book.coverUrl, width: 56, height: 78)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(book.name)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text(book.author)
-                    .font(.subheadline)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(book.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .foregroundStyle(WanxiangColors.textPrimary)
+                    Spacer(minLength: 4)
+                    Text("\(book.distinctOriginCount)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .padding(.horizontal, 5)
+                        .background(Capsule().fill(WanxiangColors.primary.opacity(0.82)))
+                        .accessibilityLabel("\(book.distinctOriginCount) 个书源收录")
+                }
+
+                Text(Self.authorLine(book.author))
+                    .font(.caption)
                     .foregroundStyle(WanxiangColors.textSecondary)
                     .lineLimit(1)
+
+                if !kindTags.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(kindTags, id: \.self) { tag in
+                                Text(tag)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(WanxiangColors.divider.opacity(0.55))
+                                    .foregroundStyle(WanxiangColors.textSecondary)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                }
+
+                if let last = book.lastChapter?.trimmingCharacters(in: .whitespacesAndNewlines), !last.isEmpty {
+                    Text("最新：\(last)")
+                        .font(.caption)
+                        .foregroundStyle(WanxiangColors.textSecondary)
+                        .lineLimit(1)
+                }
+
                 if let intro = book.intro?.trimmingCharacters(in: .whitespacesAndNewlines), !intro.isEmpty {
                     Text(intro)
                         .font(.caption)
-                        .foregroundStyle(WanxiangColors.textSecondary)
+                        .foregroundStyle(WanxiangColors.textSecondary.opacity(0.92))
                         .lineLimit(2)
-                }
-                HStack(spacing: 6) {
-                    Text(book.originName)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(WanxiangColors.primary.opacity(0.15))
-                        .foregroundStyle(WanxiangColors.primary)
-                        .clipShape(Capsule())
-                    if book.distinctOriginCount > 1 {
-                        Text("\(book.distinctOriginCount)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .frame(minWidth: 18, minHeight: 18)
-                            .padding(.horizontal, 4)
-                            .background(Capsule().fill(WanxiangColors.primary.opacity(0.85)))
-                            .accessibilityLabel("\(book.distinctOriginCount) 个书源")
-                    }
-                    if let last = book.lastChapter, !last.isEmpty {
-                        Text(last)
-                            .font(.caption2)
-                            .foregroundStyle(WanxiangColors.textSecondary)
-                            .lineLimit(1)
-                    }
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+    }
+
+    private static func authorLine(_ author: String) -> String {
+        let a = author.trimmingCharacters(in: .whitespacesAndNewlines)
+        return a.isEmpty ? "作者：未知" : "作者：\(a)"
     }
 }
 
 // MARK: - 对齐 Android SearchModel.mergeItems 的排序 (可单测)
 
-/// 万象书屋: 完全照搬 Android `SearchModel.mergeItems` 的最终排序行为.
+/// 万象书屋: 在 Legado `SearchModel.mergeItems` 的分桶之上做小幅增强 (更可感知的相关性).
 ///
-/// Android 真实规则只有两层 (`SearchModel.kt#mergeItems`):
-///   1. 三档分桶: equal (name 或 author **等于** key) → contains (包含) → other (precision=true 时丢)
-///   2. 每个桶**只**按 `origins.size` 降序; 相同源数时**保留输入顺序** (各源回包先后)
+/// 与 Android 一致的部分:
+///   1. 三档分桶: equal (书名或作者 **trim 后等于** key) → contains → other (precision=true 时丢)
+///   2. 桶内仍优先按 `distinctOriginCount` (≈ origins.size) 降序, 再用稳定序打破平局.
 ///
-/// iOS 旧版还做了 `hasPrefix` / `name.count` / 字典序 三个次级排序键, 它们会盖过
-/// `origins.size`, 让「8 个源都收录」的书反而被「书名以关键词开头但只有 1 个源」的书压下去.
-/// 这次完全退化, 让两端列表观感一致.
+/// iOS 额外细化 (不影响跨平台「同名同作者合并」, 只影响展示顺序):
+///   - equal 桶: 书名精确命中优先于「仅作者名等于关键词」.
+///   - contains 桶: 优先书名命中关键词; 书名均命中时关键词出现位置越靠前越好, 其次书名更短优先.
 enum SearchLegadoOrdering {
-    /// - 0: 书名或作者**等于**关键词
+    private static func trimmed(_ s: String) -> String {
+        s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// - 0: 书名或作者**等于**关键词 (trim 后比较, 避免解析多出空格导致误判进包含桶)
     /// - 1: 书名或作者**包含**关键词
     /// - 2: 其余 (精准搜索时丢弃)
     static func relevanceTier(book: SearchBook, key: String) -> Int {
-        if book.name == key || book.author == key { return 0 }
-        if book.name.contains(key) || book.author.contains(key) { return 1 }
+        let k = trimmed(key)
+        guard !k.isEmpty else { return 2 }
+        let n = trimmed(book.name)
+        let a = trimmed(book.author)
+        if n == k || a == k { return 0 }
+        if n.contains(k) || a.contains(k) { return 1 }
         return 2
     }
 
+    /// 关键词在书名中的首次出现位置 (越靠前越相关). 书名不含关键词时用极大值占位.
+    private static func keywordLeadingIndexInName(book: SearchBook, key k: String) -> Int {
+        let n = trimmed(book.name)
+        guard let r = n.range(of: k) else { return Int.max / 4 }
+        return n.distance(from: n.startIndex, to: r.lowerBound)
+    }
+
     static func sort(books: [SearchBook], key: String, precision: Bool) -> [SearchBook] {
-        let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        let k = trimmed(key)
         guard !k.isEmpty else { return books }
         // Swift `Array.sort` 是 introsort, 不保证稳定. 用 enumerated index
         // 作为最后的 tie-breaker, 实现 Android `sortByDescending` 那种稳定排序.
@@ -513,6 +564,32 @@ enum SearchLegadoOrdering {
             let ta = relevanceTier(book: lhs.1, key: k)
             let tb = relevanceTier(book: rhs.1, key: k)
             if ta != tb { return ta < tb }
+
+            // 完全匹配桶内: 书名精确命中优先于「仅作者名恰好等于关键词」.
+            if ta == 0 {
+                let ln = trimmed(lhs.1.name) == k
+                let rn = trimmed(rhs.1.name) == k
+                if ln != rn { return ln && !rn }
+            }
+
+            // 包含桶内 (对齐 Legado 大桶 + iOS 增强): 优先书名命中; 均书名命中时关键词越靠前越好,
+            // 再比较书名长度 (短标题通常更「直指」). Android 仅按 origins.size + 稳定序,
+            // 这里多两步缓解「临圣」搜出一堆书名中段命中却把完整书名顶下去」的体感问题.
+            if ta == 1 {
+                let lName = trimmed(lhs.1.name)
+                let rName = trimmed(rhs.1.name)
+                let lTitleHit = lName.contains(k)
+                let rTitleHit = rName.contains(k)
+                if lTitleHit != rTitleHit { return lTitleHit && !rTitleHit }
+
+                if lTitleHit && rTitleHit {
+                    let li = keywordLeadingIndexInName(book: lhs.1, key: k)
+                    let ri = keywordLeadingIndexInName(book: rhs.1, key: k)
+                    if li != ri { return li < ri }
+                    if lName.count != rName.count { return lName.count < rName.count }
+                }
+            }
+
             let ca = lhs.1.distinctOriginCount
             let cb = rhs.1.distinctOriginCount
             if ca != cb { return ca > cb }
@@ -666,6 +743,18 @@ final class SearchViewModel: ObservableObject {
                             if (row.coverUrl?.isEmpty ?? true), let c = b.coverUrl, !c.isEmpty { row.coverUrl = c }
                             if (row.lastChapter?.isEmpty ?? true), let l = b.lastChapter, !l.isEmpty {
                                 row.lastChapter = l
+                            }
+                            if (row.wordCount?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                               let w = b.wordCount?.trimmingCharacters(in: .whitespacesAndNewlines), !w.isEmpty {
+                                row.wordCount = b.wordCount
+                            }
+                            if (row.kind?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                               let kd = b.kind?.trimmingCharacters(in: .whitespacesAndNewlines), !kd.isEmpty {
+                                row.kind = b.kind
+                            }
+                            if (row.updateTime?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                               let u = b.updateTime?.trimmingCharacters(in: .whitespacesAndNewlines), !u.isEmpty {
+                                row.updateTime = b.updateTime
                             }
                             self.results[idx] = row
                         } else {

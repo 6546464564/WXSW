@@ -18,8 +18,8 @@ final class SearchLegadoOrderingTests: XCTestCase {
             makeSB(name: "青山之恋", author: "王五"),
         ]
         let sorted = SearchLegadoOrdering.sort(books: books, key: "青山", precision: false)
-        XCTAssertEqual(sorted.map(\.name), ["青山", "住在青山", "青山之恋"],
-                       "tier=0 优先; tier=1 内 origins 都=1 时保留输入顺序 (与 Android stable sort 行为一致)")
+        XCTAssertEqual(sorted.map(\.name), ["青山", "青山之恋", "住在青山"],
+                       "tier=0 优先; tier=1 内书名均命中时关键词位置靠前者优先")
     }
 
     func test_precision_dropsNonMatching() {
@@ -48,6 +48,36 @@ final class SearchLegadoOrderingTests: XCTestCase {
         let sorted = SearchLegadoOrdering.sort(books: books, key: "青山", precision: false)
         XCTAssertEqual(sorted.first?.distinctOriginCount, 3)
         XCTAssertEqual(sorted.last?.distinctOriginCount, 1)
+    }
+
+    /// 书名精确命中应排在「仅作者名等于关键词」之前 (equal 桶内细化).
+    func test_ordering_nameExactBeforeAuthorExactInEqualBucket() {
+        let books = [
+            makeSB(name: "其它书", author: "临圣"),
+            makeSB(name: "临圣", author: "张三"),
+        ]
+        let sorted = SearchLegadoOrdering.sort(books: books, key: "临圣", precision: false)
+        XCTAssertEqual(sorted.map(\.name), ["临圣", "其它书"])
+    }
+
+    /// trim 后书名应视为精确匹配, 避免掉进包含桶后排在后面.
+    func test_ordering_trimmedEqualityCountsAsExact() {
+        let books = [
+            makeSB(name: "临圣 ", author: "甲"),
+            makeSB(name: "某某临圣某某", author: "乙"),
+        ]
+        let sorted = SearchLegadoOrdering.sort(books: books, key: "临圣", precision: false)
+        XCTAssertEqual(sorted.first?.name, "临圣 ")
+    }
+
+    /// contains 桶: 书名命中优先于仅作者字段命中.
+    func test_ordering_contains_prefersTitleHitOverAuthorOnly() {
+        let books = [
+            makeSB(name: "无关", author: "临圣词条"),
+            makeSB(name: "临圣演义", author: "李四"),
+        ]
+        let sorted = SearchLegadoOrdering.sort(books: books, key: "临圣", precision: false)
+        XCTAssertEqual(sorted.first?.name, "临圣演义")
     }
 }
 

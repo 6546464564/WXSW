@@ -895,15 +895,29 @@ func realSearch(key: String, sourceFilter: String?) async throws {
 
 // MARK: - merge-search (iOS SearchViewModel 等价快照)
 
-/// 与 iOS `SearchViewModel` + `SearchLegadoOrdering` 一致: 多源并发 → `dedupeKey` 合并多源 (`mergedSource*`) → 分层排序.
+/// 与 iOS `SearchViewModel` + `SearchLegadoOrdering` 一致: 多源并发 → 合并 `mergedSource*` → 分层排序.
+private func trimmedMergeSearch(_ s: String) -> String {
+    s.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 private func relevanceTierMergeSearch(book: SearchBook, k: String) -> Int {
-    if book.name == k || book.author == k { return 0 }
-    if book.name.contains(k) || book.author.contains(k) { return 1 }
+    let key = trimmedMergeSearch(k)
+    guard !key.isEmpty else { return 2 }
+    let n = trimmedMergeSearch(book.name)
+    let a = trimmedMergeSearch(book.author)
+    if n == key || a == key { return 0 }
+    if n.contains(key) || a.contains(key) { return 1 }
     return 2
 }
 
+private func keywordLeadingIndexMergeSearch(book: SearchBook, key k: String) -> Int {
+    let n = trimmedMergeSearch(book.name)
+    guard let r = n.range(of: k) else { return Int.max / 4 }
+    return n.distance(from: n.startIndex, to: r.lowerBound)
+}
+
 private func sortMergedLikeIosSearchView(books: [SearchBook], key k: String, precision: Bool) -> [SearchBook] {
-    let key = k.trimmingCharacters(in: .whitespacesAndNewlines)
+    let key = trimmedMergeSearch(k)
     guard !key.isEmpty else { return books }
     let indexed = books.enumerated().map { ($0.offset, $0.element) }
     var filtered = indexed
@@ -914,6 +928,24 @@ private func sortMergedLikeIosSearchView(books: [SearchBook], key k: String, pre
         let ta = relevanceTierMergeSearch(book: lhs.1, k: key)
         let tb = relevanceTierMergeSearch(book: rhs.1, k: key)
         if ta != tb { return ta < tb }
+        if ta == 0 {
+            let ln = trimmedMergeSearch(lhs.1.name) == key
+            let rn = trimmedMergeSearch(rhs.1.name) == key
+            if ln != rn { return ln && !rn }
+        }
+        if ta == 1 {
+            let lName = trimmedMergeSearch(lhs.1.name)
+            let rName = trimmedMergeSearch(rhs.1.name)
+            let lHit = lName.contains(key)
+            let rHit = rName.contains(key)
+            if lHit != rHit { return lHit && !rHit }
+            if lHit && rHit {
+                let li = keywordLeadingIndexMergeSearch(book: lhs.1, key: key)
+                let ri = keywordLeadingIndexMergeSearch(book: rhs.1, key: key)
+                if li != ri { return li < ri }
+                if lName.count != rName.count { return lName.count < rName.count }
+            }
+        }
         let ca = lhs.1.distinctOriginCount
         let cb = rhs.1.distinctOriginCount
         if ca != cb { return ca > cb }
@@ -978,6 +1010,18 @@ func mergeSearch(key rawKey: String, precision: Bool) async throws {
                     if (row.coverUrl?.isEmpty ?? true), let c = b.coverUrl, !c.isEmpty { row.coverUrl = c }
                     if (row.lastChapter?.isEmpty ?? true), let l = b.lastChapter, !l.isEmpty {
                         row.lastChapter = l
+                    }
+                    if (row.wordCount?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                       let w = b.wordCount?.trimmingCharacters(in: .whitespacesAndNewlines), !w.isEmpty {
+                        row.wordCount = b.wordCount
+                    }
+                    if (row.kind?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                       let kd = b.kind?.trimmingCharacters(in: .whitespacesAndNewlines), !kd.isEmpty {
+                        row.kind = b.kind
+                    }
+                    if (row.updateTime?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                       let u = b.updateTime?.trimmingCharacters(in: .whitespacesAndNewlines), !u.isEmpty {
+                        row.updateTime = b.updateTime
                     }
                     merged[idx] = row
                 } else {
