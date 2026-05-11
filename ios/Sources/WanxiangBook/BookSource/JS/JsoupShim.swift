@@ -200,6 +200,29 @@ public enum JsoupShim {
                   if (el) fn(el, i);
                 }
               },
+              // 万象书屋 (M2.8 fix bug): legado 大量源 chapterList JS 用 `result.toArray()`
+              // 把 jsoup Elements 转 Array. 不暴露这方法 ⇒ TypeError ⇒ JS 整段 fail.
+              // 兼容 Java/Rhino: Elements.toArray() 返 Element[].
+              toArray: function() {
+                var n = __wx_jsoup_size(this._id);
+                var arr = [];
+                for (var i = 0; i < n; i++) {
+                  var el = wrap(__wx_jsoup_get(this._id, i));
+                  if (el) arr.push(el);
+                }
+                return arr;
+              },
+              // Java Iterator 风格: iterator() 返带 hasNext/next 的对象 (一些源用)
+              iterator: function() {
+                var idx = 0;
+                var that = this;
+                return {
+                  hasNext: function() { return idx < __wx_jsoup_size(that._id); },
+                  next: function() { return wrap(__wx_jsoup_get(that._id, idx++)); }
+                };
+              },
+              // Array-like .length (一些源直接 result.length)
+              get length() { return __wx_jsoup_size(this._id); },
             };
           }
           var Jsoup = {

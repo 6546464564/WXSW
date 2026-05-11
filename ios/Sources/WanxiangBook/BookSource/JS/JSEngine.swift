@@ -946,6 +946,12 @@ public actor JSEngine {
         }
         java.setObject(getStrResp, forKeyedSubscript: "getStrResponse" as NSString)
 
+        // 万象书屋 (M2.8 fix bug): 把 java 注册到 JS global, 之前是在 line ~1548 才注册,
+        // 但下面的 IIFE 用 `java.createSymmetricCrypto = function(...)` 等需要 java 已是 global,
+        // 否则 ReferenceError, polyfill 全部 dead code. 提到这里, 之后再 java.setObject(...)
+        // (queryTTF 等) 的修改会反映到 ctx 里同一个对象 (引用语义).
+        ctx.setObject(java, forKeyedSubscript: "java" as NSString)
+
         // 万象书屋 (M2.8 fix bug): hutool 链式 SymmetricCrypto — 静态 audit:
         //   createSymmetricCrypto 54 次 + setContent 55 次 + des/aes 各种 alias
         // 大批源 (H 漫 / 91Porna / 书山聚合 等) cover decode 用 hutool 链式 API.
@@ -1545,7 +1551,8 @@ public actor JSEngine {
         }
         java.setObject(replaceFont, forKeyedSubscript: "replaceFont" as NSString)
 
-        ctx.setObject(java, forKeyedSubscript: "java" as NSString)
+        // (java 已在前面 ~line 950 注册到 ctx global; 之后的 java.setObject 仍然 mutate
+        // 同一个 JSValue 对象, 引用语义自动同步.)
 
         // 万象书屋 (M2.8 fix bug): java.getElements / java.getElement / java.getString —
         // legado AnalyzeRule 暴露给 JS 的"在当前 src 上跑 selector"快捷方法.
