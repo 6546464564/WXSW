@@ -122,23 +122,21 @@ struct SearchView: View {
     }
 
     var body: some View {
+        // 万象书屋 (UX bug fix): row 用 closure-form NavigationLink (见 `resultList`),
+        // 不再依赖 `.navigationDestination(for: SearchBook.self)` 全局注册 — 后者在
+        // SearchView 自己也是被 push 进来的子节点时, SwiftUI 经常忽视嵌套层的注册.
+        // 这里只保留 auto-push (debug 用) 的 item-based destination, 显式不冲突.
         Group {
             if embedded {
                 screenBody
-                    .navigationDestination(for: SearchBook.self) { book in
-                        BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
-                    }
-                    .navigationDestination(item: $autoNavBook) { book in
-                        BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
-                    }
             } else {
                 NavigationStack(path: $navPath) {
                     screenBody
-                        .navigationDestination(for: SearchBook.self) { book in
-                            BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
-                        }
                 }
             }
+        }
+        .navigationDestination(item: $autoNavBook) { book in
+            BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
         }
     }
 
@@ -357,10 +355,17 @@ struct SearchView: View {
                 // 避免某些源 (例: QQ浏览器柳树) bookUrl 因解析 bug 全相同时, SwiftUI
                 // 把不同书识别成同一行, 用户体感"19 本书全是同一本".
                 ForEach(books, id: \.listRowId) { book in
-                    // 万象书屋 (M2.4 perf): NavigationLink(value:) 让 SwiftUI 走稳定的
-                    // path-based 路径 (跟 navigationDestination(for:SearchBook.self) 配套),
-                    // 多层 sheet 嵌套时不会被 reset.
-                    NavigationLink(value: book) {
+                    // 万象书屋 (UX bug fix · push 重构): SearchView 既可能被外部 stack push
+                    // 进来 (embedded), 也可能自包 NavigationStack (sheet/deepLink). 两种
+                    // 模式下都要能 push 到详情 → 用 closure-form NavigationLink (destination
+                    // 闭包绑定 NavigationLink 自身) 不依赖 `.navigationDestination(for:)` 全局
+                    // 注册, 避免嵌套场景 SwiftUI 丢失注册的 known issue.
+                    NavigationLink {
+                        BookDetailView(
+                            book: book,
+                            source: BookSourceRegistry.shared.find(origin: book.origin)
+                        )
+                    } label: {
                         SearchResultRow(book: book)
                     }
                 }
