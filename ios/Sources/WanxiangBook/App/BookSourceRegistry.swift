@@ -22,6 +22,9 @@ public final class BookSourceRegistry: ObservableObject {
 
     private init() {}
 
+    /// UserDefaults key: 历史版本曾把书源写进 SQLite `book_sources`, 只需清一次.
+    private static let legacySqliteSourcesClearedKey = "wx.legacy_book_sources_table_cleared_v4"
+
     /// 应用启动时调一次 (idempotent). 直接拉远端到内存, 不再持久化到 SQLite.
     ///
     /// 万象书屋: 设计上**只在内存**保留 sources, 杀进程后下次冷启动重新拉远端.
@@ -29,9 +32,12 @@ public final class BookSourceRegistry: ObservableObject {
     /// 解析规则就拉不到 → 鼓励用户主动"下载本书" (BookDownloader) 离线读.
     /// 同时这步顺手把历史遗留的 SQLite book_sources 表清掉, 让升级用户也回到 in-memory only.
     public func bootstrap() async {
-        // 万象书屋 (P0 一次性): 升级用户本机可能还有过去版本写入的 SQLite book_sources.
-        // 一次清掉, 让"in-memory only"是真正的从此一次性, 防止下次启动又被旧表影响.
-        try? await DB.shared.replaceAllBookSources([])
+        // 万象书屋 (perf): **不要**每次冷启都 `DELETE FROM book_sources` — 源多时 SQLite 事务
+        // + VACUUM 压力白白浪费几十～几百 ms. 迁移清库只做一次即可.
+        if !UserDefaults.standard.bool(forKey: Self.legacySqliteSourcesClearedKey) {
+            try? await DB.shared.replaceAllBookSources([])
+            UserDefaults.standard.set(true, forKey: Self.legacySqliteSourcesClearedKey)
+        }
 
         // 拉远端 → 内存
         await refresh()
@@ -53,7 +59,7 @@ public final class BookSourceRegistry: ObservableObject {
             return
         }
         guard let arr = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else { return }
-        let parsed = Self.parseSources(arr)
+        let parsed = await Self.parseSourcesOffMainActor(arr)
         guard !parsed.isEmpty else { return }
         self.sources = parsed
         self.isLoaded = true
@@ -104,7 +110,7 @@ public final class BookSourceRegistry: ObservableObject {
                 return
             }
 
-            let remote = Self.parseSources(result.sources)
+            let remote = await Self.parseSourcesOffMainActor(result.sources)
 
             // ── 守护 2: 远端 200 但 0 条 → 多半是后端短暂故障 (DB 故障 / 中间件 panic 返空).
             //   不能拿这个误清掉用户的内存 cache, 否则用户突然没源可搜.
@@ -137,7 +143,7 @@ public final class BookSourceRegistry: ObservableObject {
             throw NSError(domain: "BookSource", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "JSON 须为书源数组或 {\"sources\":[...]}"])
         }
-        let parsed = Self.parseSources(rawArr)
+        let parsed = await Self.parseSourcesOffMainActor(rawArr)
         guard !parsed.isEmpty else {
             throw NSError(domain: "BookSource", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: "没有解析出任何书源"])
@@ -172,11 +178,27 @@ public final class BookSourceRegistry: ObservableObject {
 
     // MARK: - 解析
 
-    /// 后端 /api/sources 返回的 `sources: [Any]` 解析成 [BookSource]
-    private static func parseSources(_ raw: [Any]) -> [BookSource] {
+    /// 冷启拉源常见 1000～3000 条: 在 MainActor 上轮询 `JSONDecoder` 会卡住首屏交互.
+    /// 先打成 JSON Data (Sendable), 再在后台线程解码, 最后回到 MainActor 赋值.
+    private static func parseSourcesOffMainActor(_ raw: [Any]) async -> [BookSource] {
+        guard !raw.isEmpty else { return [] }
+        guard JSONSerialization.isValidJSONObject(raw),
+              let blob = try? JSONSerialization.data(withJSONObject: raw) else {
+            return parseSourcesFromRawIsolated(raw)
+        }
+        return await Task.detached(priority: .userInitiated) {
+            guard let arr = try? JSONSerialization.jsonObject(with: blob) as? [Any] else {
+                return []
+            }
+            return Self.parseSourcesFromRawIsolated(arr)
+        }.value
+    }
+
+    /// `nonisolated` — 可在任意 executor 上跑 (仅供 `parseSourcesOffMainActor` / detached 调用).
+    nonisolated private static func parseSourcesFromRawIsolated(_ raw: [Any]) -> [BookSource] {
         var out: [BookSource] = []
+        out.reserveCapacity(raw.count)
         for item in raw {
-            // item 可能是 [String: Any] 已 parse, 也可能是 String JSON. 兼容两种
             var dict: [String: Any]? = nil
             if let d = item as? [String: Any] {
                 dict = d
@@ -186,13 +208,11 @@ public final class BookSourceRegistry: ObservableObject {
                 dict = d
             }
             guard let d = dict else { continue }
-            // BookSource 是 Decodable, 通过 JSON 二次 encode/decode 走它的逻辑
             do {
                 let data = try JSONSerialization.data(withJSONObject: d)
                 let bs = try JSONDecoder().decode(BookSource.self, from: data)
                 out.append(bs)
             } catch {
-                // 个别源解析失败不影响整体
                 print("[BookSourceRegistry] skip 1 invalid source: \(error.localizedDescription)")
             }
         }

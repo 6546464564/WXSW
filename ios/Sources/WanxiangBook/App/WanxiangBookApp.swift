@@ -87,14 +87,15 @@ final class AppState: ObservableObject {
             bootstrapFailed = true
             isBootstrapped = true
         }
-        // 万象书屋: 启动后立即首次 ping (访问统计) + 拉公告/版本 + 拉广告配置
-        // 广告配置 consent 与否都拉 (只是配置, 无个人数据); SDK init 仍受 consent 控制
-        await Task.detached(priority: .background) { [weak self] in
+        // 万象书屋 (perf): 这些请求**不要** `await .value` — 否则会拖住整个 bootstrap(),
+        // 用户已进首页还在等 ping/公告/版本/广告配置串行跑完, 体感「加载慢」.
+        // 与 Android Application 里异步 fire-and-forget 对齐.
+        Task.detached(priority: .background) { [weak self] in
             await self?.sendPingNow()
             await self?.fetchAnnouncement()
             await self?.fetchVersionCheck()
             await AdManager.shared.refreshConfig()
-        }.value
+        }
         // 万象书屋 (M2.4 perf): 在 splash 这 1s 期间预热 BookSourceEngine 单例
         // (含 4 个 JSEngine + stdlib 注入), 让用户进搜索页时第一次 search 不再等
         // ~200-400ms 的冷启 cost. 是 lazy singleton 的最早 access 点, 副作用 0.
