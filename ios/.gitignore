@@ -48,3 +48,4 @@ secrets.local.xcconfig
 # 用 setup.sh 从 ~/Desktop/sdk/ 拷贝
 Frameworks/*.xcframework
 Frameworks/*.bundle
+ios/.derived-local-run/

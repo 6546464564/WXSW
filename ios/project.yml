@@ -57,6 +57,10 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
+    # 万象书屋 (P0 bug fix): xcodegen 2.42 在 sources.path 覆盖 resources 子路径时会
+    # 整体跳过 `resources:` 段, 导致 PBXResourcesBuildPhase 不被生成 — Assets.xcassets
+    # / Info.plist 资源 / lproj 全部不进 .app, 桌面图标自然丢失.
+    # 改成在 `sources:` 里逐条 mark `buildPhase: resources`, 这样必定进 Resources phase.
     sources:
       - path: Sources/WanxiangBook
         excludes:
@@ -66,17 +70,22 @@ targets:
           - "Resources/*.lproj/**"
           - "Resources/defaultData/**"
           - "Info.plist"
-    resources:
       - path: Sources/WanxiangBook/Resources/legal
+        buildPhase: resources
         type: folder
       - path: Sources/WanxiangBook/Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
       - path: Sources/WanxiangBook/Resources/Assets.xcassets
+        buildPhase: resources
       # 万象书屋: 多语言 — XcodeGen 自动识别 *.lproj 目录, 编译进 .ipa 各语种 bundle
       - path: Sources/WanxiangBook/Resources/zh-Hans.lproj
+        buildPhase: resources
       - path: Sources/WanxiangBook/Resources/zh-Hant.lproj
+        buildPhase: resources
       # 万象书屋: 内置 fallback 书源, 跟 android/app/src/main/assets/defaultData/bookSources.json
       # 同源 (从 backend/seed/ 复制), 后端不可达时仍能离线使用 32 条默认源.
       - path: Sources/WanxiangBook/Resources/defaultData
+        buildPhase: resources
         type: folder
     info:
       path: Sources/WanxiangBook/Info.plist
