@@ -72,10 +72,9 @@ struct RankDetailView: View {
                 await vm.load(mode: mode, force: false)
             }
         }
-        .sheet(item: $searchKeyword) { seed in
-            NavigationStack {
-                SearchView(initialKeyword: seed.keyword)
-            }
+        // 万象书屋 (UX): 搜索改成 NavigationStack push 的全屏单独页, 不再用 sheet 弹框.
+        .navigationDestination(item: $searchKeyword) { seed in
+            SearchView(initialKeyword: seed.keyword, embedded: true)
         }
     }
 

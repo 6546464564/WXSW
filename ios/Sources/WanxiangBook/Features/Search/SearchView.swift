@@ -100,73 +100,108 @@ struct SearchView: View {
     /// 后者跟"sheet 内嵌套"一起用时, SwiftUI 偶发把 binding 自动 reset 到 nil 让 push 被 pop —
     /// 这是阻止"sheet→nav→sheet"三层链路自动化的根因. NavigationStack(path:) 由我们自己控制
     /// 数组, 不会被 ancestor sheet 切换状态影响.
+    ///
+    /// 万象书屋 (UX): 当 `embedded == true` 时, SearchView 被外部 NavigationStack push 进来,
+    /// 不再自包 NavigationStack — 用外部 stack 的 path; `navPath` 仅在 embedded=false (deepLink
+    /// sheet 入口) 时启用.
     @State private var navPath: [SearchBook] = []
+    /// 万象书屋: embedded 模式下用 navigationDestination(item:) 触发 auto push (debug).
+    @State private var autoNavBook: SearchBook? = nil
 
     /// 万象书屋 (M2.8): 搜索结果二次过滤. 默认全部, 用户点 chip 切换.
     @State private var resultFilter: SearchResultFilter = .all
 
-    init(initialKeyword: String = "") {
+    /// 万象书屋 (UX): 是否被外部 NavigationStack push 进来. 默认 false (兼容 sheet/旧调用).
+    /// 书架/书城/排行榜入口都传 true → SearchView 走外部 stack, 顶部为系统返回 ← 而非"取消".
+    let embedded: Bool
+
+    init(initialKeyword: String = "", embedded: Bool = false) {
         self.initialKeyword = initialKeyword
+        self.embedded = embedded
         self._keyword = State(initialValue: initialKeyword)
     }
 
     var body: some View {
-        NavigationStack(path: $navPath) {
-            VStack(spacing: 0) {
-                searchBar
-                Divider()
-
-                if vm.isSearching && vm.results.isEmpty {
-                    loading
-                } else if !keyword.isEmpty && vm.results.isEmpty && !vm.isSearching {
-                    empty
-                } else if keyword.isEmpty {
-                    historyList
-                } else {
-                    filterChipsBar
-                    resultList
+        Group {
+            if embedded {
+                screenBody
+                    .navigationDestination(for: SearchBook.self) { book in
+                        BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
+                    }
+                    .navigationDestination(item: $autoNavBook) { book in
+                        BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
+                    }
+            } else {
+                NavigationStack(path: $navPath) {
+                    screenBody
+                        .navigationDestination(for: SearchBook.self) { book in
+                            BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
+                        }
                 }
             }
-            .background(WanxiangColors.background.ignoresSafeArea())
-            .navigationTitle("搜索")
-            .navigationBarTitleDisplayMode(.inline)
-            // 万象书屋: PV 埋点 (跟 Android `SearchActivity` 自动 trackPageName 等价)
-            .trackPageView("page_search")
-            .toolbar {
+        }
+    }
+
+    /// 万象书屋: SearchView 内部 UI — 不含 NavigationStack 自身, embedded / 独立两种模式共用.
+    private var screenBody: some View {
+        VStack(spacing: 0) {
+            searchBar
+            Divider()
+
+            if vm.isSearching && vm.results.isEmpty {
+                loading
+            } else if !keyword.isEmpty && vm.results.isEmpty && !vm.isSearching {
+                empty
+            } else if keyword.isEmpty {
+                historyList
+            } else {
+                filterChipsBar
+                resultList
+            }
+        }
+        .background(WanxiangColors.background.ignoresSafeArea())
+        .navigationTitle("搜索")
+        .navigationBarTitleDisplayMode(.inline)
+        // 万象书屋: PV 埋点 (跟 Android `SearchActivity` 自动 trackPageName 等价)
+        .trackPageView("page_search")
+        .toolbar {
+            if !embedded {
+                // 万象书屋 (UX): 仅在 sheet 模式下提供"取消"; embedded push 模式下走系统返回 ←
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Toggle("精准搜索", isOn: $precisionSearch)
-                    } label: {
-                        Image(systemName: precisionSearch ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                            .foregroundStyle(precisionSearch ? WanxiangColors.primary : WanxiangColors.textPrimary)
-                    }
-                    .accessibilityLabel("搜索选项")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Toggle("精准搜索", isOn: $precisionSearch)
+                } label: {
+                    Image(systemName: precisionSearch ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        .foregroundStyle(precisionSearch ? WanxiangColors.primary : WanxiangColors.textPrimary)
                 }
+                .accessibilityLabel("搜索选项")
             }
-            .onAppear {
-                inputFocused = true
-                if !initialKeyword.isEmpty && vm.results.isEmpty {
-                    Task { await vm.search(key: initialKeyword, precisionSearch: precisionSearch) }
-                }
+        }
+        .onAppear {
+            inputFocused = true
+            if !initialKeyword.isEmpty && vm.results.isEmpty {
+                Task { await vm.search(key: initialKeyword, precisionSearch: precisionSearch) }
             }
-            .onChange(of: precisionSearch) { _, _ in
-                guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                Task { await vm.search(key: keyword, precisionSearch: precisionSearch) }
-            }
-            // 万象书屋 (debug arg `--OpenSearchTopHit`): 搜索结束 + 有结果时, 自动 push 到 #1
-            .onChange(of: vm.isSearching) { _, isSearching in
-                guard !isSearching, !autoNavigatedOnce else { return }
-                let args = ProcessInfo.processInfo.arguments
-                let wants = args.contains("--OpenSearchTopHit") || args.contains("-OpenSearchTopHit")
-                guard wants, let first = vm.results.first else { return }
-                autoNavigatedOnce = true
+        }
+        .onChange(of: precisionSearch) { _, _ in
+            guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            Task { await vm.search(key: keyword, precisionSearch: precisionSearch) }
+        }
+        // 万象书屋 (debug arg `--OpenSearchTopHit`): 搜索结束 + 有结果时, 自动 push 到 #1
+        .onChange(of: vm.isSearching) { _, isSearching in
+            guard !isSearching, !autoNavigatedOnce else { return }
+            let args = ProcessInfo.processInfo.arguments
+            let wants = args.contains("--OpenSearchTopHit") || args.contains("-OpenSearchTopHit")
+            guard wants, let first = vm.results.first else { return }
+            autoNavigatedOnce = true
+            if embedded {
+                autoNavBook = first
+            } else {
                 navPath = [first]
-            }
-            .navigationDestination(for: SearchBook.self) { book in
-                BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
             }
         }
     }

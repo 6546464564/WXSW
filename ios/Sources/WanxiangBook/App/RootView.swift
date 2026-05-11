@@ -99,7 +99,9 @@ struct RootView: View {
         .fullScreenCover(item: $deepLinkTtsBook) { book in
             TtsDeepLinkLoader(book: book)
         }
-        .sheet(item: Binding(
+        // 万象书屋 (UX): debug deep link 走 fullScreenCover, 跟 deepLinkBook 一致,
+        // 内部 NavigationStack 让 SearchView 走 push 风格 (sheet=false 路径自带"取消"按钮兜底退出).
+        .fullScreenCover(item: Binding(
             get: { deepLinkSearchKeyword.map { IdentifiableString(value: $0) } },
             set: { deepLinkSearchKeyword = $0?.value }
         )) { kw in

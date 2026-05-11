@@ -45,10 +45,9 @@ struct BookStoreView: View {
                 .background(WanxiangColors.background.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar(.hidden, for: .navigationBar)
-                .sheet(item: $searchSeed) { seed in
-                    NavigationStack {
-                        SearchView(initialKeyword: seed.keyword)
-                    }
+                // 万象书屋 (UX): 搜索改成 NavigationStack push 的全屏单独页, 不再用 sheet 弹框.
+                .navigationDestination(item: $searchSeed) { seed in
+                    SearchView(initialKeyword: seed.keyword, embedded: true)
                 }
                 .navigationDestination(item: $navTarget) { target in
                     switch target {
@@ -548,9 +547,12 @@ struct BookStoreView: View {
 // MARK: - Search seed
 
 /// 跟 RankDetailView 共享; 顶层非 private 类型
-struct StoreSearchSeed: Identifiable {
+struct StoreSearchSeed: Identifiable, Hashable {
     let id = UUID()
     let keyword: String
+
+    static func == (lhs: StoreSearchSeed, rhs: StoreSearchSeed) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 /// 万象书屋 (M2.8): 书城点书后, 后台搜命中的目标 — 直跳详情页用.
