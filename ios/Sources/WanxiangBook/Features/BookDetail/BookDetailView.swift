@@ -198,7 +198,11 @@ struct BookDetailView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.triangle.2.circlepath")
                             .font(.caption2)
-                        Text("来源:\(currentBook.originName)")
+                        // 万象书屋 (UX): stub 模式还在找源时, 来源行显示"查找中…",
+                        // 让用户知道按钮置灰只是临时, 不需要在主按钮文案里塞这条信息.
+                        Text(isResolvingSource && currentSource == nil
+                            ? "来源:查找中…"
+                            : "来源:\(currentBook.originName)")
                             .font(.caption2)
                             .lineLimit(1)
                         if currentBook.distinctOriginCount > 1 {
@@ -208,7 +212,7 @@ struct BookDetailView: View {
                                 .background(Capsule().fill(WanxiangColors.primary.opacity(0.18)))
                                 .foregroundStyle(WanxiangColors.primary)
                         }
-                        if vm.isLoadingDetail {
+                        if vm.isLoadingDetail || (isResolvingSource && currentSource == nil) {
                             ProgressView().scaleEffect(0.6)
                         }
                     }
@@ -245,14 +249,8 @@ struct BookDetailView: View {
                 // 万象书屋 (M2.5.5.1): 用 `currentBook` / `currentSource` (换源后已切换)
                 ReaderView(book: shelfBookFromSearch(), source: currentSource)
             } label: {
-                HStack(spacing: 8) {
-                    if isResolvingSource && currentSource == nil {
-                        ProgressView()
-                            .tint(.white)
-                            .scaleEffect(0.85)
-                    } else {
-                        Image(systemName: "book.fill")
-                    }
+                HStack {
+                    Image(systemName: "book.fill")
                     Text(readActionTitle)
                         .font(.headline)
                 }
@@ -388,11 +386,9 @@ struct BookDetailView: View {
     }
 
     private var readActionTitle: String {
-        if isResolvingSource && currentSource == nil {
-            return "正在查找最佳书源…"
-        }
-        if currentSource == nil { return "尚未找到可用书源" }
         // 万象书屋: 已加架且有进度 → "继续阅读 X/N"; 否则 → "开始阅读"
+        // 找源进行中 (source==nil) 仍然显示"开始阅读" — 按钮文案不变, 通过 disabled + 半透明
+        // 表达不可点; 找源状态用头部 source 行的小 spinner 兜底, 不在主行动按钮里塞过长文案.
         if vm.isInShelf, vm.shelfDurChapterIndex >= 0, vm.chapters.count > 0 {
             let cur = min(vm.shelfDurChapterIndex + 1, vm.chapters.count)
             return "继续阅读 \(cur)/\(vm.chapters.count)"
