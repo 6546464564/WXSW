@@ -48,4 +48,6 @@ secrets.local.xcconfig
 # 用 setup.sh 从 ~/Desktop/sdk/ 拷贝
 Frameworks/*.xcframework
 Frameworks/*.bundle
-ios/.derived-local-run/
+# 万象书屋: 本地脚本 / Cursor agent 触发的 build 用专用 DerivedData 目录, 不入版本
+.derived-local-run/
+wanxiang-http-cache/
