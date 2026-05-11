@@ -80,6 +80,8 @@ struct OtherSettingsView: View {
     @AppStorage("wanxiang.cache.preDownloadChapters") private var preDownloadChapters: Int = 3
     @AppStorage("wanxiang.cache.expireDays") private var expireDays: Int = 90
     @AppStorage("wanxiang.read.defaultEnableReplace") private var defaultEnableReplace: Bool = true
+    /// 对齐 Android `pref_config_read` · 自动换源 (无源 / 正文失败时尝试其它书源)
+    @AppStorage("wanxiang.read.auto_change_source") private var autoChangeSource: Bool = true
     @AppStorage("wanxiang.ui.showMangaEntry") private var showMangaEntry: Bool = false
     @AppStorage("wanxiang.audio.autoFocus") private var audioAutoFocus: Bool = true
     @AppStorage("wanxiang.audio.bluetoothOnExit") private var bluetoothOnExit: Bool = false
@@ -111,7 +113,8 @@ struct OtherSettingsView: View {
                     compactDBConfirm = true
                 }
             }
-            Section("阅读") {
+            Section(header: Text("阅读"), footer: Text("自动换源对齐阅读 Legado:找不到书源或本章正文失败时静默尝试其它源;关闭后仅可手动换源。").font(.caption)) {
+                Toggle("自动换源", isOn: $autoChangeSource)
                 Toggle("默认启用替换规则", isOn: $defaultEnableReplace)
                 Toggle("使用系统选词菜单", isOn: $useSystemTextMenu)
                 Toggle("显示漫画入口", isOn: $showMangaEntry)

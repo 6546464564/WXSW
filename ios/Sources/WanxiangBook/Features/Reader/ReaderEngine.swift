@@ -51,6 +51,13 @@ public final class ReaderEngine: ObservableObject {
         loadingChapter = loadingIndices.contains(currentChapterIndex)
     }
 
+    private enum ChapterIndexResolution {
+        /// 普通进入阅读器: 用书架 `durChapterIndex` 并夹在目录范围内.
+        case shelfBookClamped
+        /// 换源: 对齐 Android `Book.migrateTo` + `BookHelp.getDurChapter`.
+        case migrateFromPreviousSource(oldIndex: Int, oldTitle: String?, oldListSize: Int)
+    }
+
     // MARK: - 公共 API
 
     /// 启动: 拉/读目录, 拉首章.
@@ -62,6 +69,10 @@ public final class ReaderEngine: ObservableObject {
     ///     抢 HTTP/JSEngine 池 (默认各 8/4 连接), 拖慢「第一次打开第一章」体感.
     ///   - 用户翻章仍走 `goToChapter`: 当前章 await 完后立刻预热前后章 (对齐日常使用).
     public func bootstrap() async {
+        await bootstrap(chapterResolution: .shelfBookClamped)
+    }
+
+    private func bootstrap(chapterResolution: ChapterIndexResolution) async {
         loadingIndices.insert(currentChapterIndex)
         updateLoadingState()
 
@@ -90,6 +101,17 @@ public final class ReaderEngine: ObservableObject {
                     try? await ChapterRepository.shared.saveToc(bookUrl: bookUrl, chapters: toc)
                 }
             } else {
+                // 对齐 Android ReadBookViewModel: bookSource == null 且开启自动换源时静默尝试其它源.
+                if ReadingSettings.autoChangeSourceEnabled {
+                    autoFallbackInProgress = true
+                    defer { autoFallbackInProgress = false }
+                    let recovered = await recoverMissingBookSourceAutoSwitch()
+                    if recovered {
+                        loadingIndices.removeAll()
+                        updateLoadingState()
+                        return
+                    }
+                }
                 self.lastError = "找不到此书的源 \(book.origin),请在搜索/书城重新加入此书"
                 loadingIndices.remove(currentChapterIndex)
                 updateLoadingState()
@@ -106,6 +128,32 @@ public final class ReaderEngine: ObservableObject {
             loadingIndices.remove(currentChapterIndex)
             updateLoadingState()
             return
+        }
+
+        // 对齐 Android: 换源后映射章节索引并持久化进度 (migrateTo).
+        switch chapterResolution {
+        case .shelfBookClamped:
+            let idx = max(0, min(book.durChapterIndex, chapters.count - 1))
+            currentChapterIndex = idx
+        case let .migrateFromPreviousSource(oldIdx, oldTitle, oldListSize):
+            let mapped = BookChapterMigration.mappedDurChapterIndex(
+                oldDurChapterIndex: oldIdx,
+                oldDurChapterTitle: oldTitle,
+                newChapters: chapters,
+                oldChapterListSize: oldListSize
+            )
+            currentChapterIndex = mapped
+            var b = book
+            b.durChapterIndex = mapped
+            b.durChapterTitle = chapters.indices.contains(mapped) ? chapters[mapped].title : oldTitle
+            b.totalChapterNum = chapters.count
+            self.book = b
+            try? await BookshelfRepository.shared.updateProgress(
+                bookUrl: b.bookUrl,
+                chapterIndex: mapped,
+                chapterTitle: b.durChapterTitle,
+                chapterPos: b.durChapterPos
+            )
         }
 
         // Step 2: 回写 totalChapterNum / latestChapterTitle (后台, 不阻塞).
@@ -168,7 +216,12 @@ public final class ReaderEngine: ObservableObject {
     }
 
     /// 万象书屋: 换源 (用户在 ChangeSourceView 选了别的源同名书)
+    /// 对齐 Android `ReadBookViewModel.changeTo` + `Book.migrateTo`: 映射章节进度后再加载.
     public func changeSource(to newBook: SearchBook, source newSource: BookSource) async {
+        let oldIdx = chapters.isEmpty ? book.durChapterIndex : currentChapterIndex
+        let oldTitle: String? = (oldIdx >= 0 && oldIdx < chapters.count) ? chapters[oldIdx].title : book.durChapterTitle
+        let oldListSize = max(chapters.count, book.totalChapterNum)
+
         let oldBookUrl = book.bookUrl
         var updated = book
         updated.bookUrl = newBook.bookUrl
@@ -185,12 +238,13 @@ public final class ReaderEngine: ObservableObject {
         loadingIndices.removeAll()
         self.book = updated
         self.chapters = []
-        self.currentChapterIndex = 0
-        // 万象书屋 (P0 fix bug 1): source 现在是 var, 真正写新 source
         self.source = newSource
         self.lastError = nil
-        // 用新 source 重新 bootstrap
-        await bootstrap()
+        await bootstrap(chapterResolution: .migrateFromPreviousSource(
+            oldIndex: oldIdx,
+            oldTitle: oldTitle,
+            oldListSize: oldListSize
+        ))
     }
 
     // MARK: - 内部加载
@@ -253,7 +307,7 @@ public final class ReaderEngine: ObservableObject {
                 // 万象书屋 (M2.8 自动换源 fallback): 当前章 fail 时, 不立刻显示 errorState,
                 // 先后台静默尝试其他源. 找到能用的源就 changeSource(); 都不行才显示错误.
                 // 用户体感是"轻微卡顿后内容出来" 而不是 "目录为空" 错误页.
-                if index == currentChapterIndex {
+                if index == currentChapterIndex, ReadingSettings.autoChangeSourceEnabled {
                     Task { await tryAutoChangeSource(failedAt: index) }
                 }
                 self.lastError = error.localizedDescription
@@ -261,65 +315,74 @@ public final class ReaderEngine: ObservableObject {
         }
     }
 
-    // MARK: - 自动换源 fallback (M2.8)
+    // MARK: - 自动换源 (对齐 Android ReadBookViewModel.autoChangeSource)
 
-    /// 当前章拉失败时, 自动找其他能用的源静默切换. 只在 user-facing 主章 fail 时调,
-    /// prefetch fail 不调避免后台资源浪费.
-    ///
-    /// 流程:
-    /// 1. 用 (book.name + book.author) 在所有 BookSourceRegistry 源里搜
-    /// 2. 收到结果按 SourcePerformanceTracker 分数 + (name == name && author == author) 过滤
-    /// 3. 取前 3 个候选源 (排除当前源), 逐个 fetchInfo + fetchToc + fetchContent 验证
-    /// 4. 第一个成功的就调 changeSource() 切换, 用户回到正在读的章节但内容来自新源
-    /// 5. 所有失败 → 留在当前 errorState 让用户手动换源
+    /// 正文失败或 registry 无源时: 搜索同名书 → 验目录与正文 → `changeSource`.
+    private func pickVerifiedAlternateSource(
+        excludingOrigin: String?,
+        verifyChapterIndex: Int,
+        bookName: String,
+        bookAuthor: String,
+        candidateCap: Int
+    ) async -> (SearchBook, BookSource)? {
+        let raw = BookSourceRegistry.shared.enabledSources.filter { src in
+            guard let ex = excludingOrigin else { return true }
+            return src.bookSourceUrl != ex
+        }
+        guard !raw.isEmpty else { return nil }
+        let sorted = SourcePerformanceTracker.shared.sortByScore(raw)
+        let candidates = Array(sorted.prefix(candidateCap))
+
+        let stream = await BookSourceEngine.shared.searchAll(
+            in: candidates, key: bookName, maxConcurrency: 5, perSourceTimeoutSec: 8
+        )
+        for await (src, result) in stream {
+            if Task.isCancelled { break }
+            guard case .success(let books) = result else { continue }
+            guard let match = books.first(where: { $0.name == bookName && $0.author == bookAuthor }) else { continue }
+
+            let info = BookInfo(
+                bookUrl: match.bookUrl, name: match.name, author: match.author,
+                coverUrl: match.coverUrl, tocUrl: match.bookUrl
+            )
+            guard let toc = try? await BookSourceEngine.shared.fetchToc(of: info, in: src), !toc.isEmpty else { continue }
+            let idx = min(max(0, verifyChapterIndex), toc.count - 1)
+            guard let chap = toc[safe: idx] else { continue }
+            guard let _ = try? await BookSourceEngine.shared.fetchContent(of: chap, in: src) else { continue }
+            return (match, src)
+        }
+        return nil
+    }
+
+    /// `ReadBook.bookSource == null` 且开启自动换源 (对齐 Android 初始化路径).
+    private func recoverMissingBookSourceAutoSwitch() async -> Bool {
+        guard let picked = await pickVerifiedAlternateSource(
+            excludingOrigin: book.origin,
+            verifyChapterIndex: book.durChapterIndex,
+            bookName: book.name,
+            bookAuthor: book.author,
+            candidateCap: 24
+        ) else { return false }
+        await changeSource(to: picked.0, source: picked.1)
+        return true
+    }
+
+    /// 当前章 pull 失败时的静默换源.
     private func tryAutoChangeSource(failedAt failIndex: Int) async {
+        guard ReadingSettings.autoChangeSourceEnabled else { return }
         guard !autoFallbackInProgress else { return }
         autoFallbackInProgress = true
         defer { autoFallbackInProgress = false }
 
-        let bookName = book.name
-        let bookAuthor = book.author
-        let currentOrigin = book.origin
+        guard let picked = await pickVerifiedAlternateSource(
+            excludingOrigin: book.origin,
+            verifyChapterIndex: failIndex,
+            bookName: book.name,
+            bookAuthor: book.author,
+            candidateCap: 16
+        ) else { return }
 
-        // 1. 拿所有源 (排除当前)
-        let allSources = BookSourceRegistry.shared.sources
-        let rawCandidates = allSources.filter { $0.bookSourceUrl != currentOrigin }
-        let sortedCandidates = SourcePerformanceTracker.shared.sortByScore(rawCandidates)
-        // 限制候选数, 别拖太久
-        let candidates = Array(sortedCandidates.prefix(8))
-
-        // 2. 并发 search 找 (name == name && author == author) 的命中
-        let stream = await BookSourceEngine.shared.searchAll(in: candidates, key: bookName, maxConcurrency: 5, perSourceTimeoutSec: 8)
-        var pickedBook: SearchBook? = nil
-        var pickedSource: BookSource? = nil
-        for await (src, result) in stream {
-            if Task.isCancelled { break }
-            guard case .success(let books) = result else { continue }
-            // 找精确匹配
-            if let m = books.first(where: { $0.name == bookName && $0.author == bookAuthor }) {
-                pickedBook = m
-                pickedSource = src
-                break
-            }
-        }
-
-        guard let pickedBook, let pickedSource else { return }
-
-        // 3. 验证: fetchToc 看下能拉到目录吗
-        let info = BookInfo(
-            bookUrl: pickedBook.bookUrl, name: pickedBook.name, author: pickedBook.author,
-            coverUrl: pickedBook.coverUrl, tocUrl: pickedBook.bookUrl
-        )
-        guard let toc = try? await BookSourceEngine.shared.fetchToc(of: info, in: pickedSource),
-              !toc.isEmpty else { return }
-        // 把当前 chapter index 映射到新源 toc, 越界则取最后一章
-        let newIndex = min(failIndex, toc.count - 1)
-        guard let newChap = toc[safe: newIndex] else { return }
-        // 4. 拉本章正文验证能用
-        guard let _ = try? await BookSourceEngine.shared.fetchContent(of: newChap, in: pickedSource) else { return }
-
-        // 5. 验证通过, 真正 changeSource
-        await changeSource(to: pickedBook, source: pickedSource)
+        await changeSource(to: picked.0, source: picked.1)
     }
 
     /// 万象书屋 (M2.8): preDownload — 跟 Android `ReadBook.preDownload` (默认
