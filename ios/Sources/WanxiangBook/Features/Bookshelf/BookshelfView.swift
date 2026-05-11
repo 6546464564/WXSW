@@ -47,7 +47,7 @@ struct BookshelfView: View {
     @State private var renameInput = ""
 
     // 万象书屋: 持久化 — 跟 Android AppConfig.bookshelfLayout / bookshelfSort / 各 show* 对齐
-    @AppStorage("wanxiang.shelf.style") private var styleRaw: Int = 0       // 0=列表 1=网格
+    @AppStorage("wanxiang.shelf.style") private var styleRaw: Int = 1       // 0=列表 1=网格 (默认网格)
     @AppStorage("wanxiang.shelf.cols") private var cols: Int = 3
     @AppStorage("wanxiang.shelf.sort") private var sortRaw: Int = ShelfSort.latestRead.rawValue
     @AppStorage("wanxiang.shelf.show_unread") private var showUnread: Bool = true

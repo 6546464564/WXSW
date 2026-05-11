@@ -24,7 +24,7 @@ struct BookshelfLayoutConfigView: View {
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage("wanxiang.shelf.style")
-    private var styleRaw: Int = 0   // 0 列表, 1 网格 (跟 Android bookshelfLayout 含义对齐)
+    private var styleRaw: Int = 1   // 0 列表, 1 网格 — 默认网格 3 列 (跟 Android bookshelfLayout 含义对齐)
     @AppStorage("wanxiang.shelf.cols")
     private var cols: Int = 3
     @AppStorage("wanxiang.shelf.sort")
