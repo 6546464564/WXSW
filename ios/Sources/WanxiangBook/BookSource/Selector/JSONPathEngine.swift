@@ -75,6 +75,19 @@ public struct JSONPathEngine: SelectorEngine {
             return walk(out, path: rest)
         }
 
+        // 万象书屋 (M2.8 fix bug): `.*` 通配符 — 展开所有元素 (array) / 所有 values (dict).
+        // 爱奇艺漫画等源 chapterList = `$.data.episodes.*`. 之前不支持 `.*` ⇒ readToken
+        // 把 `*` 当字段名查 dict["*"] ⇒ 没命中 ⇒ chapterList 0 ⇒ toc 0.
+        if p.hasPrefix(".*") {
+            p.removeFirst(2)
+            var out: [Any] = []
+            for v in inputs {
+                if let arr = v as? [Any] { out.append(contentsOf: arr) }
+                else if let dict = v as? [String: Any] { out.append(contentsOf: Array(dict.values)) }
+            }
+            return walk(out, path: p)
+        }
+
         // .field
         if p.hasPrefix(".") {
             p.removeFirst()

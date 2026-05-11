@@ -599,7 +599,26 @@ public actor LegadoRuleEngine {
     }
 
     private func replaceMustache(_ s: String, on input: Any, ctx: LegadoContext) async -> String {
-        guard s.contains("{{") else { return s }
+        // 万象书屋 (M2.8 fix bug): legado 同时支持两种占位符语法:
+        //   - `{{$.field}}` 双括号 (主流)
+        //   - `{$.field}` 单括号 (旧/简化, 爱奇艺漫画 chapterUrl 用)
+        // 之前只识别双括号 ⇒ 单括号源 chapter URL 拼不出来.
+        // 先把单括号 `{$.x}` 展开为标准 JSONPath 替换, 再走双括号通用逻辑.
+        var working = s
+        if working.contains("{$") {
+            if let singleRegex = try? NSRegularExpression(pattern: #"\{(\$\.[^}]+)\}"#) {
+                while true {
+                    let ns = working as NSString
+                    let ms = singleRegex.matches(in: working, range: NSRange(0..<ns.length))
+                    guard let m = ms.first else { break }
+                    let path = ns.substring(with: m.range(at: 1))
+                    let v = (try? jsonp.selectString(rule: path, source: stringify(input), baseUrl: ctx.baseUrl)) ?? ""
+                    working = (working as NSString).replacingCharacters(in: m.range, with: v)
+                }
+            }
+        }
+        guard working.contains("{{") else { return working }
+        let s = working
         let regex = try? NSRegularExpression(pattern: #"\{\{([^{}]+)\}\}"#)
         guard let regex else { return s }
         var result = s
