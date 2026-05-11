@@ -70,15 +70,29 @@ actor BookstoreMirror {
         case transient(String)    // 重试 (网络异常 / timeout / 连接断)
     }
 
+    /// 专用 session: 禁用协议层 HTTP cache.
+    /// `URLSession.shared` 默认 useProtocolCachePolicy 会把上次 200 + ETag 写 disk,
+    /// 即使我们 cachedEtag = nil, 系统层也会自动加 If-None-Match → 永远 304 → 内存 cache
+    /// 是空 → 死循环走 fallback. 这里专门用 reload 策略, 每次都发完整请求拿 body.
+    private static let session: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        cfg.urlCache = nil
+        cfg.timeoutIntervalForRequest = 6
+        return URLSession(configuration: cfg)
+    }()
+
     private func fetchOnce() async -> FetchOutcome {
         var mutable = WanxiangAPI.shared.request(path: path, method: "GET")
+        // 注: 我们手动管理 etag (cachedEtag), 不依赖 URLSession 协议缓存. 上面 session 已禁用 urlCache.
         if let etag = cachedEtag {
             mutable.setValue(etag, forHTTPHeaderField: "If-None-Match")
         }
         mutable.setValue("application/json", forHTTPHeaderField: "Accept")
+        mutable.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
         do {
-            let (data, resp) = try await URLSession.shared.data(for: mutable)
+            let (data, resp) = try await Self.session.data(for: mutable)
             guard let http = resp as? HTTPURLResponse else {
                 return .transient("no HTTPURLResponse")
             }
@@ -88,7 +102,13 @@ actor BookstoreMirror {
                 if let mem = cachedPayload {
                     return .ok(mem)
                 }
-                return .definitive("304 but no in-mem cache (cold start)")
+                // 万象书屋 (perf P0): 冷启动场景下 cachedEtag 是上次进程持久化的 (or 错误持久化),
+                // 但 cachedPayload 因为只在内存所以是 nil. 这时返 definitive 让上层 fallback 直抓
+                // m.qidian.com — 那玩意儿对 iOS UA 经常 6-15s 不响应, 用户感知"书城一直在转圈".
+                // 修法: 清掉 etag, 标 transient → 上层重试时不带 If-None-Match 走 200 body 路径,
+                // 直接吃到 backend 内存里的 mirror, ~10ms 拿完.
+                cachedEtag = nil
+                return .transient("304 cold start (no in-mem cache), refetch without If-None-Match")
             case 200:
                 guard !data.isEmpty,
                       let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
