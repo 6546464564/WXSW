@@ -15,6 +15,36 @@
 import Foundation
 import SwiftSoup
 
+// MARK: - HTML/XML 解析容错（对齐 Android AnalyzeByXPath.strToJXDocument / AnalyzeByJSoup.parse）
+
+/// 表格单元格 / 行片段外包一层，避免 SwiftSoup 把裸 `</td>` 文档解析残导致 XPath/CSS 选不中。
+enum LegadoHTMLParse {
+    static func wrapTableFragments(_ raw: String) -> String {
+        var html1 = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = html1.lowercased()
+        if lower.hasSuffix("</td>") {
+            html1 = "<tr>\(html1)</tr>"
+        }
+        let lower2 = html1.lowercased()
+        if lower2.hasSuffix("</tr>") || lower2.hasSuffix("</tbody>") {
+            html1 = "<table>\(html1)</table>"
+        }
+        return html1
+    }
+
+    /// `<?xml` 走 XML Parser（与 jsoup Parser.xmlParser 一致），失败则回落 HTML。
+    static func parseDocument(source: String, baseUrl: String) throws -> Document {
+        let wrapped = wrapTableFragments(source)
+        let t = wrapped.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.lowercased().hasPrefix("<?xml") {
+            if let doc = try? SwiftSoup.parse(wrapped, baseUrl, Parser.xmlParser()) {
+                return doc
+            }
+        }
+        return try SwiftSoup.parse(wrapped, baseUrl)
+    }
+}
+
 // MARK: - Legado index parse (mirror AnalyzeByJSoup.findIndexSet)
 
 private enum LegadoBracketPiece {
@@ -39,7 +69,7 @@ public struct CSSSelectorEngine: SelectorEngine {
     public func selectList(rule: String, source: String, baseUrl: String?) throws -> [String] {
         let doc: Document
         do {
-            doc = try SwiftSoup.parse(source, baseUrl ?? "")
+            doc = try LegadoHTMLParse.parseDocument(source: source, baseUrl: baseUrl ?? "")
         } catch {
             throw SelectorError.parseFailed("SwiftSoup parse: \(error)")
         }
@@ -75,7 +105,7 @@ public struct CSSSelectorEngine: SelectorEngine {
     public func selectString(rule: String, source: String, baseUrl: String?) throws -> String? {
         let doc: Document
         do {
-            doc = try SwiftSoup.parse(source, baseUrl ?? "")
+            doc = try LegadoHTMLParse.parseDocument(source: source, baseUrl: baseUrl ?? "")
         } catch {
             throw SelectorError.parseFailed("SwiftSoup parse: \(error)")
         }

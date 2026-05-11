@@ -707,7 +707,8 @@ public actor JSEngine {
         // java.ajax(url) — 用 condition variable 同步 fetch (跟 Android Rhino 同步 ajax 行为对齐)
         // 万象书屋: 这是 iOS JavaScriptCore 没法绕的坑, 只能阻塞当前 actor 等 URLSession 完成
         let ajax: @convention(block) (String) -> String = { url in
-            return SyncHTTP.get(url: url, headers: [:])?.body ?? ""
+            // Android AnalyzeRule.ajax: 失败时 `getOrElse { it.stackTraceStr }`，不静默返空
+            SyncHTTP.get(url: url, headers: [:]).body
         }
         java.setObject(ajax, forKeyedSubscript: "ajax" as NSString)
 
@@ -718,7 +719,6 @@ public actor JSEngine {
         let getHttp: @convention(block) (String, Any?) -> JSValue = { [weakCtx] url, headersAny in
             let headers = (headersAny as? [String: Any])?.compactMapValues { String(describing: $0) } ?? [:]
             let r = SyncHTTP.get(url: url, headers: headers)
-                ?? SyncHTTPResponse(body: "", statusCode: 0, headers: [:])
             return Self.makeResponseValue(r, in: weakCtx)
         }
         java.setObject(getHttp, forKeyedSubscript: "get" as NSString)
@@ -730,7 +730,6 @@ public actor JSEngine {
             let body = (bodyAny as? String) ?? ""
             let headers = (headersAny as? [String: Any])?.compactMapValues { String(describing: $0) } ?? [:]
             let r = SyncHTTP.post(url: url, body: body, headers: headers)
-                ?? SyncHTTPResponse(body: "", statusCode: 0, headers: [:])
             return Self.makeResponseValue(r, in: weakCtx)
         }
         java.setObject(postHttp, forKeyedSubscript: "post" as NSString)
@@ -941,7 +940,6 @@ public actor JSEngine {
         let getStrResp: @convention(block) (String, Any?) -> JSValue = { [weakCtx] url, headersAny in
             let headers = (headersAny as? [String: Any])?.compactMapValues { String(describing: $0) } ?? [:]
             let r = SyncHTTP.get(url: url, headers: headers)
-                ?? SyncHTTPResponse(body: "", statusCode: 0, headers: [:])
             return Self.makeResponseValue(r, in: weakCtx)
         }
         java.setObject(getStrResp, forKeyedSubscript: "getStrResponse" as NSString)
@@ -1486,7 +1484,7 @@ public actor JSEngine {
             // 串行实现 (JSCore actor 内部调, async/await 跨 boundary 用 sync wait)
             // 比 Android 真并发慢, 但功能正确; 个别源命中量级很小
             return urls.map { url in
-                SyncHTTP.get(url: url, headers: [:])?.body ?? ""
+                SyncHTTP.get(url: url, headers: [:]).body
             }
         }
         java.setObject(ajaxAll, forKeyedSubscript: "ajaxAll" as NSString)

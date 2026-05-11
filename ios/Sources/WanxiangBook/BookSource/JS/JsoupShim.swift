@@ -49,7 +49,7 @@ public enum JsoupShim {
         // jsoup.parse(html, baseUrl?) → {nodeId: "n1", kind: "doc"}
         let parse: @convention(block) (String, String?) -> [String: String] = { html, baseUrl in
             do {
-                let doc = try SwiftSoup.parse(html, baseUrl ?? "")
+                let doc = try LegadoHTMLParse.parseDocument(source: html, baseUrl: baseUrl ?? "")
                 let id = registerNode(doc)
                 return ["nodeId": id, "kind": "doc"]
             } catch {

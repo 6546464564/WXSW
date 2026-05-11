@@ -673,11 +673,13 @@ public actor LegadoRuleEngine {
 
     // MARK: - util
 
-    /// 判断字符串是不是看起来 JSON (开头是 { 或 [, 去掉 BOM/空白后)
+    /// 对齐 Android `String.isJson()`：首尾同时为 `{}` / `[]` 才算 JSON 样貌，
+    /// 避免半截 `{` 误触发 CSS→JSONPath fallback。
     nonisolated private func looksLikeJSON(_ s: String) -> Bool {
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = t.first else { return false }
-        return first == "{" || first == "["
+        let str = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if str.hasPrefix("{"), str.hasSuffix("}") { return true }
+        if str.hasPrefix("["), str.hasSuffix("]") { return true }
+        return false
     }
 
     /// AllInOne regex: findAll, each match -> JSON string with `$0..$n`.

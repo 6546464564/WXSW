@@ -46,19 +46,26 @@ public enum SyncHTTP {
         return URLSession(configuration: cfg, delegate: NoRedirectDelegate(), delegateQueue: nil)
     }()
 
-    /// GET 请求
-    public static func get(url: String, headers: [String: String] = [:]) -> SyncHTTPResponse? {
-        return execute(url: url, method: "GET", body: nil, headers: headers)
+    /// GET 请求 — 始终返回 `SyncHTTPResponse`（对齐 Android `JsExtensions.ajax`：
+    /// 网络失败时不返空串而返可读错误文本，便于书源 JS 分支处理）
+    public static func get(url: String, headers: [String: String] = [:]) -> SyncHTTPResponse {
+        execute(url: url, method: "GET", body: nil, headers: headers)
     }
 
-    /// POST 请求
-    public static func post(url: String, body: String, headers: [String: String] = [:]) -> SyncHTTPResponse? {
-        return execute(url: url, method: "POST", body: body.data(using: .utf8), headers: headers)
+    /// POST 请求 — 同上，始终非 nil
+    public static func post(url: String, body: String, headers: [String: String] = [:]) -> SyncHTTPResponse {
+        execute(url: url, method: "POST", body: body.data(using: .utf8), headers: headers)
     }
 
     private static func execute(url: String, method: String, body: Data?,
-                                 headers: [String: String]) -> SyncHTTPResponse? {
-        guard let u = URL(string: url) else { return nil }
+                                 headers: [String: String]) -> SyncHTTPResponse {
+        guard let u = URL(string: url) else {
+            return SyncHTTPResponse(
+                body: "Malformed URL: \(url)",
+                statusCode: 0,
+                headers: [:]
+            )
+        }
         var req = URLRequest(url: u)
         req.httpMethod = method
         if let body = body { req.httpBody = body }
@@ -84,9 +91,17 @@ public enum SyncHTTP {
             print("[SyncHTTP] \(method) \(url.prefix(120)) | cookies=\(cookieStr)")
         }
         let sema = DispatchSemaphore(value: 0)
-        var result: SyncHTTPResponse? = nil
-        let task = session.dataTask(with: req) { data, resp, _ in
+        var result = SyncHTTPResponse(body: "", statusCode: 0, headers: [:])
+        let task = session.dataTask(with: req) { data, resp, error in
             defer { sema.signal() }
+            if let error = error as NSError? {
+                let msg = error.localizedDescription
+                let detail = error.domain == NSURLErrorDomain
+                    ? "\(error.domain)(\(error.code)): \(msg)"
+                    : "\(error.domain): \(msg)"
+                result = SyncHTTPResponse(body: detail, statusCode: 0, headers: [:])
+                return
+            }
             let http = resp as? HTTPURLResponse
             let status = http?.statusCode ?? 0
             var headerDict: [String: String] = [:]
@@ -107,10 +122,14 @@ public enum SyncHTTP {
             result = SyncHTTPResponse(body: bodyStr, statusCode: status, headers: headerDict)
         }
         task.resume()
-        let res = sema.wait(timeout: .now() + 12)
-        if res == .timedOut {
+        let wait = sema.wait(timeout: .now() + 12)
+        if wait == .timedOut {
             task.cancel()
-            return nil
+            return SyncHTTPResponse(
+                body: "NSURLErrorDomain(-1001): request timed out (SyncHTTP 12s)",
+                statusCode: 0,
+                headers: [:]
+            )
         }
         return result
     }
