@@ -427,7 +427,10 @@ public actor JSEngine {
                 UserDefaults.standard.removeObject(forKey: "wx.sourceVariable." + sourceUrl)
             } else {
                 // legado 偶尔传 object, 序列化
+                // 万象书屋 (M2.8 fix bug): 必须 isValidJSONObject 守卫. 不然 fragment 类型
+                // (Number/String 顶层) 直接 NSException crash 整个 App.
                 if let v = val,
+                   JSONSerialization.isValidJSONObject(v),
                    let data = try? JSONSerialization.data(withJSONObject: v),
                    let s = String(data: data, encoding: .utf8) {
                     UserDefaults.standard.set(s, forKey: "wx.sourceVariable." + sourceUrl)
@@ -436,7 +439,9 @@ public actor JSEngine {
         }
         let getLoginInfo: @convention(block) () -> String = {
             let snap = SourceVariableSnapshot(sourceUrl: sourceUrl)
-            if let data = try? JSONSerialization.data(withJSONObject: snap.loginInfo),
+            // snap.loginInfo 是 [String: String], 总是合法的 JSON 顶层. 这里加守卫是防御.
+            if JSONSerialization.isValidJSONObject(snap.loginInfo),
+               let data = try? JSONSerialization.data(withJSONObject: snap.loginInfo),
                let s = String(data: data, encoding: .utf8) {
                 return s
             }

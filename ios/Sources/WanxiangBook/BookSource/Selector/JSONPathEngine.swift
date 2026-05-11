@@ -187,10 +187,17 @@ public struct JSONPathEngine: SelectorEngine {
             // bool 装成 NSNumber(false) 时 boolValue 仍 false
             return "\(n)"
         }
-        if let data = try? JSONSerialization.data(withJSONObject: v),
+        // 万象书屋 (M2.8 fix bug): JSONSerialization.data(withJSONObject:) 对 String/Number/Bool
+        // 等 fragment 类型直接 throw NSException (`Invalid top-level type in JSON write`),
+        // 不是 Swift try/catch 能拦的 — **直接 crash 整个 App**.
+        // 实测 1109 源单某些源 search 时拿到这种 fragment 触发. 必须先用
+        // isValidJSONObject 守卫 (它只放行 dict / array 顶层).
+        if JSONSerialization.isValidJSONObject(v),
+           let data = try? JSONSerialization.data(withJSONObject: v),
            let s = String(data: data, encoding: .utf8) {
             return s
         }
-        return ""
+        // fragment / 不可序列化对象 → fallback Swift 描述
+        return String(describing: v)
     }
 }
