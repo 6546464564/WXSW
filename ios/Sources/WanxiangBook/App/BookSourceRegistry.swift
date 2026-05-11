@@ -176,6 +176,15 @@ public final class BookSourceRegistry: ObservableObject {
         sources.filter { $0.enabled }
     }
 
+    /// 等到远端/bootstrap 写入启用源或超时. 搜索首帧用: 比固定 100ms 轮询更快接上 `isLoaded`.
+    public func waitUntilEnabledSourcesNonEmpty(timeout: TimeInterval) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isLoaded, !enabledSources.isEmpty { return }
+            try? await Task.sleep(nanoseconds: 25_000_000)
+        }
+    }
+
     // MARK: - 解析
 
     /// 冷启拉源常见 1000～3000 条: 在 MainActor 上轮询 `JSONDecoder` 会卡住首屏交互.

@@ -676,19 +676,10 @@ final class SearchViewModel: ObservableObject {
     /// bootstrap 拉源通常 < 1s, 用户感知不到这个等待.
     private func waitForSources(timeoutSec: Double) async -> [BookSource] {
         let registry = BookSourceRegistry.shared
-        let allSources = registry.enabledSources
-        if registry.isLoaded && !allSources.isEmpty {
-            return allSources.filter { !isBlocked($0.bookSourceUrl) }
+        if registry.isLoaded, !registry.enabledSources.isEmpty {
+            return registry.enabledSources.filter { !isBlocked($0.bookSourceUrl) }
         }
-        let deadline = Date().addingTimeInterval(timeoutSec)
-        while Date() < deadline {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            let s = registry.enabledSources
-            if registry.isLoaded && !s.isEmpty {
-                return s.filter { !isBlocked($0.bookSourceUrl) }
-            }
-            if Task.isCancelled { break }
-        }
+        await registry.waitUntilEnabledSourcesNonEmpty(timeout: timeoutSec)
         return registry.enabledSources.filter { !isBlocked($0.bookSourceUrl) }
     }
 

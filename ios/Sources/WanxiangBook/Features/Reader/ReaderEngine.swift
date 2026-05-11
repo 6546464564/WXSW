@@ -58,7 +58,9 @@ public final class ReaderEngine: ObservableObject {
     /// 万象书屋 (M2.6 perf · 对齐 Android `ReadBook.upChapterList` + `loadContent(true)`):
     ///   - bookshelf.add / saveToc / updateTotalChapters 全是写库, 不在用户感知路径上 →
     ///     `Task.detached` 后台 fire-and-forget, 不阻塞 loadChapter.
-    ///   - 当前章 + 上下章 **三章并发** load (Android 行为), curr 第一个完成即可呈现.
+    ///   - 冷启动先全力拉**当前章**, 首屏后再 `prefetchAround` — 避免 ±1 与用户章并发
+    ///     抢 HTTP/JSEngine 池 (默认各 8/4 连接), 拖慢「第一次打开第一章」体感.
+    ///   - 用户翻章仍走 `goToChapter`: 当前章 await 完后立刻预热前后章 (对齐日常使用).
     public func bootstrap() async {
         loadingIndices.insert(currentChapterIndex)
         updateLoadingState()
@@ -122,11 +124,10 @@ public final class ReaderEngine: ObservableObject {
         loadingIndices.remove(currentChapterIndex)
         updateLoadingState()
 
-        // Step 3: 当前章 + 前后章 **三章并发** (跟 Android `loadContent(true)` 一样).
-        // 当前章必须 await (用户要看), 前后章 launch 即走, 不阻塞.
+        // Step 3: 首章优先 — await 当前章后再批量 prefetch (目录页进阅读器 / 换源重启).
         let curr = currentChapterIndex
-        prefetchAround(curr)
         await loadChapter(index: curr)
+        prefetchAround(curr)
     }
 
     /// 切到某章 (用户点目录 / 进度条 / 上下章)
