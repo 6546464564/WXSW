@@ -1027,6 +1027,59 @@ public actor JSEngine {
 
         ctx.setObject(java, forKeyedSubscript: "java" as NSString)
 
+        // 万象书屋 (M2.8 fix bug): java.getElements / java.getElement / java.getString —
+        // legado AnalyzeRule 暴露给 JS 的"在当前 src 上跑 selector"快捷方法.
+        // 蓝海搜书等多源在 chapterList @js: 里调 `java.getElements("class.X")`,
+        // iOS 之前没注入这俩方法 ⇒ ReferenceError ⇒ "Unexpected end of script" 整段 JS 失败.
+        //
+        // 实现策略: JS 端用现成的 globalThis.Jsoup (JsoupShim) 跑, 加 legado keyword 翻译.
+        // 不重新桥接 native bridge (复用已有 wrap/__wx_jsoup_select 链路).
+        ctx.evaluateScript("""
+        (function() {
+            function legadoSelector(rule) {
+                if (typeof rule !== 'string') return rule;
+                if (rule.indexOf('class.') === 0) {
+                    var inner = rule.substring(6);
+                    if (inner.indexOf(' ') >= 0) {
+                        return inner.split(/\\s+/).filter(Boolean).map(function(c) { return '.' + c; }).join('');
+                    }
+                    return '.' + inner;
+                }
+                if (rule.indexOf('id.') === 0) return '#' + rule.substring(3);
+                if (rule.indexOf('tag.') === 0) return rule.substring(4);
+                return rule;
+            }
+            // java.getElements(rule) → ElementJS[]
+            // 跟 Android `java.getElements` 行为对齐: 在当前 src 上跑 selector, 返元素数组.
+            java.getElements = function(rule) {
+                var html = (typeof src !== 'undefined' && src) ? String(src) : '';
+                if (!html) return [];
+                var doc = (typeof Jsoup !== 'undefined') ? Jsoup.parse(html) : null;
+                if (!doc) return [];
+                var sel = legadoSelector(rule);
+                var els = doc.select(sel);
+                if (!els) return [];
+                var out = [];
+                var n = els.size();
+                for (var i = 0; i < n; i++) {
+                    var el = els.get(i);
+                    if (el) out.push(el);
+                }
+                return out;
+            };
+            // java.getElement(rule) → first ElementJS or null
+            java.getElement = function(rule) {
+                var arr = java.getElements(rule);
+                return arr.length > 0 ? arr[0] : null;
+            };
+            // java.getString(rule) → element.text() (跟 Android AnalyzeRule.getString 对齐)
+            java.getString = function(rule) {
+                var el = java.getElement(rule);
+                return el ? el.text() : '';
+            };
+        })();
+        """)
+
         // 万象书屋 (M2.8 perf): cache.* 进程级 KV store, init 时注一次, 评估时不重注.
         // 之前在 injectScopeVars 每次 evaluate 重注 7 个 closure 增加 ~5-10ms 开销.
         injectCacheGlobal()
@@ -1142,6 +1195,14 @@ public actor JSEngine {
         }
         if let n = x as? NSNumber { return n }
         if let s = x as? String { return s }
+        // 万象书屋 (M2.8 fix bug): JSValue.toDictionary 会把对象上的 method (function) 桥成
+        // ObjC block (NSMallocBlock / NSStackBlock / NSGlobalBlock). 这种东西塞进 dict 后,
+        // JSONSerialization 会抛 NSInvalidArgumentException 整个进程崩.
+        // 做法: 检测 block-like ObjC class 名, 替成 NSNull.
+        let typeName = String(describing: type(of: x))
+        if typeName.contains("Block") {
+            return NSNull()
+        }
         return x
     }
 

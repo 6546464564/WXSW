@@ -121,6 +121,11 @@ public enum LegadoRuleParser {
         var depthAngle = 0    // < > (用于 <js>)
         var inSingleQ = false
         var inDoubleQ = false
+        // 万象书屋 (M2.8 fix bug): `@js:` 段保护. 一旦进入 @js: 段, 后续直到字符串结尾
+        // 都视为 JS body, 内部 `&&` `||` 不切. legado @js: 没闭合标签, 单段独占整条 rule.
+        // 蓝海搜书 chapterList = `@js:\n function isBase64(t){return"..."==typeof t&&0!==...}`
+        // 这里 `&&` 在 JS body 里, 之前会被错误切到 ⇒ JS 截断 ⇒ "Unexpected end of script".
+        var inJsPrefix = false
 
         let chars = Array(s)
         var sliceStart = 0
@@ -149,12 +154,20 @@ public enum LegadoRuleParser {
                         i += 4; continue
                     }
                 }
+            case "@":
+                // 检测 `@js:` 段开始 — 之后到字符串结尾都不切.
+                let rest = chars[i...]
+                if rest.starts(with: "@js:") {
+                    inJsPrefix = true
+                    i += 4
+                    continue
+                }
             default: break
             }
 
-            // 仅顶层 (所有 depth 都 0) 才 try 切
+            // 仅顶层 (所有 depth 都 0) 且未进入 @js: 段才 try 切
             var matchedSep = false
-            if depthSquare == 0, depthRound == 0, depthAngle == 0 {
+            if depthSquare == 0, depthRound == 0, depthAngle == 0, !inJsPrefix {
                 for sep in separators {
                     let sepChars = Array(sep)
                     if i + sepChars.count <= chars.count,

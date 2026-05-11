@@ -171,6 +171,12 @@ public final class BookInfoParser: @unchecked Sendable {
            trimmed.contains("\n") || trimmed.contains(" ") {
             return fallbackBookUrl
         }
+        // 万象书屋 (M2.8 fix bug): 言情小说吧等源 tocUrl JS 返回 ajax response 整对象
+        // (`{"headers":...}`), HTTPFetcher 拿这字符串当 URL ⇒ "非法 URL: {...}". 过滤
+        // JSON 段(以 `{`/`[` 开头)
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
+            return fallbackBookUrl
+        }
         // 万象书屋: tocUrl 不是 http/https 也不行 (相对路径 absolutize 后应该已经带 scheme)
         if !trimmed.lowercased().hasPrefix("http://") && !trimmed.lowercased().hasPrefix("https://") {
             return fallbackBookUrl

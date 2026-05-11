@@ -411,6 +411,12 @@ public actor LegadoRuleEngine {
         scope.key = ctx.key
         scope.page = ctx.page
         scope.bookSource = ctx.bookSource
+        // 万象书屋 (M2.8 fix bug): legado @js: 块经常引用 book.name / book.author / book.kind
+        // (蓝海搜书 ruleBookInfo.tocUrl 换源 JS 等). 之前 ctx.book 没桥接 ⇒ JS 报
+        // "null is not an object (evaluating 'book.name')" 整段 fail.
+        if !ctx.book.isEmpty {
+            scope.book = ctx.book
+        }
         do {
             let v = try await js.evaluate(script: script, source: ctx.source,
                                            baseUrl: ctx.baseUrl, scope: scope)
@@ -419,6 +425,9 @@ public actor LegadoRuleEngine {
             if ProcessInfo.processInfo.environment["WX_DEBUG_RULE"] != nil {
                 let errStr = String(describing: error).replacingOccurrences(of: "\n", with: " ")
                 print("[runJS.fail] \(script.prefix(60)) | err=\(errStr)")
+                if ProcessInfo.processInfo.environment["WX_DEBUG_RULE_VERBOSE"] != nil {
+                    print("[runJS.fail.full] (\(script.count) chars):\n\(script)\n---END---")
+                }
             }
             return nil
         }
@@ -680,11 +689,24 @@ public actor LegadoRuleEngine {
         if let arr = v as? [Any] {
             return stringifyOptional(arr.first)
         }
-        // 万象书屋: 仅当顶层是 dict / array 才走 JSONSerialization (它不接受 String/Number 顶层)
+        // 万象书屋 (M2.8 fix bug): JSONSerialization 在 dict 顶层即使 isValidJSONObject==true,
+        // 内部 value 含 NSBlock / NSValue / 自定义 NSObject 时仍会抛 NSInvalidArgumentException
+        // 整进程崩. 做法: stringify 前递归 deep-check 所有元素都是 JSON-safe type, 否则走
+        // String(describing:) 兜底.
         if (v is [String: Any]) || (v is [Any]),
+           Self.isDeepJSONSafe(v),
            let data = try? JSONSerialization.data(withJSONObject: v),
            let s = String(data: data, encoding: .utf8) { return s }
         return String(describing: v)
+    }
+
+    /// 万象书屋: 递归检查 v 里所有元素都是 JSON-serializable type (String/NSNumber/Bool/NSNull
+    /// 或它们的 array/dict). 防 NSInvalidArgumentException.
+    private static func isDeepJSONSafe(_ v: Any) -> Bool {
+        if v is String || v is NSNumber || v is Bool || v is Int || v is Double || v is NSNull { return true }
+        if let arr = v as? [Any] { return arr.allSatisfy { isDeepJSONSafe($0) } }
+        if let dict = v as? [String: Any] { return dict.values.allSatisfy { isDeepJSONSafe($0) } }
+        return false
     }
 
     private func stringifyOptional(_ v: Any?) -> String {
