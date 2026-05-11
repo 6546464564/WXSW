@@ -33,6 +33,9 @@ struct BookStoreView: View {
     @StateObject private var vm = BookStoreViewModel()
     @State private var searchSeed: StoreSearchSeed?
     @State private var navTarget: NavTarget?
+    /// 万象书屋 (UX): 书城点书 → 立即 push 到 BookDetailView (stub: source=nil + 起点元信息),
+    /// 详情页内部后台找真源 + 拉详情/目录. 用户视角"点书秒进详情, 看到封面/简介, 阅读按钮短暂置灰".
+    @State private var detailTarget: BookDetailTarget?
 
     var body: some View {
         NavigationStack {
@@ -52,20 +55,31 @@ struct BookStoreView: View {
                         RankDetailView(mode: .finish, title: title)
                     }
                 }
+                .navigationDestination(item: $detailTarget) { t in
+                    BookDetailView(book: t.book, source: t.source)
+                }
                 .task(id: vm.currentChannel) { await vm.loadIfNeeded(force: false) }
         }
     }
 
-    /// 万象书屋 (UX 重做): 书城点书 → 直接 push 进搜索页, 与 Android `BookStoreFragment`
-    /// → `SearchActivity.start(context, bookName)` 行为一致.
-    ///
-    /// 之前用 HUD + "后台静默搜 8 源" 试图直接跳详情, 但单源 5s × 8 源即使并发也最差 ~10s
-    /// 才能 fallback, 用户期间无任何中间反馈, 体感"一直在转圈". 改成直接 push 搜索页后:
-    ///   - SearchView 内部 progressive 出结果, ~1s 看到第一批
-    ///   - 用户掌控感强 (看到全部候选源 + 各源最新章 + 字数等)
-    ///   - 整条导航链 push 风格连续 (书城 → 搜索 → 详情 → 阅读器)
+    /// 万象书屋 (UX): 书城点书直接 push 进**详情页**, 与 Android `BookStoreFragment` 行为一致的
+    /// "看完封面/简介再决定读不读" 心智. 实现上传 stub SearchBook (起点封面/作者/简介/分类),
+    /// `source = nil` → BookDetailView 内部 `resolveSourceIfNeeded()` 后台跑同名搜索, 找到第一个
+    /// `name == bookName && author == bookAuthor` 的就绑定为 currentSource, 拉真详情/目录, 解锁"开始阅读".
     private func tapBookCell(_ qidianBook: QidianBook) {
-        searchSeed = StoreSearchSeed(keyword: qidianBook.name)
+        let kindParts = [qidianBook.category, qidianBook.subCategory].filter { !$0.isEmpty }
+        let stub = SearchBook(
+            origin: "",
+            originName: "起点书城",
+            name: qidianBook.name,
+            author: qidianBook.author,
+            bookUrl: "",
+            coverUrl: qidianBook.coverUrl.isEmpty ? nil : qidianBook.coverUrl,
+            intro: qidianBook.intro.isEmpty ? nil : qidianBook.intro,
+            kind: kindParts.isEmpty ? nil : kindParts.joined(separator: " · "),
+            wordCount: qidianBook.wordCount.isEmpty ? nil : qidianBook.wordCount
+        )
+        detailTarget = BookDetailTarget(book: stub, source: nil)
     }
 
     // MARK: - Content
@@ -472,6 +486,16 @@ struct StoreSearchSeed: Identifiable, Hashable {
     let keyword: String
 
     static func == (lhs: StoreSearchSeed, rhs: StoreSearchSeed) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+/// 万象书屋 (UX): 书城点书 → push BookDetailView 用; stub 模式下 source=nil, BookDetailView 内自动找源.
+struct BookDetailTarget: Identifiable, Hashable {
+    let id = UUID()
+    let book: SearchBook
+    let source: BookSource?
+
+    static func == (lhs: BookDetailTarget, rhs: BookDetailTarget) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 

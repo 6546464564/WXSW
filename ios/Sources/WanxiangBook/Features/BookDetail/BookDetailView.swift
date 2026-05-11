@@ -37,6 +37,8 @@ struct BookDetailView: View {
     /// 初始 = 入参; 用户在换源 sheet 里点了候选后 = 候选.
     @State private var currentBook: SearchBook
     @State private var currentSource: BookSource?
+    /// 万象书屋 (UX): stub 模式下后台找真源中. 找到后清零, "开始阅读"按钮可点.
+    @State private var isResolvingSource = false
 
     init(book: SearchBook, source: BookSource?) {
         self.book = book
@@ -108,7 +110,13 @@ struct BookDetailView: View {
             //      避免详情页只能展示 SearchBook 的"摘要级"字段.
             //   3) 拉 toc 拿到章节总数 + 最新章, 给"开始阅读"和书架进度条用.
             await vm.refreshShelfStatus(bookUrl: currentBook.bookUrl)
-            await vm.loadDetails(book: currentBook, source: currentSource)
+            // 万象书屋 (UX): 书城 stub 模式 (source=nil + origin 空) — 先后台找真源,
+            // 找到后用 onSourceSwitched 走完整 loadDetails 路径.
+            if currentSource == nil && currentBook.origin.isEmpty {
+                await resolveSourceIfNeeded()
+            } else {
+                await vm.loadDetails(book: currentBook, source: currentSource)
+            }
             // 万象书屋 (debug arg `--AutoChangeSource`): 进详情页后立即弹换源 sheet,
             // 给外部 GUI 自动化做演示用.
             let args = ProcessInfo.processInfo.arguments
@@ -237,17 +245,26 @@ struct BookDetailView: View {
                 // 万象书屋 (M2.5.5.1): 用 `currentBook` / `currentSource` (换源后已切换)
                 ReaderView(book: shelfBookFromSearch(), source: currentSource)
             } label: {
-                HStack {
-                    Image(systemName: "book.fill")
+                HStack(spacing: 8) {
+                    if isResolvingSource && currentSource == nil {
+                        ProgressView()
+                            .tint(.white)
+                            .scaleEffect(0.85)
+                    } else {
+                        Image(systemName: "book.fill")
+                    }
                     Text(readActionTitle)
                         .font(.headline)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(WanxiangColors.accent)
+                .background(currentSource == nil
+                    ? WanxiangColors.accent.opacity(0.55)
+                    : WanxiangColors.accent)
                 .foregroundStyle(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             }
+            .disabled(currentSource == nil)
         }
     }
 
@@ -371,6 +388,10 @@ struct BookDetailView: View {
     }
 
     private var readActionTitle: String {
+        if isResolvingSource && currentSource == nil {
+            return "正在查找最佳书源…"
+        }
+        if currentSource == nil { return "尚未找到可用书源" }
         // 万象书屋: 已加架且有进度 → "继续阅读 X/N"; 否则 → "开始阅读"
         if vm.isInShelf, vm.shelfDurChapterIndex >= 0, vm.chapters.count > 0 {
             let cur = min(vm.shelfDurChapterIndex + 1, vm.chapters.count)
@@ -525,6 +546,50 @@ struct BookDetailView: View {
     ///   1. 切换 origin / bookUrl / originName / coverUrl 等"显示用"字段
     ///   2. 清掉 vm.info / vm.chapters, 走一次完整 loadDetails
     ///   3. 同步刷加架状态 (新源 bookUrl 在书架里可能不存在)
+    /// 万象书屋 (UX): 书城 stub 模式自动找源.
+    ///   - 候选: SourcePerformanceTracker 排序后前 12 个
+    ///   - 命中: 第一个 `name 完全匹配 + (author 空 || author 匹配)` 的 SearchBook
+    ///   - 命中后保留 stub 里的 cover/intro/kind (起点封面质量更好), 切到真源 + onSourceSwitched
+    private func resolveSourceIfNeeded() async {
+        guard currentSource == nil else { return }
+        await MainActor.run { isResolvingSource = true }
+        defer { Task { @MainActor in isResolvingSource = false } }
+
+        let allSources = BookSourceRegistry.shared.sources
+        let sorted = SourcePerformanceTracker.shared.sortByScore(allSources)
+        let candidates = Array(sorted.prefix(12))
+        guard !candidates.isEmpty else { return }
+
+        let bookName = currentBook.name
+        let bookAuthor = currentBook.author
+        let stubCover = currentBook.coverUrl
+        let stubIntro = currentBook.intro
+        let stubKind = currentBook.kind
+
+        let stream = await BookSourceEngine.shared.searchAll(
+            in: candidates, key: bookName, maxConcurrency: 8, perSourceTimeoutSec: 6
+        )
+        for await (src, result) in stream {
+            if Task.isCancelled { return }
+            guard case .success(let books) = result else { continue }
+            guard let match = books.first(where: {
+                $0.name == bookName && (bookAuthor.isEmpty || $0.author == bookAuthor)
+            }) else { continue }
+            var merged = match
+            if merged.coverUrl?.isEmpty != false, let c = stubCover, !c.isEmpty {
+                merged.coverUrl = c
+            }
+            if merged.intro?.isEmpty != false, let i = stubIntro, !i.isEmpty {
+                merged.intro = i
+            }
+            if merged.kind?.isEmpty != false, let k = stubKind, !k.isEmpty {
+                merged.kind = k
+            }
+            await onSourceSwitched(to: merged, source: src)
+            return
+        }
+    }
+
     private func onSourceSwitched(to newBook: SearchBook, source newSource: BookSource) async {
         // 把合并源信息 (mergedSourceURLs / mergedSourceNames) 透传过来,
         // 用户切到 B 源后, 头部 "N 源" 角标仍然能看到一共还有几个源.
