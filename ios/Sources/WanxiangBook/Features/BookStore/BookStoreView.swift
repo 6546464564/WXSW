@@ -33,11 +33,6 @@ struct BookStoreView: View {
     @StateObject private var vm = BookStoreViewModel()
     @State private var searchSeed: StoreSearchSeed?
     @State private var navTarget: NavTarget?
-    /// 万象书屋 (M2.8): 点书后后台搜的中间态. 显示"正在查找..." HUD,
-    /// 找到第一条命中就直跳详情, 失败兜底弹 search sheet.
-    @State private var loadingDetailFor: String? = nil
-    /// 后台搜命中的 (book, source), trigger navigationDestination push 详情
-    @State private var detailTarget: BookDetailTarget?
 
     var body: some View {
         NavigationStack {
@@ -57,95 +52,20 @@ struct BookStoreView: View {
                         RankDetailView(mode: .finish, title: title)
                     }
                 }
-                .navigationDestination(item: $detailTarget) { t in
-                    BookDetailView(book: t.book, source: t.source)
-                }
-                .overlay(alignment: .center) {
-                    if loadingDetailFor != nil {
-                        bookstoreLoadingHUD
-                    }
-                }
                 .task(id: vm.currentChannel) { await vm.loadIfNeeded(force: false) }
         }
     }
 
-    /// 万象书屋 (M2.8): 书城点书改为"后台静默搜 → 直跳详情" — 不再弹 SearchView 让用户重搜.
-    /// 流程:
-    ///   1. 显示 HUD "正在查找..."
-    ///   2. 按 SourcePerformanceTracker 排序拿前 8 个最稳源, 并发搜 book.name
-    ///   3. 第一个 (name == name) 命中 → push 到 BookDetailView (只用真书源!)
-    ///   4. 5 秒内没结果 → 兜底弹 SearchView 让用户手动选源
-    /// 这里做"后台搜"的好处: 用户不必看一长串结果, 直接进详情读. 跟 Android Legado
-    /// 书城点书行为一致.
+    /// 万象书屋 (UX 重做): 书城点书 → 直接 push 进搜索页, 与 Android `BookStoreFragment`
+    /// → `SearchActivity.start(context, bookName)` 行为一致.
+    ///
+    /// 之前用 HUD + "后台静默搜 8 源" 试图直接跳详情, 但单源 5s × 8 源即使并发也最差 ~10s
+    /// 才能 fallback, 用户期间无任何中间反馈, 体感"一直在转圈". 改成直接 push 搜索页后:
+    ///   - SearchView 内部 progressive 出结果, ~1s 看到第一批
+    ///   - 用户掌控感强 (看到全部候选源 + 各源最新章 + 字数等)
+    ///   - 整条导航链 push 风格连续 (书城 → 搜索 → 详情 → 阅读器)
     private func tapBookCell(_ qidianBook: QidianBook) {
-        let key = qidianBook.name
-        let token = key + "::" + UUID().uuidString
-        loadingDetailFor = token
-
-        Task {
-            // 1. 拿排序后的前 8 个源
-            let allSources = BookSourceRegistry.shared.sources
-            let sorted = SourcePerformanceTracker.shared.sortByScore(allSources)
-            let candidates = Array(sorted.prefix(8))
-            guard !candidates.isEmpty else {
-                fallbackToSearch(key: key, token: token)
-                return
-            }
-            // 2. 并发搜, 拿到第一个名字精确匹配的
-            let stream = await BookSourceEngine.shared.searchAll(
-                in: candidates, key: key, maxConcurrency: 5, perSourceTimeoutSec: 5
-            )
-            var found: (SearchBook, BookSource)? = nil
-            for await (src, result) in stream {
-                if loadingDetailFor != token { return }    // 用户取消 / 切走
-                guard case .success(let books) = result else { continue }
-                if let m = books.first(where: { $0.name == key }) {
-                    found = (m, src)
-                    break
-                }
-            }
-            await MainActor.run {
-                guard loadingDetailFor == token else { return }
-                if let (book, source) = found {
-                    self.loadingDetailFor = nil
-                    self.detailTarget = BookDetailTarget(book: book, source: source)
-                } else {
-                    self.fallbackToSearch(key: key, token: token)
-                }
-            }
-        }
-    }
-
-    private func fallbackToSearch(key: String, token: String) {
-        Task { @MainActor in
-            guard loadingDetailFor == token else { return }
-            loadingDetailFor = nil
-            searchSeed = StoreSearchSeed(keyword: key)
-        }
-    }
-
-    /// 万象书屋 (M2.8): 简单 HUD overlay. 点 cancel 中断后台搜, 让用户手动搜.
-    private var bookstoreLoadingHUD: some View {
-        VStack(spacing: 14) {
-            ProgressView().scaleEffect(1.2)
-            Text("正在查找最佳书源…")
-                .font(.subheadline)
-                .foregroundStyle(WanxiangColors.textPrimary)
-            Button("跳过, 手动搜") {
-                if let token = loadingDetailFor {
-                    fallbackToSearch(
-                        key: String(token.split(separator: "::").first ?? ""),
-                        token: token
-                    )
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(WanxiangColors.primary)
-        }
-        .padding(28)
-        .background(WanxiangColors.card)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: 4)
+        searchSeed = StoreSearchSeed(keyword: qidianBook.name)
     }
 
     // MARK: - Content
@@ -552,16 +472,6 @@ struct StoreSearchSeed: Identifiable, Hashable {
     let keyword: String
 
     static func == (lhs: StoreSearchSeed, rhs: StoreSearchSeed) -> Bool { lhs.id == rhs.id }
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
-}
-
-/// 万象书屋 (M2.8): 书城点书后, 后台搜命中的目标 — 直跳详情页用.
-struct BookDetailTarget: Identifiable, Hashable {
-    let id = UUID()
-    let book: SearchBook
-    let source: BookSource?
-
-    static func == (lhs: BookDetailTarget, rhs: BookDetailTarget) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
