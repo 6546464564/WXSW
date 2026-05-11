@@ -82,3 +82,7 @@ install-and-run.sh
 
 # 万象书屋: xcodegen 临时备份文件
 ios/project.yml.bak
+
+# URLSession / BookSourceCLI 本地 HTTP 缓存 (SQLite + blob, 绝不入库)
+**/wanxiang-http-cache/
+wanxiang-http-cache/
