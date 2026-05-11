@@ -148,6 +148,15 @@ public final class BookInfoParser: @unchecked Sendable {
 
     nonisolated func absolutize(_ url: String?, baseUrl: String?) -> String? {
         guard let url, !url.isEmpty else { return nil }
+        // 万象书屋 (M2.8 fix bug): 言情小说吧等源 tocUrl JS 返回 ajax response object, stringify
+        // 后是 `{"header":null,...}`. URL(string: 相对 base) 会拼成 `<base>{"header":...`,
+        // sanitize 的 hasPrefix("{") 后续就被 absolutize 前缀绕过 ⇒ httpFailed("非法 URL: {...}").
+        // 这里源头拦: JSON 段 / HTML 段 直接当作不是 URL.
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") ||
+           trimmed.hasPrefix("<") || trimmed.contains("\n") {
+            return nil
+        }
         if url.hasPrefix("http://") || url.hasPrefix("https://") { return url }
         guard let base = baseUrl, let baseURL = URL(string: base) else { return url }
         return URL(string: url, relativeTo: baseURL)?.absoluteString ?? url
