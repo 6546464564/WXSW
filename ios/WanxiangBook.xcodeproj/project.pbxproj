@@ -50,6 +50,7 @@
 		4417C0EB11AA309884A9A1AB /* defaultData in Resources */ = {isa = PBXBuildFile; fileRef = DED740F31F48A3B6B0870329 /* defaultData */; };
 		462B54E6E0D4399D1D6FA6BC /* PhotosUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 317A3219F6D2B2FD1641C92C /* PhotosUI.framework */; };
 		47B4F2049C6B158C42D9ECC6 /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA619571ECB3DB3E2E05ABDB /* L10n.swift */; };
+		4B5C42658E51D91723F904A0 /* ChangeSourceCandidateRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DB3E2EAF8B1B119702C7846 /* ChangeSourceCandidateRow.swift */; };
 		4C9CCBCDCDEE11DB7C3B1C14 /* BookStoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69FE42AD78DBF13DDD9FDD81 /* BookStoreView.swift */; };
 		4F27E41170930062F07982E4 /* DownloadCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3357CFBA423DC8B867B874CE /* DownloadCenterView.swift */; };
 		516B64760D150881D22ED917 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2203A3717341B484C8FA22DF /* StoreKit.framework */; };
@@ -137,6 +138,7 @@
 		C74B17EBC4D7D993CD6E40BC /* ChangeSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D74D7E0AFA8B0C8C02E6CA8 /* ChangeSourceView.swift */; };
 		C84297DCA999694B9E02FEB1 /* SearchDedupeFixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326F87BFAA59B1CE4CC4C8AA /* SearchDedupeFixTests.swift */; };
 		C8C49010ED44F70A5FFD37D4 /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD70D6B8396437F843A6383 /* ReaderView.swift */; };
+		CAD3A9E1E445529738959FB3 /* SourceScoreStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E772C9EE0BC37D1C1B2F6145 /* SourceScoreStore.swift */; };
 		CB2B8777BE074A946008AF17 /* QidianRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0428D9EA6DD3D87C96E74D2 /* QidianRepositoryTests.swift */; };
 		CC54270B834F9234BB13B602 /* PurifiedReadingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E780139A0476C75C056387FE /* PurifiedReadingState.swift */; };
 		CF1B10204314679407C7DCCA /* EpubImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C7AE9B029ABB6ABA79BFA33 /* EpubImporter.swift */; };
@@ -202,6 +204,7 @@
 		2AF56AF621CA05560E6D452A /* BookCover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCover.swift; sourceTree = "<group>"; };
 		2C56F73BE904C7A09EAA069F /* BookEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookEntities.swift; sourceTree = "<group>"; };
 		2D27D9B4F3B0628DD49B2644 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		2DB3E2EAF8B1B119702C7846 /* ChangeSourceCandidateRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSourceCandidateRow.swift; sourceTree = "<group>"; };
 		2E9AEFF283D3CE9A2B6FDC3F /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
 		2FF754C5807D7F97A36F41DF /* SearchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchContentView.swift; sourceTree = "<group>"; };
 		3071950330DAEB58FF3FDEEC /* BookshelfView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfView.swift; sourceTree = "<group>"; };
@@ -314,6 +317,7 @@
 		E346E6047BFFE54C7C0738EF /* libbz2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbz2.tbd; path = usr/lib/libbz2.tbd; sourceTree = SDKROOT; };
 		E41D10DCB9FCBED042AFD1DB /* libxml2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libxml2.tbd; path = usr/lib/libxml2.tbd; sourceTree = SDKROOT; };
 		E52C829DF8FC95368476D159 /* AppClip.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppClip.framework; path = System/Library/Frameworks/AppClip.framework; sourceTree = SDKROOT; };
+		E772C9EE0BC37D1C1B2F6145 /* SourceScoreStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceScoreStore.swift; sourceTree = "<group>"; };
 		E780139A0476C75C056387FE /* PurifiedReadingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurifiedReadingState.swift; sourceTree = "<group>"; };
 		E7C2CEFED83A02B532BBFF60 /* QrCodeScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrCodeScanner.swift; sourceTree = "<group>"; };
 		E8B8F8B920E4530D96BD8CAA /* GdtAdProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GdtAdProvider.swift; sourceTree = "<group>"; };
@@ -836,7 +840,9 @@
 			children = (
 				23FCD8D7708248B7578FB34F /* BookDetailView.swift */,
 				57511B9270CD48CC224755D2 /* ChangeChapterSourceView.swift */,
+				2DB3E2EAF8B1B119702C7846 /* ChangeSourceCandidateRow.swift */,
 				1D74D7E0AFA8B0C8C02E6CA8 /* ChangeSourceView.swift */,
+				E772C9EE0BC37D1C1B2F6145 /* SourceScoreStore.swift */,
 			);
 			path = BookDetail;
 			sourceTree = "<group>";
@@ -1027,6 +1033,7 @@
 				16EC292CCCB46CEE92C337C6 /* CSSSelectorEngine.swift in Sources */,
 				375A08994E78B029347D3521 /* CacheView.swift in Sources */,
 				9CCBCA147CC3535E605A96CD /* ChangeChapterSourceView.swift in Sources */,
+				4B5C42658E51D91723F904A0 /* ChangeSourceCandidateRow.swift in Sources */,
 				C74B17EBC4D7D993CD6E40BC /* ChangeSourceView.swift in Sources */,
 				748B087C277F6F86E6647557 /* ChapterImageBlock.swift in Sources */,
 				5C4B031B9B8E0DB9B504E4EE /* ChapterRepository.swift in Sources */,
@@ -1088,6 +1095,7 @@
 				0759F7DA73C3221FFF5801B5 /* SelectorEngine.swift in Sources */,
 				AE8AFEAE194827EE92913D80 /* SourcePerformanceTracker.swift in Sources */,
 				673E4E87FA1CF5FC4D265ECF /* SourceRateLimiter.swift in Sources */,
+				CAD3A9E1E445529738959FB3 /* SourceScoreStore.swift in Sources */,
 				7DAF4DAD0A378DC1AA6473A9 /* SourceVariableStore.swift in Sources */,
 				C4F28FF0FA41ACF96E39BCC4 /* SplashAdView.swift in Sources */,
 				BA50EC2DF31957BCBC6D13CC /* SyncHTTP.swift in Sources */,
