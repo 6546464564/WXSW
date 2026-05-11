@@ -527,6 +527,24 @@ public actor JSEngine {
         sourceObj.setObject(getLoginInfoMap, forKeyedSubscript: "getLoginInfoMap" as NSString)
         sourceObj.setObject(getLoginHeader, forKeyedSubscript: "getLoginHeader" as NSString)
         sourceObj.setObject(getLoginHeaderMap, forKeyedSubscript: "getLoginHeaderMap" as NSString)
+        // 万象书屋 (M2.8 fix bug): source.putLoginHeader/putLoginInfo (setter) — 静态 audit
+        // 显示 putLoginHeader 20 次, putLoginInfo 4 次. 一些登录流程源在登录后 JS 写
+        // `source.putLoginHeader(JSON.stringify({...}))` 把 token 写回. iOS 之前没注入 ⇒
+        // TypeError ⇒ 登录 JS 整段失败. 简化版: 写到 SourceVariableSnapshot 的 loginInfo dict.
+        let putLoginHeader: @convention(block) (String) -> Void = { jsonStr in
+            // 用 source URL 作 key, header JSON 字符串存到 UserDefaults. legado 等价行为.
+            UserDefaults.standard.set(jsonStr, forKey: "wanxiang.loginHeader.\(sourceUrl)")
+        }
+        let putLoginInfo: @convention(block) (String) -> Bool = { jsonStr in
+            UserDefaults.standard.set(jsonStr, forKey: "wanxiang.loginInfo.\(sourceUrl)")
+            return true
+        }
+        sourceObj.setObject(putLoginHeader, forKeyedSubscript: "putLoginHeader" as NSString)
+        sourceObj.setObject(putLoginInfo, forKeyedSubscript: "putLoginInfo" as NSString)
+        // 万象书屋 (M2.8 fix bug): source.refreshExplore — 7 次. 不重要 (探索页强制刷新),
+        // iOS 不真做强制刷新, noop OK.
+        let refreshExplore: @convention(block) () -> Void = { }
+        sourceObj.setObject(refreshExplore, forKeyedSubscript: "refreshExplore" as NSString)
         ctx.setObject(sourceObj, forKeyedSubscript: "source" as NSString)
 
         // 2. cookie 全局
@@ -835,6 +853,211 @@ public actor JSEngine {
         java.setObject(aesEnc, forKeyedSubscript: "aesEncodeToString" as NSString)
         java.setObject(aesDec, forKeyedSubscript: "aesDecodeToString" as NSString)
 
+        // 万象书屋 (M2.8 fix bug): DES 系列 — 静态 audit 显示 java.desEncodeToBase64String
+        // 在 16+ 源里被调, java.desDecodeFromBase64String 等 alias 同样高频. 复用对称
+        // 加解密底层 (parseCipherOptions 已支持 DES/DESede).
+        let desEncB64: @convention(block) (String, String, String, String) -> String? = { d, k, tx, iv in
+            // 默认 transformation 'DES/CBC/PKCS5Padding' 当源没传 transformation 时
+            let t = tx.isEmpty ? "DES/CBC/PKCS5Padding" : tx
+            let result = symmetricCrypt(operation: CCOperation(kCCEncrypt),
+                                        data: Data(d.utf8), key: Data(k.utf8),
+                                        iv: iv.isEmpty ? nil : Data(iv.utf8),
+                                        transformation: t)
+            return result?.base64EncodedString()
+        }
+        let desDecB64: @convention(block) (String, String, String, String) -> String? = { d, k, tx, iv in
+            let t = tx.isEmpty ? "DES/CBC/PKCS5Padding" : tx
+            guard let bytes = Data(base64Encoded: d) else { return nil }
+            let result = symmetricCrypt(operation: CCOperation(kCCDecrypt),
+                                        data: bytes, key: Data(k.utf8),
+                                        iv: iv.isEmpty ? nil : Data(iv.utf8),
+                                        transformation: t)
+            return result.flatMap { String(data: $0, encoding: .utf8) }
+        }
+        java.setObject(desEncB64, forKeyedSubscript: "desEncodeToBase64String" as NSString)
+        java.setObject(desDecB64, forKeyedSubscript: "desDecodeArgsBase64Str" as NSString)
+        java.setObject(desDecB64, forKeyedSubscript: "desBase64DecodeToString" as NSString)
+        // 3DES (源里偶尔 tripleDESEncodeBase64Str)
+        let tdesEncB64: @convention(block) (String, String, String, String) -> String? = { d, k, tx, iv in
+            let t = tx.isEmpty ? "DESede/CBC/PKCS5Padding" : tx
+            let result = symmetricCrypt(operation: CCOperation(kCCEncrypt),
+                                        data: Data(d.utf8), key: Data(k.utf8),
+                                        iv: iv.isEmpty ? nil : Data(iv.utf8),
+                                        transformation: t)
+            return result?.base64EncodedString()
+        }
+        java.setObject(tdesEncB64, forKeyedSubscript: "tripleDESEncodeBase64Str" as NSString)
+        java.setObject(tdesEncB64, forKeyedSubscript: "desEdeEncodeArgsBase64Str" as NSString)
+
+        // 万象书屋 (M2.8 fix bug): HMAC — 静态 audit 显示 java.HMacHex 33 次, HMacBase64 3 次.
+        // 各种登录签名 / API 鉴权 JS 用. 之前 iOS 没注入 ⇒ ReferenceError ⇒ JS 整段失败.
+        let hmacHexBlk: @convention(block) (String, String, String) -> String = { data, key, algo in
+            return hmacHex(data, key, algo)
+        }
+        let hmacB64Blk: @convention(block) (String, String, String) -> String = { data, key, algo in
+            return hmacBase64(data, key, algo)
+        }
+        java.setObject(hmacHexBlk, forKeyedSubscript: "HMacHex" as NSString)
+        java.setObject(hmacHexBlk, forKeyedSubscript: "hmacHex" as NSString)
+        java.setObject(hmacB64Blk, forKeyedSubscript: "HMacBase64" as NSString)
+        java.setObject(hmacB64Blk, forKeyedSubscript: "hmacBase64" as NSString)
+
+        // 万象书屋 (M2.8 fix bug): digest hex (hutool DigestUtil) — 6+ 源 java.digestHex 调用
+        let digestHexBlk: @convention(block) (String, String) -> String = { data, algo in
+            switch algo.uppercased() {
+            case "MD5": return md5Hex(data)
+            case "SHA1": return sha1Hex(data)
+            case "SHA256": return sha256Hex(data)
+            default: return ""
+            }
+        }
+        java.setObject(digestHexBlk, forKeyedSubscript: "digestHex" as NSString)
+        // md5Encode16 — hutool 16 位 md5 (取标准 md5 中间 16 位)
+        let md5Encode16Blk: @convention(block) (String) -> String = { s in
+            let full = md5Hex(s)
+            let start = full.index(full.startIndex, offsetBy: 8)
+            let end = full.index(start, offsetBy: 16)
+            return String(full[start..<end])
+        }
+        java.setObject(md5Encode16Blk, forKeyedSubscript: "md5Encode16" as NSString)
+
+        // 万象书屋 (M2.8 fix bug): 设备 ID — 静态 audit androidId 7 次, deviceID 6 次.
+        // legado Android 返 Settings.Secure.ANDROID_ID. iOS 用 identifierForVendor 等价物
+        // (UUID, 同设备同 vendor 稳定). 也可以返一个稳定假值 (避免破坏签名一致性).
+        // 为简化跟稳定: 返 UserDefaults 持久化的伪 androidId (16 位 hex).
+        let androidIdBlk: @convention(block) () -> String = {
+            let key = "wanxiang.fake_android_id"
+            if let v = UserDefaults.standard.string(forKey: key), !v.isEmpty { return v }
+            let v = (0..<16).map { _ in String(format: "%x", Int.random(in: 0..<16)) }.joined()
+            UserDefaults.standard.set(v, forKey: key)
+            return v
+        }
+        java.setObject(androidIdBlk, forKeyedSubscript: "androidId" as NSString)
+        java.setObject(androidIdBlk, forKeyedSubscript: "deviceID" as NSString)
+
+        // 万象书屋 (M2.8 fix bug): java.getStrResponse(url, headers?) — 25+ 源用.
+        // 等价于 java.ajax 但返 StrResponse 对象 (.body() .code() .header(name) .headers()).
+        // 复用现有 SyncHTTP + makeResponseValue.
+        let getStrResp: @convention(block) (String, Any?) -> JSValue = { [weakCtx] url, headersAny in
+            let headers = (headersAny as? [String: Any])?.compactMapValues { String(describing: $0) } ?? [:]
+            let r = SyncHTTP.get(url: url, headers: headers)
+                ?? SyncHTTPResponse(body: "", statusCode: 0, headers: [:])
+            return Self.makeResponseValue(r, in: weakCtx)
+        }
+        java.setObject(getStrResp, forKeyedSubscript: "getStrResponse" as NSString)
+
+        // 万象书屋 (M2.8 fix bug): hutool 链式 SymmetricCrypto — 静态 audit:
+        //   createSymmetricCrypto 54 次 + setContent 55 次 + des/aes 各种 alias
+        // 大批源 (H 漫 / 91Porna / 书山聚合 等) cover decode 用 hutool 链式 API.
+        // 之前完全没有 ⇒ TypeError ⇒ 整 JS 失败.
+        // Polyfill: createSymmetricCrypto 返一个 JS 对象, 暴露:
+        //   - encrypt(data) → bytes
+        //   - encryptHex(data) → hex string
+        //   - encryptBase64(data) → base64 string
+        //   - decrypt(data) → bytes (data 可以 base64 string / bytes)
+        //   - decryptStr(data) → utf-8 string
+        //   - setContent(data) → this  (链式存数据, 后续不带参 encrypt/decrypt)
+        ctx.evaluateScript("""
+        (function() {
+            // hex helpers
+            function bytesToHex(u8) {
+                var s = '';
+                for (var i = 0; i < u8.length; i++) {
+                    var h = u8[i].toString(16);
+                    if (h.length === 1) h = '0' + h;
+                    s += h;
+                }
+                return s;
+            }
+            function hexToBytes(hex) {
+                if (!hex) return new Uint8Array(0);
+                var clean = hex.replace(/[^0-9a-fA-F]/g, '');
+                var u8 = new Uint8Array(clean.length / 2);
+                for (var i = 0; i < u8.length; i++) {
+                    u8[i] = parseInt(clean.substr(i * 2, 2), 16);
+                }
+                return u8;
+            }
+            function toBytes(data) {
+                if (data instanceof Uint8Array) return data;
+                if (Array.isArray(data)) return new Uint8Array(data);
+                if (typeof data === 'string') {
+                    // 尝试当 base64; 失败 fallback utf-8
+                    try {
+                        var bin = atob(data);
+                        var u8 = new Uint8Array(bin.length);
+                        for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+                        // 但 base64 解码可能误伤普通字符串. 只在格式严格 (长度 4 倍数 + 字符集)
+                        // 且解出来含明显非 utf8 序列时才认为是 base64.
+                        // 简化: 让调用方明确 — encrypt(string) 当 utf8, decrypt(string) 当 base64
+                    } catch (e) { /* 不是 base64 */ }
+                    return data.getBytes();   // utf-8
+                }
+                return new Uint8Array(0);
+            }
+            globalThis.__wx_bytesToHex = bytesToHex;
+            globalThis.__wx_hexToBytes = hexToBytes;
+
+            java.createSymmetricCrypto = function(transformation, key, iv) {
+                var keyBytes = (typeof key === 'string') ? key.getBytes() : ((key instanceof Uint8Array) ? key : new Uint8Array(key || []));
+                var ivBytes = iv ? ((typeof iv === 'string') ? iv.getBytes() : ((iv instanceof Uint8Array) ? iv : new Uint8Array(iv || []))) : null;
+                var keyB64 = __wx_bytes_to_b64(keyBytes);
+                var ivB64 = ivBytes ? __wx_bytes_to_b64(ivBytes) : '';
+                var pendingData = null;   // setContent 流式数据
+                var api = {
+                    setContent: function(data) {
+                        pendingData = data;
+                        return api;   // 链式
+                    },
+                    encrypt: function(data) {
+                        if (data === undefined) data = pendingData;
+                        var dataBytes = (typeof data === 'string') ? data.getBytes()
+                                       : ((data instanceof Uint8Array) ? data : new Uint8Array(data || []));
+                        var resB64 = __wx_aes_raw_b64('encrypt', __wx_bytes_to_b64(dataBytes), keyB64, ivB64, transformation);
+                        var bytes = __wx_b64_to_bytes(resB64 || '');
+                        bytes.toString = function() { return bytesToHex(bytes); };  // 部分源 String(crypto.encrypt(x)) 期望 hex
+                        return bytes;
+                    },
+                    encryptHex: function(data) {
+                        return bytesToHex(api.encrypt(data));
+                    },
+                    encryptBase64: function(data) {
+                        if (data === undefined) data = pendingData;
+                        var dataBytes = (typeof data === 'string') ? data.getBytes()
+                                       : ((data instanceof Uint8Array) ? data : new Uint8Array(data || []));
+                        return __wx_aes_raw_b64('encrypt', __wx_bytes_to_b64(dataBytes), keyB64, ivB64, transformation) || '';
+                    },
+                    decrypt: function(data) {
+                        if (data === undefined) data = pendingData;
+                        // hutool decrypt 接 base64 string / hex string / bytes
+                        var dataBytes;
+                        if (data instanceof Uint8Array) dataBytes = data;
+                        else if (Array.isArray(data)) dataBytes = new Uint8Array(data);
+                        else if (typeof data === 'string') {
+                            // 优先按 base64 解, 再按 hex
+                            try { dataBytes = __wx_b64_to_bytes(data); }
+                            catch (e) { dataBytes = hexToBytes(data); }
+                            // 简单兜底: base64 解出来如果长度合理就用 base64
+                            if (!dataBytes || dataBytes.length === 0) dataBytes = hexToBytes(data);
+                        } else dataBytes = new Uint8Array(0);
+                        var resB64 = __wx_aes_raw_b64('decrypt', __wx_bytes_to_b64(dataBytes), keyB64, ivB64, transformation);
+                        var bytes = __wx_b64_to_bytes(resB64 || '');
+                        bytes.toString = function() { return __wx_bytes_to_utf8(bytes); };   // String(crypto.decrypt(x)) → utf8 string
+                        return bytes;
+                    },
+                    decryptStr: function(data) {
+                        var bytes = api.decrypt(data);
+                        return __wx_bytes_to_utf8(bytes);
+                    }
+                };
+                return api;
+            };
+            // alias: SecureUtil.createSymmetricCrypto / SymmetricCrypto / aes / des
+            // 一些源直接调 java.aes(key) → 返 SymmetricCrypto (默认 AES/CBC/PKCS5Padding)
+            // 暂不补这俩简写, 等 audit 看到再说.
+        })();
+        """)
+
         // 万象书屋 (M2.8 fix bug): Raw byte-array AES bridge — 给 Rhino Java packages polyfill 用.
         // Android Rhino 让源 JS 直接写 `Cipher.getInstance(...).doFinal(byteArray)` 这种 Java 风格,
         // 七猫小说等加密源用了大量这种代码. iOS 之前完全不能跑.
@@ -1018,13 +1241,30 @@ public actor JSEngine {
                     IvParameterSpec: globalThis.IvParameterSpec
                 };
             };
-            // 2. Packages.* — 任何路径下都返一个空对象 (importPackage 实际不需要这内容)
-            //    用 Proxy 让 `Packages.java.lang` 等任意嵌套都返 noop.
-            globalThis.Packages = new Proxy({}, {
-                get: function() {
-                    return new Proxy({}, { get: function() { return new Proxy({}, { get: function() { return null; } }); } });
-                }
-            });
+            // 2. Packages.* — 任意嵌套都返 callable noop Proxy.
+            //    既能 `Packages.java.lang.Thread.sleep(100)` 也能 `Packages.X.Y.Z(...)`,
+            //    既不抛 ReferenceError 又不真跑 (这种调用本来就是 Android 特有, iOS 跳过).
+            // 万象书屋 (M2.8 fix bug): 13+ 源用 `Packages.android.util.Base64` /
+            // `Packages.java.security.MessageDigest` 等. 之前返 null ⇒ 调 .sleep / .digest 抛 TypeError.
+            // 改: 返 callable Proxy, 任意 chain access 都 OK, 调用返空数组/null/0.
+            function makeCallableNoop() {
+                var f = function() {
+                    // 大多数源调用结果是 byte[] / string / null. 返空 Uint8Array (兼容 iterable / .length).
+                    return new Uint8Array(0);
+                };
+                return new Proxy(f, {
+                    get: function(target, prop) {
+                        // 路由到 polyfill 的实类
+                        if (prop === 'Cipher') return globalThis.Cipher;
+                        if (prop === 'SecretKeySpec') return globalThis.SecretKeySpec;
+                        if (prop === 'IvParameterSpec') return globalThis.IvParameterSpec;
+                        if (prop === 'Base64') return globalThis.Base64;
+                        if (prop === 'Arrays') return globalThis.Arrays;
+                        return makeCallableNoop();
+                    }
+                });
+            }
+            globalThis.Packages = makeCallableNoop();
         })();
         """)
 
@@ -1598,11 +1838,31 @@ func sha256Hex(_ s: String) -> String {
 
 enum AESError: Error { case invalid }
 
-/// 解析 transformation 字符串 → (option, isCBC)
-private func parseAESOptions(_ transformation: String) -> (CCOptions, useIV: Bool)? {
+/// 解析 transformation 字符串 → (alg, option, isCBC, blockSize)
+/// 支持 AES / DES / DESede(3DES)
+private func parseCipherOptions(_ transformation: String) -> (alg: CCAlgorithm, opts: CCOptions, useIV: Bool, blockSize: Int, keySizes: [Int])? {
     let t = transformation.uppercased()
     let parts = t.split(separator: "/").map { String($0) }
-    guard parts.count == 3, parts[0] == "AES" else { return nil }
+    guard parts.count == 3 else { return nil }
+    let alg: CCAlgorithm
+    let blockSize: Int
+    let keySizes: [Int]
+    switch parts[0] {
+    case "AES":
+        alg = CCAlgorithm(kCCAlgorithmAES)
+        blockSize = kCCBlockSizeAES128
+        keySizes = [16, 24, 32]
+    case "DES":
+        alg = CCAlgorithm(kCCAlgorithmDES)
+        blockSize = kCCBlockSizeDES
+        keySizes = [8]
+    case "DESEDE", "TRIPLEDES", "3DES":
+        alg = CCAlgorithm(kCCAlgorithm3DES)
+        blockSize = kCCBlockSize3DES
+        keySizes = [16, 24]   // 双倍/三倍 DES key
+    default:
+        return nil
+    }
     let mode = parts[1]
     let pad = parts[2]
     var opts: CCOptions = 0
@@ -1614,7 +1874,7 @@ private func parseAESOptions(_ transformation: String) -> (CCOptions, useIV: Boo
         opts |= CCOptions(kCCOptionECBMode)
         useIV = false
     default:
-        return nil  // CFB/OFB 不支持
+        return nil   // CFB/OFB/CTR 不支持
     }
     switch pad {
     case "PKCS5PADDING", "PKCS7PADDING":
@@ -1624,16 +1884,21 @@ private func parseAESOptions(_ transformation: String) -> (CCOptions, useIV: Boo
     default:
         return nil
     }
+    return (alg, opts, useIV, blockSize, keySizes)
+}
+
+/// 兼容旧名 (AES-only 入口)
+private func parseAESOptions(_ transformation: String) -> (CCOptions, useIV: Bool)? {
+    guard let (_, opts, useIV, _, _) = parseCipherOptions(transformation) else { return nil }
     return (opts, useIV)
 }
 
-/// AES 加解密底层. data/key/iv 都是 raw bytes.
-private func aesCrypt(operation: CCOperation, data: Data, key: Data, iv: Data?, transformation: String) -> Data? {
-    guard let (opts, useIV) = parseAESOptions(transformation) else { return nil }
-    // AES 支持 16/24/32 byte key
-    guard [16, 24, 32].contains(key.count) else { return nil }
-    if useIV, (iv?.count ?? 0) != 16 { return nil }
-    let outLen = data.count + kCCBlockSizeAES128
+/// 通用对称加解密 (AES/DES/3DES). data/key/iv 都是 raw bytes.
+private func symmetricCrypt(operation: CCOperation, data: Data, key: Data, iv: Data?, transformation: String) -> Data? {
+    guard let (alg, opts, useIV, blockSize, keySizes) = parseCipherOptions(transformation) else { return nil }
+    guard keySizes.contains(key.count) else { return nil }
+    if useIV, (iv?.count ?? 0) != blockSize { return nil }
+    let outLen = data.count + blockSize
     var out = Data(count: outLen)
     var moved: size_t = 0
     let status = out.withUnsafeMutableBytes { outPtr -> CCCryptorStatus in
@@ -1641,7 +1906,7 @@ private func aesCrypt(operation: CCOperation, data: Data, key: Data, iv: Data?, 
             key.withUnsafeBytes { keyPtr -> CCCryptorStatus in
                 let ivPtr: UnsafeRawPointer? = useIV ? iv?.withUnsafeBytes { $0.baseAddress } : nil
                 return CCCrypt(operation,
-                               CCAlgorithm(kCCAlgorithmAES),
+                               alg,
                                opts,
                                keyPtr.baseAddress, key.count,
                                ivPtr,
@@ -1654,6 +1919,47 @@ private func aesCrypt(operation: CCOperation, data: Data, key: Data, iv: Data?, 
     guard status == kCCSuccess else { return nil }
     out.count = moved
     return out
+}
+
+/// 老 AES-only 入口 (内部走通用函数)
+private func aesCrypt(operation: CCOperation, data: Data, key: Data, iv: Data?, transformation: String) -> Data? {
+    return symmetricCrypt(operation: operation, data: data, key: key, iv: iv, transformation: transformation)
+}
+
+// MARK: - HMAC
+
+/// HMAC-SHA256/SHA1/MD5 hex 输出
+func hmacHex(_ data: String, _ key: String, _ algo: String) -> String {
+    let alg: CCHmacAlgorithm
+    let digestLen: Int
+    switch algo.uppercased() {
+    case "HMACSHA256", "SHA256": alg = CCHmacAlgorithm(kCCHmacAlgSHA256); digestLen = Int(CC_SHA256_DIGEST_LENGTH)
+    case "HMACSHA1", "SHA1":     alg = CCHmacAlgorithm(kCCHmacAlgSHA1);   digestLen = Int(CC_SHA1_DIGEST_LENGTH)
+    case "HMACMD5", "MD5":       alg = CCHmacAlgorithm(kCCHmacAlgMD5);    digestLen = Int(CC_MD5_DIGEST_LENGTH)
+    case "HMACSHA512", "SHA512": alg = CCHmacAlgorithm(kCCHmacAlgSHA512); digestLen = Int(CC_SHA512_DIGEST_LENGTH)
+    default: return ""
+    }
+    let dataBytes = Data(data.utf8)
+    let keyBytes = Data(key.utf8)
+    var out = [UInt8](repeating: 0, count: digestLen)
+    keyBytes.withUnsafeBytes { keyPtr in
+        dataBytes.withUnsafeBytes { dataPtr in
+            CCHmac(alg, keyPtr.baseAddress, keyBytes.count, dataPtr.baseAddress, dataBytes.count, &out)
+        }
+    }
+    return out.map { String(format: "%02x", $0) }.joined()
+}
+
+func hmacBase64(_ data: String, _ key: String, _ algo: String) -> String {
+    let hex = hmacHex(data, key, algo)
+    var bytes = [UInt8]()
+    var iter = hex.startIndex
+    while iter < hex.endIndex {
+        let next = hex.index(iter, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
+        if let b = UInt8(hex[iter..<next], radix: 16) { bytes.append(b) }
+        iter = next
+    }
+    return Data(bytes).base64EncodedString()
 }
 
 /// 公共: data 是 base64 字符串, key/iv 是 utf8 字符串, 返 utf8 字符串.
