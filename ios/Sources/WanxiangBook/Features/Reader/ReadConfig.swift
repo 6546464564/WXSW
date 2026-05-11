@@ -180,12 +180,13 @@ public final class ReadConfig: ObservableObject {
     private init() {
         let d = UserDefaults.standard
         self.textSize = d.value(forKey: K.textSize) as? CGFloat ?? 18
-        self.lineSpacing = d.value(forKey: K.lineSpacing) as? CGFloat ?? 1.5
-        self.paragraphSpacing = d.value(forKey: K.paragraphSpacing) as? CGFloat ?? 12
+        self.lineSpacing = d.value(forKey: K.lineSpacing) as? CGFloat ?? 1.6
+        self.paragraphSpacing = d.value(forKey: K.paragraphSpacing) as? CGFloat ?? 14
         self.letterSpacing = d.value(forKey: K.letterSpacing) as? CGFloat ?? 0
-        self.paddingTop = d.value(forKey: K.paddingTop) as? CGFloat ?? 18
-        self.paddingBottom = d.value(forKey: K.paddingBottom) as? CGFloat ?? 12
-        self.paddingHorizontal = d.value(forKey: K.paddingHorizontal) as? CGFloat ?? 18
+        // 万象书屋 (排版): 默认上下边距加宽, 章节标题更有"打开一本书"的呼吸感, 页脚也不贴边
+        self.paddingTop = d.value(forKey: K.paddingTop) as? CGFloat ?? 24
+        self.paddingBottom = d.value(forKey: K.paddingBottom) as? CGFloat ?? 18
+        self.paddingHorizontal = d.value(forKey: K.paddingHorizontal) as? CGFloat ?? 20
         self.indentChars = d.value(forKey: K.indentChars) as? Int ?? 2
         self.pageAnim = PageAnim(rawValue: d.integer(forKey: K.pageAnim)) ?? .cover
         self.theme = ReaderThemeKind(rawValue: d.integer(forKey: K.theme)) ?? .default

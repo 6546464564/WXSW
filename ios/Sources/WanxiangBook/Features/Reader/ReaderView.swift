@@ -677,7 +677,7 @@ public struct ReaderView: View {
     /// ChapterPageBody 等价 (内部都是 segments 渲染).
     @ViewBuilder
     private func chapterPageBody(page: ReaderPage) -> some View {
-        ChapterPageBody(pageText: page.text, config: config)
+        ChapterPageBody(pageText: page.text, chapterTitle: page.chapterTitle, config: config)
     }
 
     private func menuBtn(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
@@ -939,6 +939,7 @@ private struct ReaderPageView: View {
                 // 切成 text/image 段分别渲染. 没有 image 时保持跟之前的纯 Text 等价.
                 ChapterPageBody(
                     pageText: page.text,
+                    chapterTitle: page.chapterTitle,
                     config: config
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1043,6 +1044,7 @@ private struct AutoReadConfigSheet: View {
 /// 没有 image 时整页作为单个 Text 渲染, 跟之前行为完全等价 (零回归).
 struct ChapterPageBody: View {
     let pageText: String
+    let chapterTitle: String
     @ObservedObject var config: ReadConfig
 
     /// 万象书屋 (M2.8): 用户选的中文字体. fontFamily 空 = 系统默认 .system.
@@ -1053,9 +1055,63 @@ struct ChapterPageBody: View {
         return .custom(config.fontFamily, size: config.textSize)
     }
 
+    /// 万象书屋 (排版): 章节标题字号 = 正文 × chapterTitleScale (跟 PaginationEngine 一致).
+    private var titleFontSize: CGFloat {
+        (config.textSize * PaginationEngine.chapterTitleScale).rounded()
+    }
+
+    private var titleFont: Font {
+        if config.fontFamily.isEmpty {
+            return .system(size: titleFontSize, weight: .semibold)
+        }
+        return .custom(config.fontFamily, size: titleFontSize).weight(.semibold)
+    }
+
+    /// 万象书屋 (排版): 第一页 page.text 以章节标题开头 (`title\n` 形式),
+    /// 砍下来单独渲染. 其它页保持原样.
+    private func stripChapterTitleIfFirstPage(_ s: String) -> (title: String?, body: String) {
+        let t = chapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return (nil, s) }
+        guard s.hasPrefix(t) else { return (nil, s) }
+        let rest = s.dropFirst(t.count)
+        // 标题后面通常是单 \n (PaginationEngine 已加), 跳过它
+        if rest.hasPrefix("\n") {
+            return (t, String(rest.dropFirst()))
+        }
+        return (t, String(rest))
+    }
+
     var body: some View {
-        let segs = parseChapterPageSegments(pageText)
-        // 没图片就用单 Text, 跟历史行为等价 (不让 VStack 改变行间距 / 文本选择)
+        let (title, restText) = stripChapterTitleIfFirstPage(pageText)
+        VStack(alignment: .leading, spacing: 0) {
+            if let title = title {
+                chapterTitleHeader(title)
+            }
+            chapterBody(restText)
+        }
+    }
+
+    @ViewBuilder
+    private func chapterTitleHeader(_ title: String) -> some View {
+        VStack(spacing: 10) {
+            Text(title)
+                .font(titleFont)
+                .foregroundStyle(config.theme.textColor)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 4)
+            Rectangle()
+                .fill(config.theme.textColor.opacity(0.18))
+                .frame(height: 0.5)
+                .frame(maxWidth: 80)
+        }
+        .padding(.top, 6)
+        .padding(.bottom, 14)
+    }
+
+    @ViewBuilder
+    private func chapterBody(_ text: String) -> some View {
+        let segs = parseChapterPageSegments(text)
         if segs.count == 1, case .text(let txt, _) = segs[0] {
             Text(txt)
                 .font(bodyFont)
@@ -1063,6 +1119,7 @@ struct ChapterPageBody: View {
                 .lineSpacing(config.textSize * (config.lineSpacing - 1))
                 .kerning(config.letterSpacing)
                 .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(segs) { seg in

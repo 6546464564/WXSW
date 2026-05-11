@@ -58,9 +58,16 @@ public struct PaginationEngine {
 
         guard canvasSize.width > 50, canvasSize.height > 50 else { return [] }
 
-        // 1. 拼正文 (标题作为单独段落, 字号大一档, 居中通过自加换行实现简化版)
-        let body = "\(chapterTitle)\n\n\(text)"
-        let attrString = makeAttributedString(body: body, config: config)
+        // 万象书屋 (排版): 段首缩进 + 段间距用"修改原始文本 + 空行"表达 (与 SwiftUI Text 渲染一致).
+        //   - 每段开头加 indentChars 个 U+3000 全角空格 → 视觉首行缩进
+        //   - 段间额外加空行数量 = round(paragraphSpacing / lineHeight) (1-3 行)
+        //   - CoreText 分页和 SwiftUI Text 渲染看到同一份字符串, 避免分页错位
+        let processedText = applyParagraphLayout(text, config: config)
+        let attrString = makeAttributedString(
+            chapterTitle: chapterTitle,
+            body: processedText,
+            config: config
+        )
         let totalLength = attrString.length
         if totalLength == 0 {
             return [ReaderPage(id: "\(chapterIndex)-0", chapterIndex: chapterIndex,
@@ -102,8 +109,10 @@ public struct PaginationEngine {
         }
 
         if slices.isEmpty {
+            // 容错: paginate 完没切到任何 slice (canvas 太小或全空 text), 把 attrString 整体作 1 页
             return [ReaderPage(id: "\(chapterIndex)-0", chapterIndex: chapterIndex,
-                               pageIndex: 0, totalPages: 1, text: body, chapterTitle: chapterTitle)]
+                               pageIndex: 0, totalPages: 1, text: attrString.string,
+                               chapterTitle: chapterTitle)]
         }
 
         let total = slices.count
@@ -119,40 +128,98 @@ public struct PaginationEngine {
         }
     }
 
-    /// 构造 NSAttributedString (字号 + 行距 + 段距 + 字距 + 缩进)
-    private static func makeAttributedString(body: String, config: ReadConfigSnapshot) -> NSAttributedString {
-        let paraStyle = NSMutableParagraphStyle()
-        paraStyle.lineSpacing = config.textSize * (config.lineSpacing - 1.0)
-        // 万象书屋: 分页算法必须和 ReaderPageView 实际 SwiftUI Text 渲染一致。
-        // SwiftUI Text 当前只用了 `.lineSpacing` / `.kerning`, 没有逐段 paragraphSpacing /
-        // firstLineHeadIndent。之前 CoreText 在分页时额外计算了段距和缩进,
-        // 导致每页可见字符偏少, 用户看到每页底部一大片空白。
-        // 先置 0 对齐实际渲染; 后续若改成 AttributedString 渲染, 再恢复这两项。
-        paraStyle.paragraphSpacing = 0
-        paraStyle.firstLineHeadIndent = 0
-        paraStyle.alignment = .natural
-        paraStyle.lineBreakMode = .byCharWrapping
+    /// 万象书屋 (排版): 章节标题字号倍率 (相对正文). 1.4× = 18pt 正文时标题 ~25pt.
+    public static let chapterTitleScale: CGFloat = 1.4
+    /// 万象书屋 (排版): 章节标题段后留白 (pt). 让标题跟正文有呼吸距.
+    public static let chapterTitleTrailingPadding: CGFloat = 18
 
-        // 万象书屋 (M2.8): 用 ReadConfig.uiFont 拿用户选的字体. 空 fontFamily fallback systemFont.
-        let font: UIFont = {
-            if config.fontFamily.isEmpty {
-                return UIFont.systemFont(ofSize: config.textSize)
-            }
-            if let f = UIFont(name: config.fontFamily, size: config.textSize) {
-                return f
-            }
-            // family 取一个具体 face — 用 descriptor 让 face 列表自动选首选
-            let desc = UIFontDescriptor(name: config.fontFamily, size: config.textSize)
-            return UIFont(descriptor: desc, size: config.textSize)
-        }()
+    /// 万象书屋 (排版): 按 indentChars / paragraphSpacing 把原始文本转成带"全角空格首行缩进 +
+    /// 段间空行"的字符串. CoreText 和 SwiftUI Text 都用这份字符串, 渲染视觉自然一致.
+    static func applyParagraphLayout(_ raw: String, config: ReadConfigSnapshot) -> String {
+        // 1. 用单 \n 切段; 多个连续 \n 合成一个段间分隔
+        let lines = raw.replacingOccurrences(of: "\r\n", with: "\n")
+            .components(separatedBy: "\n")
+        let indent = String(repeating: "\u{3000}", count: max(0, config.indentChars))
 
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .paragraphStyle: paraStyle,
+        // 段间空行数: paragraphSpacing 折成行数 (一行高 = textSize × lineSpacing).
+        // paragraphSpacing=12, textSize=18, lineSpacing=1.5 → lineH=27 → blank≈12/27≈0.44 → 1 行
+        // paragraphSpacing=24 → blank≈0.89 → 1 行
+        // paragraphSpacing=30 → blank≈1.11 → 2 行
+        let lineH = config.textSize * max(config.lineSpacing, 1.0)
+        let extraBlanks = max(0, Int((config.paragraphSpacing / max(lineH, 1)).rounded()))
+
+        var out: [String] = []
+        var prevWasBlank = true   // 首段前不需要插额外空行
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                if !prevWasBlank {
+                    out.append("")
+                    for _ in 0..<extraBlanks { out.append("") }
+                    prevWasBlank = true
+                }
+                continue
+            }
+            // 段首加全角空格 (除非段本身已经以全角空格或英文段落 indentChars 为 0 开头)
+            if indent.isEmpty || trimmed.hasPrefix("\u{3000}") {
+                out.append(trimmed)
+            } else {
+                out.append(indent + trimmed)
+            }
+            prevWasBlank = false
+        }
+        return out.joined(separator: "\n")
+    }
+
+    /// 构造 NSAttributedString — 标题段大字号 + 居中, 正文段普通字号. 都用 ReadConfigSnapshot.
+    private static func makeAttributedString(chapterTitle: String, body: String, config: ReadConfigSnapshot) -> NSAttributedString {
+        let bodyFont = resolveFont(family: config.fontFamily, size: config.textSize, bold: false)
+        let titleSize = (config.textSize * Self.chapterTitleScale).rounded()
+        let titleFont = resolveFont(family: config.fontFamily, size: titleSize, bold: true)
+
+        let bodyPara = NSMutableParagraphStyle()
+        bodyPara.lineSpacing = config.textSize * (config.lineSpacing - 1.0)
+        bodyPara.paragraphSpacing = 0
+        bodyPara.firstLineHeadIndent = 0
+        bodyPara.alignment = .natural
+        bodyPara.lineBreakMode = .byCharWrapping
+
+        let titlePara = NSMutableParagraphStyle()
+        titlePara.lineSpacing = titleSize * 0.15
+        titlePara.paragraphSpacing = Self.chapterTitleTrailingPadding
+        titlePara.alignment = .center
+        titlePara.lineBreakMode = .byCharWrapping
+
+        let result = NSMutableAttributedString()
+        let trimmedTitle = chapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty {
+            result.append(NSAttributedString(string: trimmedTitle, attributes: [
+                .font: titleFont,
+                .paragraphStyle: titlePara,
+                .foregroundColor: UIColor.label,
+            ]))
+            result.append(NSAttributedString(string: "\n", attributes: [
+                .font: bodyFont,
+                .paragraphStyle: bodyPara,
+            ]))
+        }
+        result.append(NSAttributedString(string: body, attributes: [
+            .font: bodyFont,
+            .paragraphStyle: bodyPara,
             .kern: config.letterSpacing,
-            .foregroundColor: UIColor.label,  // 先用 system label, 渲染时按主题覆盖
-        ]
-        return NSAttributedString(string: body, attributes: attrs)
+            .foregroundColor: UIColor.label,
+        ]))
+        return result
+    }
+
+    private static func resolveFont(family: String, size: CGFloat, bold: Bool) -> UIFont {
+        if family.isEmpty {
+            return bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size)
+        }
+        let base = UIFont(name: family, size: size) ?? UIFont(descriptor: UIFontDescriptor(name: family, size: size), size: size)
+        if !bold { return base }
+        let desc = base.fontDescriptor.withSymbolicTraits(.traitBold) ?? base.fontDescriptor
+        return UIFont(descriptor: desc, size: size)
     }
 }
 
