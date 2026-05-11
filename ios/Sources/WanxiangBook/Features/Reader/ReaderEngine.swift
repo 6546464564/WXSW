@@ -27,6 +27,8 @@ public final class ReaderEngine: ObservableObject {
     @Published public private(set) var lastError: String? = nil
     /// 万象书屋 (M2.8): 自动换源进行中标志, reader UI 显示"正在尝试其他源…"
     @Published public private(set) var autoFallbackInProgress: Bool = false
+    /// 本章正文被「本章换源」覆盖或写入 cache 后递增, 驱动 ReaderView 重新分页.
+    @Published public private(set) var chapterContentRevision: Int = 0
 
     /// 章节正文内存缓存 (key=chapterIndex, val=正文)
     private var contentCache: [Int: String] = [:]
@@ -213,6 +215,22 @@ public final class ReaderEngine: ObservableObject {
         inflight[currentChapterIndex]?.cancel()
         inflight.removeValue(forKey: currentChapterIndex)
         await loadChapter(index: currentChapterIndex)
+    }
+
+    /// 本章换源: 仅替换**当前阅读章节索引**下的正文与 SQLite 缓存, 不切整书 origin/bookUrl.
+    /// 对齐 Android `ReadBookViewModel.saveContent` (ChangeChapterSource 选中异源章节后的写入语义).
+    public func replaceCurrentChapterBody(_ content: String) async {
+        let idx = currentChapterIndex
+        inflight[idx]?.cancel()
+        inflight.removeValue(forKey: idx)
+        contentCache[idx] = content
+        lastError = nil
+        try? await ChapterRepository.shared.saveContent(
+            bookUrl: book.bookUrl,
+            chapterIndex: idx,
+            content: content
+        )
+        chapterContentRevision &+= 1
     }
 
     /// 万象书屋: 换源 (用户在 ChangeSourceView 选了别的源同名书)

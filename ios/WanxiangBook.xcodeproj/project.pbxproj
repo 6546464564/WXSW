@@ -108,6 +108,7 @@
 		9807C5D36608155E1D241961 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = E346E6047BFFE54C7C0738EF /* libbz2.tbd */; };
 		980CB546F838BD280B1ABB34 /* AccountDeleteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65F9370B2F1A6FC1AA8B064C /* AccountDeleteView.swift */; };
 		9A582887BBB15840AA918B9D /* LegadoRuleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222426F47071C1B7BC0CC244 /* LegadoRuleEngine.swift */; };
+		9CCBCA147CC3535E605A96CD /* ChangeChapterSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57511B9270CD48CC224755D2 /* ChangeChapterSourceView.swift */; };
 		9D4DA9E075873EEE9F339A52 /* MobileCoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AFB7C7B97A4AB79754649554 /* MobileCoreServices.framework */; };
 		A07E1DA2222A2171F8EDC14E /* QidianBook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BF2C82EC1801B05941B87E6 /* QidianBook.swift */; };
 		A43B87758683332CE286FE30 /* MobiImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AE9D1EB2146E4575A5D905A /* MobiImporter.swift */; };
@@ -213,6 +214,7 @@
 		48B6E626009E9F649E8508FA /* ImportLocalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportLocalView.swift; sourceTree = "<group>"; };
 		4DC0A9D24AE522901273509E /* RulesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RulesViews.swift; sourceTree = "<group>"; };
 		4EE8D12571EC2A6D0CF0D3CD /* BrowserBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserBridge.swift; sourceTree = "<group>"; };
+		57511B9270CD48CC224755D2 /* ChangeChapterSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeChapterSourceView.swift; sourceTree = "<group>"; };
 		57531D5A72B577A6FF26BB12 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		58C0510FBC1A33F688AC9F83 /* PaginationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaginationEngine.swift; sourceTree = "<group>"; };
 		592D54967A2D79BD3D39ADB3 /* TocView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TocView.swift; sourceTree = "<group>"; };
@@ -815,6 +817,7 @@
 			isa = PBXGroup;
 			children = (
 				23FCD8D7708248B7578FB34F /* BookDetailView.swift */,
+				57511B9270CD48CC224755D2 /* ChangeChapterSourceView.swift */,
 				1D74D7E0AFA8B0C8C02E6CA8 /* ChangeSourceView.swift */,
 			);
 			path = BookDetail;
@@ -988,6 +991,7 @@
 				1818958C9BAF8DF911E109F7 /* BrowserBridge.swift in Sources */,
 				16EC292CCCB46CEE92C337C6 /* CSSSelectorEngine.swift in Sources */,
 				375A08994E78B029347D3521 /* CacheView.swift in Sources */,
+				9CCBCA147CC3535E605A96CD /* ChangeChapterSourceView.swift in Sources */,
 				C74B17EBC4D7D993CD6E40BC /* ChangeSourceView.swift in Sources */,
 				748B087C277F6F86E6647557 /* ChapterImageBlock.swift in Sources */,
 				5C4B031B9B8E0DB9B504E4EE /* ChapterRepository.swift in Sources */,

@@ -36,6 +36,7 @@ public struct ReaderView: View {
     @State private var showSearchContent: Bool = false
     @State private var showContentEdit: Bool = false
     @State private var showChangeSource: Bool = false
+    @State private var showChangeChapterSource: Bool = false
     @StateObject private var autoRead = AutoReadController.shared
     @State private var showAutoReadConfig: Bool = false
     /// 万象书屋 (M2.6.4): 阅读器内整本下载, 跟 BookDetailView.downloadRow 共用
@@ -132,6 +133,12 @@ public struct ReaderView: View {
                         showChangeSource = true
                     }
                 }
+                if args.contains("--ReaderShowChangeChapterSource") || args.contains("-ReaderShowChangeChapterSource") {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        showChangeChapterSource = true
+                    }
+                }
                 if args.contains("--ReaderTriggerDownload") || args.contains("-ReaderTriggerDownload") {
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -159,6 +166,9 @@ public struct ReaderView: View {
                 repaginateCurrent()
             }
             .onChange(of: engine.loadingChapter) { _, _ in
+                repaginateCurrent()
+            }
+            .onChange(of: engine.chapterContentRevision) { _, _ in
                 repaginateCurrent()
             }
             // 任何排版字段变化都要重新分页
@@ -221,6 +231,18 @@ public struct ReaderView: View {
         .sheet(isPresented: $showChangeSource) {
             ChangeSourceView(originalBook: engine.book) { newBook, newSource in
                 Task { await engine.changeSource(to: newBook, source: newSource) }
+            }
+        }
+        .sheet(isPresented: $showChangeChapterSource) {
+            ChangeChapterSourceView(
+                originalBook: engine.book,
+                chapterIndex: engine.currentChapterIndex,
+                chapterTitle: engine.chapters[safe: engine.currentChapterIndex]?.title ?? engine.book.durChapterTitle
+            ) { body in
+                Task {
+                    await engine.replaceCurrentChapterBody(body)
+                    await MainActor.run { showChangeChapterSource = false }
+                }
             }
         }
         .sheet(isPresented: $showAutoReadConfig) {
@@ -403,6 +425,13 @@ public struct ReaderView: View {
                                 .foregroundStyle(.white)
                                 .clipShape(Capsule())
                         }
+                        Button { showChangeChapterSource = true } label: {
+                            Label("本章换源", systemImage: "doc.text.magnifyingglass")
+                                .padding(.horizontal, 14).padding(.vertical, 8)
+                                .overlay(Capsule().stroke(WanxiangColors.accent.opacity(0.85), lineWidth: 1.5))
+                                .foregroundStyle(WanxiangColors.accent)
+                                .clipShape(Capsule())
+                        }
                     }
                     // 万象书屋 (P0 fix): 出错状态也得能返回 (顶部 nav 默认隐藏, 这里给 fallback)
                     Button { dismiss() } label: {
@@ -539,6 +568,9 @@ public struct ReaderView: View {
                     // 万象书屋 (M2.6.4): 阅读器内换源 — 用户读到一半发现源文质量差直接切.
                     Button { showChangeSource = true } label: {
                         Label("换源", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    Button { showChangeChapterSource = true } label: {
+                        Label("本章换源", systemImage: "doc.text.magnifyingglass")
                     }
                     // 万象书屋 (M2.6.4): 阅读器内整本下载 — 出门前点一下, 离线读全本.
                     downloadMenuItem
