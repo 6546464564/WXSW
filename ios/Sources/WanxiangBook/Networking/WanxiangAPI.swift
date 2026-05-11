@@ -28,9 +28,9 @@ actor WanxiangAPI {
     static let shared = WanxiangAPI()
 
     // 万象书屋: 后端 URL.
-    // 优先级: launch arg `--BackendURL <url>` > UserDefaults `wx.backendURL` > 默认生产
-    // 本地开发可在 Scheme/launch args 加: --BackendURL http://localhost:3000
-    // M0 联调用 IP, M5 备案完成切 https://api.wanxiangbook.com (Info.plist ATS 例外可删)
+    // 优先级: launch arg `--BackendURL <url>` > UserDefaults `wx.backendURL` > 默认
+    // 默认值: DEBUG build 走 localhost:3000 (开发期默认连本地, 拿全量源 2000+ 条);
+    //         Release build 走生产 IP (M5 备案完成切 https://api.wanxiangbook.com).
     static let baseURL: URL = {
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "--BackendURL"), i + 1 < args.count,
@@ -41,7 +41,11 @@ actor WanxiangAPI {
            let u = URL(string: s) {
             return u
         }
+        #if DEBUG
+        return URL(string: "http://localhost:3000")!
+        #else
         return URL(string: "http://104.224.156.240")!
+        #endif
     }()
 
     /// 平台标识. 跟 Android PLATFORM = "android" 对齐
