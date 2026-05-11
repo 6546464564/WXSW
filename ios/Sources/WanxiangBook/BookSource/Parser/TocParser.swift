@@ -152,7 +152,9 @@ public final class TocParser: @unchecked Sendable {
                     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                     // legado 约定: JS 返 `""` / `null` / `[]` 时停止
                     if trimmed.isEmpty || trimmed == "null" || trimmed == "[]" { continue }
-                    let abs = absolutize(trimmed, baseUrl: baseUrl) ?? trimmed
+                    // 万象书屋 (M2.8 fix bug): absolutize 返 nil 表示这不是合法 URL
+                    // (JSON 段/HTML 段). 不要 `?? trimmed` 把垃圾当 URL fetch.
+                    guard let abs = absolutize(trimmed, baseUrl: baseUrl) else { continue }
                     if !visitedPages.contains(abs) { queue.append(abs) }
                 }
             }
@@ -278,6 +280,14 @@ public final class TocParser: @unchecked Sendable {
 
     nonisolated func absolutize(_ url: String?, baseUrl: String?) -> String? {
         guard let url, !url.isEmpty else { return nil }
+        // 万象书屋 (M2.8 fix bug): 跟 BookInfoParser.absolutize 同步, 拦 JSON / HTML 段.
+        // 言情小说吧等源 nextTocUrl JS 返 ajax response object 当下一页 URL,
+        // 走到 fetcher 抛 "非法 URL: {...}".
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") ||
+           trimmed.hasPrefix("<") || trimmed.contains("\n") {
+            return nil
+        }
         if url.hasPrefix("http://") || url.hasPrefix("https://") { return url }
         guard let base = baseUrl, let baseURL = URL(string: base) else { return url }
         return URL(string: url, relativeTo: baseURL)?.absoluteString ?? url

@@ -1357,6 +1357,39 @@ public actor JSEngine {
                 var el = java.getElement(rule);
                 return el ? el.text() : '';
             };
+            // 万象书屋 (M2.8 fix bug): java.getStringList(rule) — legado AnalyzeRule.getStringList,
+            // 在 src 上跑 selector 返 string array (text/href 等). 言情小说吧等源 chapterList JS
+            // 调到这俩, iOS 之前没注入 ⇒ ReferenceError ⇒ 整 JS fail ⇒ chapter 阶段崩.
+            // 简化版: 用 getElements 拿元素后 .text() 列表. 不支持 @attr 链式 (只覆盖最常用情况).
+            java.getStringList = function(rule) {
+                if (typeof rule !== 'string') return [];
+                // 简易: 切掉 ||  fallback (Android 真实现支持, 这里取第一段 try)
+                var firstAlt = String(rule).split('||')[0];
+                // 切掉 @attr 后缀, 保留 selector. e.g. `img[alt]@src` → `img[alt]`,
+                // 后面我们手动取 attr.
+                var atIdx = firstAlt.lastIndexOf('@');
+                var sel = firstAlt, attr = '';
+                if (atIdx > 0) {
+                    var maybeAttr = firstAlt.substring(atIdx + 1).trim();
+                    if (/^\\w+$/.test(maybeAttr)) {
+                        sel = firstAlt.substring(0, atIdx);
+                        attr = maybeAttr;
+                    }
+                }
+                var els = java.getElements(sel);
+                var out = [];
+                for (var i = 0; i < els.length; i++) {
+                    var el = els[i];
+                    if (!el) continue;
+                    var v = '';
+                    if (attr === '' || attr === 'text') v = el.text();
+                    else if (attr === 'html') v = el.html();
+                    else if (attr === 'outerHtml') v = el.outerHtml();
+                    else v = el.attr(attr);
+                    if (v) out.push(String(v));
+                }
+                return out;
+            };
         })();
         """)
 
