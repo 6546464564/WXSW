@@ -835,6 +835,199 @@ public actor JSEngine {
         java.setObject(aesEnc, forKeyedSubscript: "aesEncodeToString" as NSString)
         java.setObject(aesDec, forKeyedSubscript: "aesDecodeToString" as NSString)
 
+        // 万象书屋 (M2.8 fix bug): Raw byte-array AES bridge — 给 Rhino Java packages polyfill 用.
+        // Android Rhino 让源 JS 直接写 `Cipher.getInstance(...).doFinal(byteArray)` 这种 Java 风格,
+        // 七猫小说等加密源用了大量这种代码. iOS 之前完全不能跑.
+        // 此函数: data/key/iv 都是 base64 字符串 (避免 byte array 的桥接问题), 返 base64.
+        let aesRawB64: @convention(block) (String, String, String, String, String) -> String? = { op, dataB64, keyB64, ivB64, transformation in
+            guard let dataBytes = Data(base64Encoded: dataB64),
+                  let keyBytes = Data(base64Encoded: keyB64) else { return nil }
+            let ivBytes: Data? = ivB64.isEmpty ? nil : Data(base64Encoded: ivB64)
+            let operation: CCOperation = op == "decrypt" ? CCOperation(kCCDecrypt) : CCOperation(kCCEncrypt)
+            guard let result = aesCrypt(operation: operation,
+                                        data: dataBytes, key: keyBytes, iv: ivBytes,
+                                        transformation: transformation) else {
+                return nil
+            }
+            return result.base64EncodedString()
+        }
+        ctx.setObject(aesRawB64, forKeyedSubscript: "__wx_aes_raw_b64" as NSString)
+
+        // 万象书屋 (M2.8 fix bug): Rhino Java packages polyfill —
+        // Android legado JS 跑在 Mozilla Rhino 上, 直接桥到 java.lang / javax.crypto.spec /
+        // javax.crypto / java.util. 七猫小说的 content rule 里有:
+        //   var javaImport = new JavaImporter();
+        //   javaImport.importPackage(Packages.java.lang, Packages.javax.crypto.spec, ...);
+        //   with(javaImport) {
+        //       var ivEncData = Base64.getDecoder().decode(content);
+        //       var key = SecretKeySpec(String("xxx").getBytes(), "AES");
+        //       var iv = IvParameterSpec(Arrays.copyOfRange(ivEncData, 0, 16));
+        //       var c = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        //       c.init(2, key, iv);
+        //       return String(c.doFinal(Arrays.copyOfRange(ivEncData, 16, length)));
+        //   }
+        // iOS JSCore 完全没这套. 这里 polyfill 关键的几个类, 桥到上面的 __wx_aes_raw_b64.
+        // 字节用 Uint8Array 表达, 字符串↔字节用 atob/btoa 中转 base64.
+        ctx.evaluateScript("""
+        (function() {
+            // === byte/base64 helpers ===
+            function bytesToB64(u8) {
+                var s = '';
+                for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+                return btoa(s);
+            }
+            function b64ToBytes(b64) {
+                if (!b64) return new Uint8Array(0);
+                var bin = atob(b64);
+                var u8 = new Uint8Array(bin.length);
+                for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+                return u8;
+            }
+            function bytesToUtf8(u8) {
+                // 朴素 utf-8 decode, 够覆盖中文.
+                var s = '', i = 0;
+                while (i < u8.length) {
+                    var b = u8[i++];
+                    if (b < 0x80) s += String.fromCharCode(b);
+                    else if (b < 0xc0) continue;
+                    else if (b < 0xe0) {
+                        s += String.fromCharCode(((b & 0x1f) << 6) | (u8[i++] & 0x3f));
+                    } else if (b < 0xf0) {
+                        s += String.fromCharCode(((b & 0x0f) << 12) | ((u8[i++] & 0x3f) << 6) | (u8[i++] & 0x3f));
+                    } else {
+                        var cp = ((b & 0x07) << 18) | ((u8[i++] & 0x3f) << 12) | ((u8[i++] & 0x3f) << 6) | (u8[i++] & 0x3f);
+                        cp -= 0x10000;
+                        s += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+                    }
+                }
+                return s;
+            }
+            globalThis.__wx_bytes_to_b64 = bytesToB64;
+            globalThis.__wx_b64_to_bytes = b64ToBytes;
+            globalThis.__wx_bytes_to_utf8 = bytesToUtf8;
+
+            // === String.getBytes / fromCharCode 风格 ===
+            // Java String.getBytes() → utf-8 byte array. JS String 没此 method, polyfill.
+            if (!String.prototype.getBytes) {
+                String.prototype.getBytes = function(charset) {
+                    var s = String(this);
+                    var u8 = [];
+                    for (var i = 0; i < s.length; i++) {
+                        var code = s.charCodeAt(i);
+                        if (code < 0x80) u8.push(code);
+                        else if (code < 0x800) {
+                            u8.push(0xc0 | (code >> 6));
+                            u8.push(0x80 | (code & 0x3f));
+                        } else if (code < 0xd800 || code >= 0xe000) {
+                            u8.push(0xe0 | (code >> 12));
+                            u8.push(0x80 | ((code >> 6) & 0x3f));
+                            u8.push(0x80 | (code & 0x3f));
+                        } else {
+                            // surrogate pair
+                            i++;
+                            var c2 = s.charCodeAt(i);
+                            var cp = 0x10000 + (((code & 0x3ff) << 10) | (c2 & 0x3ff));
+                            u8.push(0xf0 | (cp >> 18));
+                            u8.push(0x80 | ((cp >> 12) & 0x3f));
+                            u8.push(0x80 | ((cp >> 6) & 0x3f));
+                            u8.push(0x80 | (cp & 0x3f));
+                        }
+                    }
+                    return new Uint8Array(u8);
+                };
+            }
+
+            // === Base64 (java.util.Base64) ===
+            globalThis.Base64 = {
+                getEncoder: function() {
+                    return {
+                        encodeToString: function(bytes) { return bytesToB64(bytes); }
+                    };
+                },
+                getDecoder: function() {
+                    return {
+                        decode: function(str) { return b64ToBytes(String(str)); }
+                    };
+                }
+            };
+
+            // === Arrays (java.util.Arrays) ===
+            globalThis.Arrays = {
+                copyOfRange: function(arr, from, to) {
+                    if (arr instanceof Uint8Array) return arr.slice(from, to);
+                    return Array.prototype.slice.call(arr, from, to);
+                },
+                toString: function(arr) {
+                    return '[' + Array.prototype.join.call(arr, ', ') + ']';
+                },
+                asList: function(arr) { return Array.prototype.slice.call(arr); }
+            };
+
+            // === SecretKeySpec / IvParameterSpec (javax.crypto.spec) ===
+            globalThis.SecretKeySpec = function(keyBytes, algo) {
+                return { __key: keyBytes, __algo: algo || 'AES' };
+            };
+            globalThis.IvParameterSpec = function(ivBytes) {
+                return { __iv: ivBytes };
+            };
+
+            // === Cipher (javax.crypto.Cipher) ===
+            // 仅支持 AES/CBC + AES/ECB + PKCS5/7 Padding. 跟 Android JsExtensions 默认一致.
+            globalThis.Cipher = {
+                ENCRYPT_MODE: 1,
+                DECRYPT_MODE: 2,
+                getInstance: function(transformation) {
+                    var c = {
+                        __t: transformation, __key: null, __iv: null, __mode: 0,
+                        init: function(mode, key, iv) {
+                            c.__mode = mode;
+                            c.__key = key && key.__key;
+                            c.__iv = iv && iv.__iv;
+                        },
+                        doFinal: function(bytes) {
+                            // bytes 应是 Uint8Array; 也可能是 plain array
+                            var u8 = (bytes instanceof Uint8Array) ? bytes : new Uint8Array(bytes);
+                            var keyB64 = bytesToB64(c.__key instanceof Uint8Array ? c.__key : new Uint8Array(c.__key));
+                            var ivB64 = c.__iv ? bytesToB64(c.__iv instanceof Uint8Array ? c.__iv : new Uint8Array(c.__iv)) : '';
+                            var dataB64 = bytesToB64(u8);
+                            var op = (c.__mode === 2) ? 'decrypt' : 'encrypt';
+                            var resB64 = __wx_aes_raw_b64(op, dataB64, keyB64, ivB64, c.__t);
+                            // 返字节. 七猫等源外面用 String(...) wrap, 我们让 toString 返 utf-8 字符串
+                            // 让 String(bytes) 直接拿到明文.
+                            var resBytes = b64ToBytes(resB64 || '');
+                            // mark with toString → utf-8 (七猫: String(c.doFinal(...)))
+                            resBytes.toString = function() { return bytesToUtf8(resBytes); };
+                            return resBytes;
+                        }
+                    };
+                    return c;
+                }
+            };
+
+            // === JavaImporter / Packages ===
+            // 1. JavaImporter() — Rhino API, importPackage 是 noop, importClass 也 noop
+            globalThis.JavaImporter = function() {
+                return {
+                    importPackage: function() {},
+                    importClass: function() {},
+                    // 让 with(javaImport) {...} 找 Base64/Arrays/Cipher 等也能命中
+                    Base64: globalThis.Base64,
+                    Arrays: globalThis.Arrays,
+                    Cipher: globalThis.Cipher,
+                    SecretKeySpec: globalThis.SecretKeySpec,
+                    IvParameterSpec: globalThis.IvParameterSpec
+                };
+            };
+            // 2. Packages.* — 任何路径下都返一个空对象 (importPackage 实际不需要这内容)
+            //    用 Proxy 让 `Packages.java.lang` 等任意嵌套都返 noop.
+            globalThis.Packages = new Proxy({}, {
+                get: function() {
+                    return new Proxy({}, { get: function() { return new Proxy({}, { get: function() { return null; } }); } });
+                }
+            });
+        })();
+        """)
+
         let toString: @convention(block) (Any?) -> String = { v in
             v.map { String(describing: $0) } ?? ""
         }

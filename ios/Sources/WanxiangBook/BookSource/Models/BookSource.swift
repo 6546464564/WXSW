@@ -79,13 +79,46 @@ public struct BookSource: Codable, Hashable, Sendable {
     }
 
     /// 万象书屋: 解析 header JSON 字符串 → [String: String]
+    /// 支持 legado 源里的两种写法: 标准 JSON (`{"k":"v"}`) 和单引号 (`{'k':'v'}`).
+    /// Android Gson 默认严格, 但 legado 自己的 GSON 配置 setLenient + 一些源真的写单引号
+    /// (猫眼看书等需要 client-device/version 自定义 header 才能拿数据), 所以 iOS 也要兼容.
     public func parseHeaders() -> [String: String] {
-        guard let h = header,
-              let data = h.data(using: .utf8),
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return [:]
+        guard let h = header, !h.isEmpty else { return [:] }
+        // 1. 先严格 JSON 试
+        if let data = h.data(using: .utf8),
+           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return dict.compactMapValues { String(describing: $0) }
         }
-        return dict.compactMapValues { String(describing: $0) }
+        // 2. lenient: 简单把不在双引号内的单引号换成双引号再试
+        // 万象书屋 (M2.8 fix bug): 猫眼看书等大量加密源 header 写单引号 ⇒ 严格 JSON 解析失败
+        // ⇒ 没带 client-device/version/Authorization ⇒ API 返 4004 device 不能为空 ⇒ toc 0.
+        let normalized = lenientJSONNormalize(h)
+        if let data = normalized.data(using: .utf8),
+           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return dict.compactMapValues { String(describing: $0) }
+        }
+        return [:]
+    }
+
+    /// 万象书屋: 简单 lenient JSON 标准化 — 把字符串外的单引号换成双引号.
+    /// 不做完整 JS lexer, 只处理 legado 源里典型的单引号 KV 写法.
+    private func lenientJSONNormalize(_ s: String) -> String {
+        var out = ""
+        out.reserveCapacity(s.count)
+        var inDouble = false
+        var prev: Character = " "
+        for c in s {
+            if !inDouble && c == "'" {
+                out.append("\"")
+            } else if c == "\"" && prev != "\\" {
+                inDouble.toggle()
+                out.append(c)
+            } else {
+                out.append(c)
+            }
+            prev = c
+        }
+        return out
     }
 
     // MARK: - 防御性 Decoding (legado 书源 JSON 字段缺失/类型不一致时不崩)

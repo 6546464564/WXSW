@@ -155,9 +155,29 @@ public enum LegadoRuleParser {
                     }
                 }
             case "@":
-                // 检测 `@js:` 段开始 — 之后到字符串结尾都不切.
+                // 万象书屋 (M2.8 fix bug): legado chain rule
+                //   `$.path@js:aesDecode(result)`             (无换行直接拼接)
+                //   `$.path\n@js:aesDecode(result)`           (带换行)
+                //   `selector\n<js>code</js>`                 (块写法)
+                // Android RuleAnalyzer 把 `@js:` 出现在段中间时当隐式 `&&` 切.
+                // 之前 iOS 没切 ⇒ 整段被 parseSingle 当一种 mode 解析, 第二段
+                // @js: 被忽略 ⇒ 猫眼看书等 chapterUrl `$.path@js:aesDecode(result)`
+                // 拿不到解密后的 URL ⇒ "chapter.chapterUrl 为空".
                 let rest = chars[i...]
                 if rest.starts(with: "@js:") {
+                    if depthSquare == 0, depthRound == 0, depthAngle == 0, !inJsPrefix {
+                        // 检查 sliceStart..<i 之间有没有非空白内容 — 有就切一刀
+                        let pre = String(chars[sliceStart..<i])
+                        let trimmed = pre.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            out.append(Substring(pre))
+                            sliceStart = i      // 下一段从 @js: 开始
+                            inJsPrefix = true
+                            i += 4
+                            continue
+                        }
+                    }
+                    // 段头本来就是 @js:, 不切, 进保护
                     inJsPrefix = true
                     i += 4
                     continue
