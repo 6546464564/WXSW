@@ -100,7 +100,7 @@ public final class BookSourceRegistry: ObservableObject {
     public func refresh() async {
         do {
             // 万象书屋: 带上次的 etag, server 304 时直接走"内存继续用"分支, 1KB 流量 0 RTT.
-            let result = try await WanxiangAPI.shared.fetchSources(ifNoneMatch: lastSourcesEtag)
+            var result = try await WanxiangAPI.shared.fetchSources(ifNoneMatch: lastSourcesEtag)
 
             // ── 守护 1: 304 命中 → server 说"你的还是最新", 不动内存
             //   `fetchSources` 在 304 时返回 `([], etag)`, 不能误把空数组当真实结果替进 self.sources.
@@ -108,6 +108,17 @@ public final class BookSourceRegistry: ObservableObject {
                 if let e = result.etag { self.lastSourcesEtag = e }
                 print("[BookSourceRegistry] etag 304 hit, keep \(sources.count) in-memory sources")
                 return
+            }
+
+            // 万象书屋 (perf P0): 极端冷启动场景 — URLSession disk cache 兜了一个旧 If-None-Match
+            //   去 server, server 返 304 (空 body), 但 lastSourcesEtag 是 nil (进程刚启动) →
+            //   sources 仍是空. 之前会走到 bundle fallback 拿 32 条, 而不是后端 1889 条.
+            //   修法: 再发一次显式不带 etag 的请求, 强制拿 200 body.
+            //   (现在 WanxiangAPI.session.urlCache=nil 后 URLSession 不该自动加 If-None-Match
+            //   了, 这层属于二保险.)
+            if result.sources.isEmpty, sources.isEmpty, lastSourcesEtag == nil {
+                print("[BookSourceRegistry] cold start 304 with empty cache, refetch w/o etag")
+                result = try await WanxiangAPI.shared.fetchSources(ifNoneMatch: nil)
             }
 
             let remote = await Self.parseSourcesOffMainActor(result.sources)

@@ -80,6 +80,16 @@ actor WanxiangAPI {
         cfg.timeoutIntervalForRequest = 15
         cfg.timeoutIntervalForResource = 30
         cfg.waitsForConnectivity = true
+        // 万象书屋 (perf P1): 禁用 URLSession 协议层 disk cache.
+        //   - 否则系统会把 GET 响应 + ETag 写 disk, 下次自动加 If-None-Match → 多数业务接口
+        //     的 ETag/304 控制全由我们自己 (BookSourceRegistry.lastSourcesEtag /
+        //     BookstoreMirror.cachedEtag 等) 管理, 系统层缓存只会污染我们的状态机
+        //     (e.g. /api/sources 冷启动 304 + 内存 cache 空 → 走 bundle fallback 拿 32 条
+        //     而不是后端 1889 条).
+        //   - urlCache = nil + 默认 cachePolicy=useProtocolCachePolicy 共同保证: 不本地缓存 body,
+        //     不自动加 If-None-Match. 我们要 etag 时显式 setValue.
+        cfg.urlCache = nil
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
         cfg.httpAdditionalHeaders = [
             "Accept": "application/json",
             "User-Agent": Self.userAgent,
