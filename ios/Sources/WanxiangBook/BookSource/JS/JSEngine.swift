@@ -133,7 +133,71 @@ public actor JSEngine {
         // 实战中观察到一批源 (笔趣类、第一版主类) 在 if/else 多分支里都写 `let bu = ...` 导致冲突.
         // 简单办法: 把顶层 `let ` / `const ` 都改成 `var ` (function scope, 允许重复).
         // 这会丢掉 block scope 语义, 但 legado 源 JS 一般不依赖 let 在循环里的闭包捕获.
-        return demoteLetConstToVar(trimmed)
+        let demoted = demoteLetConstToVar(trimmed)
+        // 万象书屋 (M2.8 fix bug): Java 风格 `.length()` 替成 `.length`. legado 源 JS 大量
+        // 写 `s.length()` (Java String API), JSCore string 只有 `.length` property 没 method
+        // ⇒ TypeError: undefined is not a function. 高辣书屋等源 content rule 因此 0 chars.
+        // JS string/array 的 `.length` 都是 number, 替换后语义一致.
+        return rewriteJavaLengthCall(demoted)
+    }
+
+    /// 万象书屋: 在不动 string/template/regex/comment 内容的前提下, 把 `.length()` 替成 `.length`.
+    nonisolated private func rewriteJavaLengthCall(_ s: String) -> String {
+        guard s.contains(".length(") else { return s }
+        var out = ""
+        out.reserveCapacity(s.count)
+        var i = s.startIndex
+        var inSingle = false, inDouble = false, inTpl = false
+        var inLine = false, inBlock = false, inRegex = false
+        var prevSig: Character = "\n"
+        let target: [Character] = [".", "l", "e", "n", "g", "t", "h", "(", ")"]
+        while i < s.endIndex {
+            let c = s[i]
+            let next = s.index(after: i)
+            if inLine { out.append(c); if c == "\n" { inLine = false }; i = next; continue }
+            if inBlock {
+                out.append(c)
+                if c == "*", next < s.endIndex, s[next] == "/" { out.append("/"); i = s.index(after: next); inBlock = false; continue }
+                i = next; continue
+            }
+            if inSingle {
+                out.append(c); if c == "\\", next < s.endIndex { out.append(s[next]); i = s.index(after: next); continue }
+                if c == "'" { inSingle = false }; i = next; continue
+            }
+            if inDouble {
+                out.append(c); if c == "\\", next < s.endIndex { out.append(s[next]); i = s.index(after: next); continue }
+                if c == "\"" { inDouble = false }; i = next; continue
+            }
+            if inTpl {
+                out.append(c); if c == "\\", next < s.endIndex { out.append(s[next]); i = s.index(after: next); continue }
+                if c == "`" { inTpl = false }; i = next; continue
+            }
+            if inRegex {
+                out.append(c); if c == "\\", next < s.endIndex { out.append(s[next]); i = s.index(after: next); continue }
+                if c == "/" { inRegex = false }; i = next; continue
+            }
+            if c == "/" {
+                if next < s.endIndex && s[next] == "/" { out.append("/"); out.append("/"); inLine = true; i = s.index(after: next); continue }
+                if next < s.endIndex && s[next] == "*" { out.append("/"); out.append("*"); inBlock = true; i = s.index(after: next); continue }
+                let isExprPrev = prevSig.isLetter || prevSig.isNumber || prevSig == ")" || prevSig == "]"
+                if !isExprPrev { out.append(c); inRegex = true; i = next; prevSig = c; continue }
+            }
+            if c == "'" { out.append(c); inSingle = true; i = next; prevSig = c; continue }
+            if c == "\"" { out.append(c); inDouble = true; i = next; prevSig = c; continue }
+            if c == "`" { out.append(c); inTpl = true; i = next; prevSig = c; continue }
+            // try match `.length()`
+            if c == ".", let end = s.index(i, offsetBy: target.count, limitedBy: s.endIndex),
+               Array(s[i..<end]) == target {
+                out.append(".length")
+                i = end
+                prevSig = "h"
+                continue
+            }
+            out.append(c)
+            if !c.isWhitespace { prevSig = c }
+            i = next
+        }
+        return out
     }
 
     /// 把脚本里所有不在字符串/正则/注释里的 `let`/`const` 关键字改成 `var`.
@@ -748,6 +812,29 @@ public actor JSEngine {
         }
         java.setObject(sha256Encode, forKeyedSubscript: "sha256Encode" as NSString)
 
+        // 万象书屋 (M2.8 fix bug): AES 加解密 — legado 大量加密源 (爱上、猫眼看书、连城读书)
+        // 用 java.aesBase64DecodeToString / java.aesEncodeToBase64String, 之前 iOS 没实现
+        // ⇒ undefined ⇒ 整段 JS 抛错. transformation 形如 "AES/CBC/PKCS5Padding".
+        let aesB64Dec: @convention(block) (String, String, String, String) -> String? = { d, k, tx, iv in
+            aesBase64DecodeToString(d, k, tx, iv)
+        }
+        let aesEncB64: @convention(block) (String, String, String, String) -> String? = { d, k, tx, iv in
+            aesEncodeToBase64String(d, k, tx, iv)
+        }
+        let aesEnc: @convention(block) (String, String, String, String) -> String? = { d, k, tx, iv in
+            aesEncodeToString(d, k, tx, iv)
+        }
+        let aesDec: @convention(block) (String, String, String, String) -> String? = { d, k, tx, iv in
+            aesDecodeToString(d, k, tx, iv)
+        }
+        java.setObject(aesB64Dec, forKeyedSubscript: "aesBase64DecodeToString" as NSString)
+        // Android alias: aesDecodeArgsBase64Str / aesEncodeArgsBase64Str
+        java.setObject(aesB64Dec, forKeyedSubscript: "aesDecodeArgsBase64Str" as NSString)
+        java.setObject(aesEncB64, forKeyedSubscript: "aesEncodeToBase64String" as NSString)
+        java.setObject(aesEncB64, forKeyedSubscript: "aesEncodeArgsBase64Str" as NSString)
+        java.setObject(aesEnc, forKeyedSubscript: "aesEncodeToString" as NSString)
+        java.setObject(aesDec, forKeyedSubscript: "aesDecodeToString" as NSString)
+
         let toString: @convention(block) (Any?) -> String = { v in
             v.map { String(describing: $0) } ?? ""
         }
@@ -1267,4 +1354,119 @@ func sha256Hex(_ s: String) -> String {
     var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
     data.withUnsafeBytes { _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &digest) }
     return digest.map { String(format: "%02x", $0) }.joined()
+}
+
+// MARK: - AES 加解密 (CommonCrypto)
+//
+// 万象书屋 (M2.8 fix bug): legado JS 大量加密源 (爱上、猫眼看书、连城读书 等) 调
+//   java.aesBase64DecodeToString(data, key, transformation, iv)
+//   java.aesEncodeToBase64String(data, key, transformation, iv)
+//   java.aesEncodeArgsBase64Str(data, key, transformation, iv) (Android alias)
+// iOS 之前没实现 ⇒ undefined ⇒ 整段 JS 抛错. 现补齐.
+//
+// transformation 形如 "AES/CBC/PKCS5Padding" / "AES/ECB/PKCS7Padding". CommonCrypto:
+//   PKCS5/7 → kCCOptionPKCS7Padding (语义一致, AES 块 16 字节, 两者填充等价)
+//   ECB → kCCOptionECBMode + null iv
+//   CBC → 不加 ECB option, iv 必填
+// CFB/OFB 用 CCCryptor 流模式 (本实现暂仅 CBC/ECB; 偶尔出现 CFB 时返 nil 让源退回兜底).
+
+enum AESError: Error { case invalid }
+
+/// 解析 transformation 字符串 → (option, isCBC)
+private func parseAESOptions(_ transformation: String) -> (CCOptions, useIV: Bool)? {
+    let t = transformation.uppercased()
+    let parts = t.split(separator: "/").map { String($0) }
+    guard parts.count == 3, parts[0] == "AES" else { return nil }
+    let mode = parts[1]
+    let pad = parts[2]
+    var opts: CCOptions = 0
+    var useIV = true
+    switch mode {
+    case "CBC":
+        useIV = true
+    case "ECB":
+        opts |= CCOptions(kCCOptionECBMode)
+        useIV = false
+    default:
+        return nil  // CFB/OFB 不支持
+    }
+    switch pad {
+    case "PKCS5PADDING", "PKCS7PADDING":
+        opts |= CCOptions(kCCOptionPKCS7Padding)
+    case "NOPADDING":
+        break
+    default:
+        return nil
+    }
+    return (opts, useIV)
+}
+
+/// AES 加解密底层. data/key/iv 都是 raw bytes.
+private func aesCrypt(operation: CCOperation, data: Data, key: Data, iv: Data?, transformation: String) -> Data? {
+    guard let (opts, useIV) = parseAESOptions(transformation) else { return nil }
+    // AES 支持 16/24/32 byte key
+    guard [16, 24, 32].contains(key.count) else { return nil }
+    if useIV, (iv?.count ?? 0) != 16 { return nil }
+    let outLen = data.count + kCCBlockSizeAES128
+    var out = Data(count: outLen)
+    var moved: size_t = 0
+    let status = out.withUnsafeMutableBytes { outPtr -> CCCryptorStatus in
+        data.withUnsafeBytes { dataPtr -> CCCryptorStatus in
+            key.withUnsafeBytes { keyPtr -> CCCryptorStatus in
+                let ivPtr: UnsafeRawPointer? = useIV ? iv?.withUnsafeBytes { $0.baseAddress } : nil
+                return CCCrypt(operation,
+                               CCAlgorithm(kCCAlgorithmAES),
+                               opts,
+                               keyPtr.baseAddress, key.count,
+                               ivPtr,
+                               dataPtr.baseAddress, data.count,
+                               outPtr.baseAddress, outLen,
+                               &moved)
+            }
+        }
+    }
+    guard status == kCCSuccess else { return nil }
+    out.count = moved
+    return out
+}
+
+/// 公共: data 是 base64 字符串, key/iv 是 utf8 字符串, 返 utf8 字符串.
+func aesBase64DecodeToString(_ data: String, _ key: String, _ transformation: String, _ iv: String) -> String? {
+    guard let bytes = Data(base64Encoded: data) else { return nil }
+    let result = aesCrypt(operation: CCOperation(kCCDecrypt),
+                          data: bytes,
+                          key: Data(key.utf8),
+                          iv: iv.isEmpty ? nil : Data(iv.utf8),
+                          transformation: transformation)
+    guard let out = result else { return nil }
+    return String(data: out, encoding: .utf8)
+}
+
+/// data 是 utf8 字符串, key/iv utf8, 返 base64 字符串.
+func aesEncodeToBase64String(_ data: String, _ key: String, _ transformation: String, _ iv: String) -> String? {
+    let result = aesCrypt(operation: CCOperation(kCCEncrypt),
+                          data: Data(data.utf8),
+                          key: Data(key.utf8),
+                          iv: iv.isEmpty ? nil : Data(iv.utf8),
+                          transformation: transformation)
+    return result?.base64EncodedString()
+}
+
+/// data 是 utf8 字符串, key/iv utf8, 返 utf8 字符串 (raw 加密结果常含不可打印字节, 慎用).
+func aesEncodeToString(_ data: String, _ key: String, _ transformation: String, _ iv: String) -> String? {
+    let result = aesCrypt(operation: CCOperation(kCCEncrypt),
+                          data: Data(data.utf8),
+                          key: Data(key.utf8),
+                          iv: iv.isEmpty ? nil : Data(iv.utf8),
+                          transformation: transformation)
+    return result.flatMap { String(data: $0, encoding: .utf8) }
+}
+
+func aesDecodeToString(_ data: String, _ key: String, _ transformation: String, _ iv: String) -> String? {
+    let result = aesCrypt(operation: CCOperation(kCCDecrypt),
+                          data: Data(data.utf8),
+                          key: Data(key.utf8),
+                          iv: iv.isEmpty ? nil : Data(iv.utf8),
+                          transformation: transformation)
+    return result.flatMap { String(data: $0, encoding: .utf8) }
 }
