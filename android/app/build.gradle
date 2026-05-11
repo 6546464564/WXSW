@@ -129,6 +129,12 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro', 'cronet-proguard-rules.pro'
             buildConfigField "boolean", "WANXIANG_LOG_ENABLED", "true"
+
+            // 万象书屋 (dev): debug build 默认走宿主机本地 backend (Android emulator
+            // 用 10.0.2.2 来访问 host loopback). 取本机 backend/data/wanxiang.db 全量源.
+            // 真机调试时可在 gradle.properties 加 WANXIANG_BACKEND_URL_DEBUG=http://<内网IP>:3000 覆盖.
+            def debugBackend = project.findProperty('WANXIANG_BACKEND_URL_DEBUG') ?: 'http://10.0.2.2:3000'
+            buildConfigField "String", "BACKEND_BASE_URL", "\"${debugBackend.toString().replace('"', '\\"')}\""
         }
     }
     //noinspection GrDeprecatedAPIUsage
