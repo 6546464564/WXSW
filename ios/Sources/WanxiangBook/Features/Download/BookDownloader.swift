@@ -65,17 +65,6 @@ public final class BookDownloader: ObservableObject {
 
     private init() {}
 
-    /// 万象书屋 (M2.8 fix): 通知权限懒申请 — 用户第一次点"下载本书"时才弹.
-    /// 之前在 init 时立即弹 → App 启动就遮屏, 没上下文 = 拒绝率高 + 阻挡其它 UI.
-    private var notificationAuthRequested = false
-    private func requestNotificationAuthIfNeeded() {
-        guard !notificationAuthRequested else { return }
-        notificationAuthRequested = true
-        UNUserNotificationCenter.current().requestAuthorization(
-            options: [.alert, .badge, .sound]
-        ) { _, _ in }
-    }
-
     // MARK: - 公共 API
 
     /// 开始下载. 已有任务直接 noop (不重复跑)
@@ -83,8 +72,8 @@ public final class BookDownloader: ObservableObject {
     ///   跟 Android `CacheBook.start(book, start, end)` 等价, 让用户选"下载第 100-200 章".
     public func startDownload(book: ShelfBook, source: BookSource?, range: ClosedRange<Int>? = nil) {
         if tasks[book.bookUrl] != nil { return }
-        // 万象书屋 (M2.8 fix): 用户真正点下载时才申请通知权限, 不在 init 时打断启动.
-        requestNotificationAuthIfNeeded()
+        // 万象书屋: 不在下载开始时弹系统通知授权框 — 与安卓一致直接开下.
+        // 完成横幅仅在用户已在「设置」里开过通知时投递 (见 postFinishNotification).
         beginBackgroundTaskIfNeeded()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -135,26 +124,37 @@ public final class BookDownloader: ObservableObject {
     // MARK: - 完成通知 (M2.8 C 档)
 
     private func postFinishNotification(job: Job) {
-        let content = UNMutableNotificationContent()
         switch job.status {
-        case .finished:
-            content.title = "已下载完成"
-            content.body = "《\(job.bookName)》共 \(job.completed) 章" +
-                (job.failed > 0 ? " · \(job.failed) 章失败" : "") +
-                (job.imagesDownloaded > 0 ? " · \(job.imagesDownloaded) 张图片" : "")
-        case .error:
-            content.title = "下载失败"
-            content.body = "《\(job.bookName)》目录或源不可用"
-        case .cancelled:
-            return  // 用户主动取消不打扰
+        case .finished, .error: break
+        case .cancelled: return
         default: return
         }
-        let req = UNNotificationRequest(
-            identifier: "wanxiang.download.\(job.bookUrl.hashValue)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(req)
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let allowed: Bool
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral: allowed = true
+            default: allowed = false
+            }
+            guard allowed else { return }
+            let content = UNMutableNotificationContent()
+            switch job.status {
+            case .finished:
+                content.title = "已下载完成"
+                content.body = "《\(job.bookName)》共 \(job.completed) 章" +
+                    (job.failed > 0 ? " · \(job.failed) 章失败" : "") +
+                    (job.imagesDownloaded > 0 ? " · \(job.imagesDownloaded) 张图片" : "")
+            case .error:
+                content.title = "下载失败"
+                content.body = "《\(job.bookName)》目录或源不可用"
+            default: return
+            }
+            let req = UNNotificationRequest(
+                identifier: "wanxiang.download.\(job.bookUrl.hashValue)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(req)
+        }
     }
 
     public func isDownloading(_ bookUrl: String) -> Bool {

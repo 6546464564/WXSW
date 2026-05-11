@@ -33,8 +33,6 @@ struct BookDetailView: View {
     /// 万象书屋 (debug arg `--AutoStartReading`): 详情拉完 toc 后自动 push 进 reader,
     /// 给 GUI 自动化测试用 (cliclick 不稳).
     @State private var autoStartReader = false
-    /// 万象书屋 (M2.8 Gap 2): 章节范围下载 sheet
-    @State private var downloadRangeSheet = false
     /// 万象书屋 (M2.5.5.1 补丁): 详情页里"当前正在用"的 SearchBook / BookSource.
     /// 初始 = 入参; 用户在换源 sheet 里点了候选后 = 候选.
     @State private var currentBook: SearchBook
@@ -133,7 +131,11 @@ struct BookDetailView: View {
         .sheet(isPresented: $tocSheet) {
             // 复用阅读器的 TocView
             NavigationStack {
-                TocView(chapters: vm.chapters, currentIndex: -1) { _ in
+                TocView(
+                    chapters: vm.chapters,
+                    currentIndex: -1,
+                    bookUrl: currentBook.bookUrl
+                ) { _ in
                     tocSheet = false
                 }
                 .navigationTitle("目录 (\(vm.chapters.count))")
@@ -148,20 +150,6 @@ struct BookDetailView: View {
         .sheet(isPresented: $changeSourceSheet) {
             ChangeSourceView(searchBook: currentBook) { newBook, newSource in
                 Task { await onSourceSwitched(to: newBook, source: newSource) }
-            }
-        }
-        // 万象书屋 (M2.8 Gap 2): 章节范围下载 sheet
-        .sheet(isPresented: $downloadRangeSheet) {
-            DownloadRangeSheet(
-                bookName: currentBook.name,
-                totalChapters: vm.chapters.count,
-                currentChapter: vm.shelfDurChapterIndex >= 0 ? vm.shelfDurChapterIndex + 1 : nil
-            ) { range in
-                downloader.startDownload(
-                    book: shelfBookFromSearch(),
-                    source: currentSource,
-                    range: range
-                )
             }
         }
         // 万象书屋 (debug arg `--AutoStartReading`): 让 autoStartReader 触发 push reader.
@@ -340,22 +328,16 @@ struct BookDetailView: View {
             .background(WanxiangColors.card)
             .clipShape(RoundedRectangle(cornerRadius: 10))
         } else {
-            // 万象书屋 (M2.8 fix UX): 跟 Android BaseReadBookActivity.showDownloadDialog 一致 —
-            // 点"下载本书"**先弹范围 sheet** 让用户选起止章再确认下载, 不再短按立即整本下.
-            // 用户反馈: "我下载要我主动点击下载, 而不是不问我过就下载".
+            // 万象书屋: 与安卓一致 — 点「下载本书」直接全本开下，不弹范围 sheet / 不借机申请通知权限.
             Button {
-                if canDownload { downloadRangeSheet = true }
+                if canDownload { triggerDownload() }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.down.circle")
                     Text(downloadButtonTitle(chapterCount: chapterCount))
                         .font(.subheadline.weight(.semibold))
                     Spacer()
-                    if canDownload {
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(WanxiangColors.primary.opacity(0.6))
-                    } else {
+                    if !canDownload {
                         ProgressView().scaleEffect(0.7)
                     }
                 }

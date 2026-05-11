@@ -42,9 +42,6 @@ public struct ReaderView: View {
     /// `BookDownloader.shared` 单例, 不管在哪开始下载状态都同步.
     @StateObject private var downloader = BookDownloader.shared
     @State private var showCancelDownloadConfirm = false
-    /// 万象书屋 (M2.8 fix UX): reader 内点"下载本书" 弹 DownloadRangeSheet 让用户选范围,
-    /// 跟 Android `BaseReadBookActivity.showDownloadDialog` 行为一致, 不再短按立即整本下.
-    @State private var downloadRangeSheet = false
 
     public init(book: ShelfBook, source: BookSource? = nil) {
         _engine = StateObject(wrappedValue: ReaderEngine(book: book, source: source))
@@ -188,8 +185,11 @@ public struct ReaderView: View {
             ReadStyleSheet().presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $tocSheet) {
-            TocView(chapters: engine.chapters,
-                    currentIndex: engine.currentChapterIndex) { idx in
+            TocView(
+                chapters: engine.chapters,
+                currentIndex: engine.currentChapterIndex,
+                bookUrl: engine.book.bookUrl
+            ) { idx in
                 tocSheet = false
                 Task { await engine.goToChapter(idx) }
             }
@@ -225,17 +225,6 @@ public struct ReaderView: View {
         }
         .sheet(isPresented: $showAutoReadConfig) {
             AutoReadConfigSheet()
-        }
-        // 万象书屋 (M2.8 fix UX): reader 下载范围 sheet, 跟 BookDetailView 一样的体验.
-        .sheet(isPresented: $downloadRangeSheet) {
-            DownloadRangeSheet(
-                bookName: engine.book.name,
-                totalChapters: engine.chapters.count,
-                currentChapter: engine.currentChapterIndex >= 0 ? engine.currentChapterIndex + 1 : nil
-            ) { range in
-                let source = BookSourceRegistry.shared.find(origin: engine.book.origin)
-                downloader.startDownload(book: engine.book, source: source, range: range)
-            }
         }
         .confirmationDialog("取消下载", isPresented: $showCancelDownloadConfirm, titleVisibility: .visible) {
             Button("取消下载", role: .destructive) {
@@ -705,10 +694,10 @@ public struct ReaderView: View {
             }
         } else {
             Button {
-                if canDownload { downloadRangeSheet = true }
+                if canDownload { triggerDownloadFromReader() }
             } label: {
                 if canDownload {
-                    Label("下载本书…", systemImage: "arrow.down.circle")
+                    Label("下载本书", systemImage: "arrow.down.circle")
                 } else {
                     Label("下载本书 (等目录…)",
                           systemImage: "arrow.down.circle")
