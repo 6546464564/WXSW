@@ -262,13 +262,11 @@ targets:
     dependencies:
       - package: SwiftSoup
       - package: ZIPFoundation
-      # 广告 SDK (从 Frameworks/ 引) — 本地无二进制时全部注释 (Cursor 自动配置)
-      # 接广告: 跑 ios/scripts/setup-ad-sdks.sh, 然后解开下面 4 行 + GDT 部分
-      # - framework: Frameworks/BUAdSDK.xcframework
-      #   embed: true
-      # 万象书屋: GDT 4.15.80 这版 simulator slice 只有 x86_64, 缺 arm64 simulator.
-      # Apple Silicon 模拟器 (M1/M2/M3/M4 Mac) 编不过.
-      # 真机 archive 时把下面两行注释解开 + 在 GdtAdProvider.swift 也解开 import:
+      # 广告 SDK (从 Frameworks/ 引)
+      - framework: Frameworks/BUAdSDK.xcframework
+        embed: true
+      # GDT 4.15.80 simulator 不含 arm64, 仅真机 Archive 时链接
+      # 解开下面两行 + 在 Debug config 加 WANXIANG_GDT_ENABLED
       # - framework: Frameworks/GDTMobSDK.xcframework
       #   embed: true
       # - framework: Frameworks/Tquic.xcframework

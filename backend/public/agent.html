@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>推广员查询</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .card { transition: all 0.3s ease; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.4s ease forwards; }
+        .stat-num { font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen">
+
+    <!-- 查询页面 -->
+    <div id="queryPage" class="flex items-center justify-center min-h-screen p-4">
+        <div class="w-full max-w-md">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-blue-600 rounded-2xl mx-auto mb-4 flex items-center justify-center">
+                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-bold text-slate-800">推广数据查询</h1>
+                <p class="text-slate-500 mt-2">输入您的推广码查看推广效果</p>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-lg p-6 card">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-slate-700 mb-2">推广码</label>
+                    <input id="codeInput" type="text" placeholder="请输入您的推广码"
+                           class="w-full border border-slate-300 rounded-xl px-4 py-3 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                           onkeydown="if(event.key==='Enter')queryStats()">
+                </div>
+                <button onclick="queryStats()"
+                        class="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition active:scale-[0.98]">
+                    查询
+                </button>
+                <div id="errMsg" class="hidden mt-3 text-center text-red-500 text-sm"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 结果页面 -->
+    <div id="resultPage" class="hidden min-h-screen p-4 pb-20">
+        <div class="max-w-lg mx-auto pt-6">
+            <!-- 头部 -->
+            <div class="flex items-center justify-between mb-6">
+                <button onclick="backToQuery()" class="flex items-center text-slate-500 hover:text-slate-800 transition">
+                    <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                    返回
+                </button>
+                <button onclick="queryStats()" class="text-sm text-blue-600 hover:text-blue-800 transition">刷新数据</button>
+            </div>
+
+            <!-- 推广码信息 -->
+            <div class="bg-white rounded-2xl shadow-lg p-5 mb-4 card fade-in">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-xs text-slate-400 mb-1">推广码</div>
+                        <div id="r-code" class="text-xl font-bold text-blue-600 font-mono">-</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs text-slate-400 mb-1">代理名称</div>
+                        <div id="r-agent" class="text-lg font-semibold text-slate-700">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 统计卡片 -->
+            <div class="grid grid-cols-3 gap-3 mb-4">
+                <div class="bg-white rounded-2xl shadow-lg p-4 text-center card fade-in" style="animation-delay:0.1s">
+                    <div id="r-uses" class="text-3xl font-bold text-green-600 stat-num">0</div>
+                    <div class="text-xs text-slate-500 mt-1">推广人数</div>
+                </div>
+                <div class="bg-white rounded-2xl shadow-lg p-4 text-center card fade-in" style="animation-delay:0.15s">
+                    <div id="r-devices" class="text-3xl font-bold text-blue-600 stat-num">0</div>
+                    <div class="text-xs text-slate-500 mt-1">独立设备</div>
+                </div>
+                <div class="bg-white rounded-2xl shadow-lg p-4 text-center card fade-in" style="animation-delay:0.2s">
+                    <div id="r-attempts" class="text-3xl font-bold text-amber-600 stat-num">0</div>
+                    <div class="text-xs text-slate-500 mt-1">总尝试次数</div>
+                </div>
+            </div>
+
+            <!-- 使用记录 -->
+            <div class="bg-white rounded-2xl shadow-lg overflow-hidden card fade-in" style="animation-delay:0.25s">
+                <div class="px-5 py-4 border-b border-slate-100">
+                    <h3 class="font-bold text-slate-700">推广记录</h3>
+                </div>
+                <div id="r-list" class="max-h-[400px] overflow-y-auto">
+                    <div class="px-5 py-8 text-center text-slate-400 text-sm">暂无记录</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentCode = '';
+
+        async function queryStats() {
+            const code = document.getElementById('codeInput').value.trim() || currentCode;
+            if (!code) {
+                showErr('请输入推广码');
+                return;
+            }
+            currentCode = code;
+            hideErr();
+
+            try {
+                const res = await fetch(`/api/promo/agent-stats?code=${encodeURIComponent(code)}`);
+                const data = await res.json();
+
+                if (!data.ok) {
+                    showErr(data.msg || '查询失败');
+                    return;
+                }
+
+                document.getElementById('r-code').textContent = code;
+                document.getElementById('r-agent').textContent = data.agentName || '-';
+                document.getElementById('r-uses').textContent = data.totalUses || 0;
+                document.getElementById('r-devices').textContent = data.uniqueDevices || 0;
+                document.getElementById('r-attempts').textContent = data.totalAttempts || 0;
+
+                const list = data.usages || [];
+                if (list.length === 0) {
+                    document.getElementById('r-list').innerHTML = '<div class="px-5 py-8 text-center text-slate-400 text-sm">暂无推广记录，快去推广吧！</div>';
+                } else {
+                    document.getElementById('r-list').innerHTML = list.map((u, i) => `
+                        <div class="px-5 py-3 ${i > 0 ? 'border-t border-slate-50' : ''} flex items-center justify-between">
+                            <div class="flex items-center">
+                                <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center mr-3">
+                                    <span class="text-blue-600 text-xs font-bold">${i + 1}</span>
+                                </div>
+                                <div>
+                                    <div class="text-sm text-slate-700">${esc(u.device_model || '设备')}</div>
+                                    <div class="text-xs text-slate-400">${esc(u.system_version || '')}</div>
+                                </div>
+                            </div>
+                            <div class="text-xs text-slate-400">${formatTime(u.ts)}</div>
+                        </div>
+                    `).join('');
+                }
+
+                document.getElementById('queryPage').classList.add('hidden');
+                document.getElementById('resultPage').classList.remove('hidden');
+            } catch (e) {
+                showErr('网络错误，请稍后重试');
+            }
+        }
+
+        function backToQuery() {
+            document.getElementById('resultPage').classList.add('hidden');
+            document.getElementById('queryPage').classList.remove('hidden');
+        }
+
+        function showErr(msg) {
+            const el = document.getElementById('errMsg');
+            el.textContent = msg;
+            el.classList.remove('hidden');
+        }
+        function hideErr() {
+            document.getElementById('errMsg').classList.add('hidden');
+        }
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s || '';
+            return d.innerHTML;
+        }
+
+        function formatTime(ts) {
+            if (!ts) return '-';
+            const d = new Date(ts);
+            const now = new Date();
+            const diff = now - d;
+            if (diff < 60000) return '刚刚';
+            if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+            if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+            if (diff < 604800000) return Math.floor(diff / 86400000) + '天前';
+            return d.toLocaleDateString();
+        }
+
+        // URL 参数支持: ?code=XXX 自动查询
+        const urlCode = new URLSearchParams(location.search).get('code');
+        if (urlCode) {
+            document.getElementById('codeInput').value = urlCode;
+            queryStats();
+        }
+    </script>
+</body>
+</html>

@@ -1,14 +1,14 @@
 import SwiftUI
 
 struct GameGateView: View {
-    @State private var unlocked = UserDefaults.standard.bool(forKey: "wx.game.unlocked")
+    @AppStorage("wx.game.unlocked") private var unlocked = false
     @EnvironmentObject var appState: AppState
 
     var body: some View {
         if unlocked {
             mainAppContent
         } else {
-            Game2048View {
+            WaterQualityGateView {
                 withAnimation(.easeInOut(duration: 0.4)) {
                     unlocked = true
                 }

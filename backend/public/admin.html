@@ -562,6 +562,92 @@
                 </div>
             </section>
 
+            <!-- Promo Codes -->
+            <section>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold text-stone-700">推广代理码 <span id="promoBadge" class="text-sm text-stone-500"></span></h2>
+                    <div class="flex gap-2">
+                        <button onclick="loadPromoCodes()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-1.5 rounded">刷新</button>
+                        <button onclick="showAddPromo()" class="text-sm bg-amber-700 text-white hover:bg-amber-800 px-3 py-1.5 rounded">+ 新增推广码</button>
+                    </div>
+                </div>
+                <div id="promoStats" class="grid grid-cols-4 gap-3 mb-3">
+                    <div class="bg-white rounded-xl shadow p-4 text-center">
+                        <div id="ps-total" class="text-2xl font-bold text-amber-700">-</div>
+                        <div class="text-xs text-stone-500">有效推广码</div>
+                    </div>
+                    <div class="bg-white rounded-xl shadow p-4 text-center">
+                        <div id="ps-uses" class="text-2xl font-bold text-green-700">-</div>
+                        <div class="text-xs text-stone-500">总使用次数</div>
+                    </div>
+                    <div class="bg-white rounded-xl shadow p-4 text-center">
+                        <div id="ps-devices" class="text-2xl font-bold text-blue-700">-</div>
+                        <div class="text-xs text-stone-500">独立设备数</div>
+                    </div>
+                    <div class="bg-white rounded-xl shadow p-4 text-center">
+                        <div id="ps-today" class="text-2xl font-bold text-purple-700">-</div>
+                        <div class="text-xs text-stone-500">今日使用</div>
+                    </div>
+                </div>
+                <div id="fraudAlerts" class="mb-3"></div>
+                <div class="bg-white rounded-xl shadow overflow-hidden">
+                    <div class="max-h-[400px] overflow-y-auto scrollbar-thin">
+                        <table class="w-full text-sm">
+                            <thead class="bg-stone-100 text-stone-600 text-xs sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">推广码</th>
+                                    <th class="px-4 py-3 text-left">代理名</th>
+                                    <th class="px-4 py-3 text-left">使用次数</th>
+                                    <th class="px-4 py-3 text-left">状态</th>
+                                    <th class="px-4 py-3 text-left">创建时间</th>
+                                    <th class="px-4 py-3 text-left">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="promoBody">
+                                <tr><td colspan="6" class="px-4 py-8 text-center text-stone-400">暂无推广码</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Add Promo Modal -->
+            <div id="modalAddPromo" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6">
+                <div class="bg-white rounded-2xl w-full max-w-md">
+                    <div class="px-6 py-4 border-b flex items-center justify-between">
+                        <div class="font-bold">新增推广码</div>
+                        <button onclick="document.getElementById('modalAddPromo').classList.add('hidden')" class="text-stone-500 hover:text-stone-800">✕</button>
+                    </div>
+                    <div class="px-6 py-4 space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-stone-700 mb-1">推广码</label>
+                            <input id="promo-code" type="text" class="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm" placeholder="输入推广码（如：AGENT001）">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-stone-700 mb-1">代理名称</label>
+                            <input id="promo-agent" type="text" class="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm" placeholder="代理/推广员名称">
+                        </div>
+                        <div class="flex justify-end gap-2 pt-2">
+                            <button onclick="document.getElementById('modalAddPromo').classList.add('hidden')" class="px-4 py-2 text-sm border border-stone-300 rounded-lg hover:bg-stone-50">取消</button>
+                            <button onclick="addPromoCode()" class="px-4 py-2 text-sm bg-amber-700 text-white rounded-lg hover:bg-amber-800">确认添加</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Promo Detail Modal -->
+            <div id="modalPromoDetail" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6">
+                <div class="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+                    <div class="px-6 py-4 border-b flex items-center justify-between">
+                        <div class="font-bold" id="promoDetailTitle">推广码详情</div>
+                        <button onclick="document.getElementById('modalPromoDetail').classList.add('hidden')" class="text-stone-500 hover:text-stone-800">✕</button>
+                    </div>
+                    <div class="px-6 py-4 overflow-y-auto scrollbar-thin" id="promoDetailBody">
+                        <div class="text-stone-400 text-sm">加载中…</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Audit log -->
             <section>
                 <div class="flex items-center justify-between mb-3">
@@ -740,6 +826,7 @@
             loadCrashes();
             loadFeedback();
             loadAuditLog();
+            loadPromoCodes();
             // 自动刷新统计
             setInterval(loadStats, 30 * 1000);
             setInterval(loadAnalytics, 60 * 1000);
@@ -2013,6 +2100,132 @@
         }
 
         // === 万象书屋: 审计日志 ===
+        // ── 推广码管理 ──
+        async function loadFraudAlerts() {
+            try {
+                const r = await apiGet('/api/admin/promo/fraud');
+                const container = document.getElementById('fraudAlerts');
+                const alerts = r.alerts || [];
+                if (!alerts.length) {
+                    container.innerHTML = '<div class="bg-green-50 border border-green-200 rounded-xl p-3 text-sm text-green-700 flex items-center"><span class="mr-2">✓</span> 暂未检测到异常行为</div>';
+                    return;
+                }
+                const sevColors = { high: 'red', medium: 'amber', low: 'stone' };
+                const sevLabels = { high: '高风险', medium: '中风险', low: '低风险' };
+                container.innerHTML = `
+                    <div class="bg-red-50 border border-red-200 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="font-bold text-red-700">⚠ 作弊检测告警 (${alerts.length})</span>
+                        </div>
+                        <div class="space-y-2">
+                            ${alerts.map(a => {
+                                const c = sevColors[a.severity] || 'stone';
+                                return `<div class="flex items-start gap-2 text-sm">
+                                    <span class="px-1.5 py-0.5 rounded text-xs font-bold bg-${c}-100 text-${c}-700">${sevLabels[a.severity]}</span>
+                                    <span class="text-stone-700">${esc(a.desc)}</span>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>`;
+            } catch (e) { console.error('loadFraudAlerts', e); }
+        }
+
+        async function loadPromoCodes() {
+            try {
+                const [codes, stats] = await Promise.all([
+                    apiGet('/api/admin/promo/codes'),
+                    apiGet('/api/admin/promo/stats'),
+                ]);
+                document.getElementById('ps-total').textContent = stats.totalCodes || 0;
+                document.getElementById('ps-uses').textContent = stats.totalUses || 0;
+                document.getElementById('ps-devices').textContent = stats.uniqueDevices || 0;
+                document.getElementById('ps-today').textContent = stats.todayUses || 0;
+                document.getElementById('promoBadge').textContent = `(${(codes.list||[]).length} 个)`;
+                loadFraudAlerts();
+
+                const tbody = document.getElementById('promoBody');
+                const list = codes.list || [];
+                if (!list.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-stone-400">暂无推广码，点击右上角"新增"添加</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map(c => `<tr class="border-t border-stone-100 hover:bg-stone-50">
+                    <td class="px-4 py-3 font-mono font-bold text-amber-700">${esc(c.code)}</td>
+                    <td class="px-4 py-3">${esc(c.agent_name)}</td>
+                    <td class="px-4 py-3">${c.used_count}</td>
+                    <td class="px-4 py-3">${c.enabled ? '<span class="text-green-600 text-xs font-medium">启用</span>' : '<span class="text-red-600 text-xs font-medium">禁用</span>'}</td>
+                    <td class="px-4 py-3 text-xs text-stone-500">${new Date(c.created_at).toLocaleString()}</td>
+                    <td class="px-4 py-3 space-x-2">
+                        <button onclick="viewPromoDetail('${esc(c.code)}')" class="text-xs text-blue-600 hover:underline">详情</button>
+                        <button onclick="togglePromo('${esc(c.code)}', ${c.enabled ? 0 : 1})" class="text-xs ${c.enabled ? 'text-red-600' : 'text-green-600'} hover:underline">${c.enabled ? '禁用' : '启用'}</button>
+                        <button onclick="deletePromo('${esc(c.code)}')" class="text-xs text-stone-400 hover:text-red-600 hover:underline">删除</button>
+                    </td>
+                </tr>`).join('');
+            } catch (e) { console.error('loadPromoCodes', e); }
+        }
+
+        function showAddPromo() {
+            document.getElementById('promo-code').value = '';
+            document.getElementById('promo-agent').value = '';
+            document.getElementById('modalAddPromo').classList.remove('hidden');
+        }
+
+        async function addPromoCode() {
+            const code = document.getElementById('promo-code').value.trim();
+            const agentName = document.getElementById('promo-agent').value.trim();
+            if (!code) return alert('请输入推广码');
+            if (!agentName) return alert('请输入代理名称');
+            try {
+                const r = await apiSend('/api/admin/promo/codes', 'POST', { code, agentName });
+                if (r.ok) {
+                    document.getElementById('modalAddPromo').classList.add('hidden');
+                    loadPromoCodes();
+                } else alert(r.msg || '添加失败');
+            } catch (e) { alert('添加失败: ' + e.message); }
+        }
+
+        async function togglePromo(code, enabled) {
+            await apiSend(`/api/admin/promo/codes/${encodeURIComponent(code)}`, 'PUT', { enabled });
+            loadPromoCodes();
+        }
+
+        async function deletePromo(code) {
+            if (!confirm(`确认删除推广码 "${code}"？`)) return;
+            await apiSend(`/api/admin/promo/codes/${encodeURIComponent(code)}`, 'DELETE');
+            loadPromoCodes();
+        }
+
+        async function viewPromoDetail(code) {
+            document.getElementById('promoDetailTitle').textContent = `推广码详情 - ${code}`;
+            document.getElementById('promoDetailBody').innerHTML = '<div class="text-stone-400 text-sm">加载中…</div>';
+            document.getElementById('modalPromoDetail').classList.remove('hidden');
+            try {
+                const r = await apiGet(`/api/admin/promo/stats/${encodeURIComponent(code)}`);
+                const html = `
+                    <div class="grid grid-cols-3 gap-3 mb-4">
+                        <div class="bg-stone-50 rounded-lg p-3 text-center"><div class="text-xl font-bold">${r.totalUses}</div><div class="text-xs text-stone-500">总使用次数</div></div>
+                        <div class="bg-stone-50 rounded-lg p-3 text-center"><div class="text-xl font-bold">${r.uniqueDevices}</div><div class="text-xs text-stone-500">独立设备</div></div>
+                        <div class="bg-stone-50 rounded-lg p-3 text-center"><div class="text-xl font-bold">${r.totalAttempts}</div><div class="text-xs text-stone-500">总尝试次数</div></div>
+                    </div>
+                    <h3 class="font-bold text-sm text-stone-700 mb-2">使用记录</h3>
+                    <table class="w-full text-xs">
+                        <thead class="bg-stone-100 text-stone-600"><tr><th class="px-3 py-2 text-left">设备ID</th><th class="px-3 py-2 text-left">设备型号</th><th class="px-3 py-2 text-left">系统版本</th><th class="px-3 py-2 text-left">IP</th><th class="px-3 py-2 text-left">时间</th></tr></thead>
+                        <tbody>${(r.usages||[]).map(u => `<tr class="border-t border-stone-100">
+                            <td class="px-3 py-2 font-mono text-stone-600">${esc((u.device_id||'').slice(0,12))}…</td>
+                            <td class="px-3 py-2">${esc(u.device_model||'-')}</td>
+                            <td class="px-3 py-2">${esc(u.system_version||'-')}</td>
+                            <td class="px-3 py-2 font-mono">${esc(u.ip||'-')}</td>
+                            <td class="px-3 py-2">${new Date(u.ts).toLocaleString()}</td>
+                        </tr>`).join('') || '<tr><td colspan="5" class="px-3 py-4 text-center text-stone-400">暂无使用记录</td></tr>'}</tbody>
+                    </table>`;
+                document.getElementById('promoDetailBody').innerHTML = html;
+            } catch (e) {
+                document.getElementById('promoDetailBody').innerHTML = `<div class="text-red-500 text-sm">加载失败: ${e.message}</div>`;
+            }
+        }
+
+        function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
         async function loadAuditLog() {
             try {
                 const r = await apiGet('/api/admin/audit-log');

@@ -38,6 +38,8 @@ struct MyView: View {
     @StateObject private var downloader = BookDownloader.shared
 
     @State private var unlockToast: String? = nil
+    @State private var showRelockConfirm = false
+    @AppStorage("wx.game.unlocked") private var gateUnlocked = false
 
     /// 万象书屋 (M2.8 C 档): 下载管理 row 的副标题, 显示当前任务概览
     private var downloadSummarySubtitle: String {
@@ -103,17 +105,6 @@ struct MyView: View {
                         )
                     }
 
-                    // 万象书屋 (M2.8 C 档): 下载管理入口, 跟 Android `CacheActivity` 等价.
-                    NavigationLink {
-                        DownloadCenterView()
-                    } label: {
-                        rowLabel(
-                            icon: "arrow.down.circle",
-                            title: "下载管理",
-                            subtitle: downloadSummarySubtitle
-                        )
-                    }
-
                     NavigationLink {
                         FeedbackView()
                     } label: {
@@ -121,6 +112,16 @@ struct MyView: View {
                             icon: "bubble.left.and.bubble.right",
                             title: "意见反馈",
                             subtitle: "向我们提建议或报告问题"
+                        )
+                    }
+
+                    Button {
+                        showRelockConfirm = true
+                    } label: {
+                        rowLabel(
+                            icon: "lock.shield",
+                            title: "应用伪装",
+                            subtitle: "切换到伪装界面,保护隐私"
                         )
                     }
                 }
@@ -173,6 +174,16 @@ struct MyView: View {
                 Button("好的", role: .cancel) {}
             } message: {
                 Text(importSourceMessage ?? "")
+            }
+            .alert("启用应用伪装", isPresented: $showRelockConfirm) {
+                Button("取消", role: .cancel) {}
+                Button("确认伪装", role: .destructive) {
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        gateUnlocked = false
+                    }
+                }
+            } message: {
+                Text("启用后将立即切换到伪装界面（二维码生成器），需重新输入密码才能返回。")
             }
             // 万象书屋: unlock_extended_toast — 看完广告解锁成功的提示
             // 跟 Android `act.toastOnUi(getString(R.string.unlock_extended_toast, ...))` 等价

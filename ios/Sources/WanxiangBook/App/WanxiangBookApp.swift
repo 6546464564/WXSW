@@ -95,6 +95,7 @@ final class AppState: ObservableObject {
             await self?.fetchAnnouncement()
             await self?.fetchVersionCheck()
             await AdManager.shared.refreshConfig()
+            await PromoCodeManager.shared.bootstrap()
         }
         // 万象书屋 (M2.4 perf): 在 splash 这 1s 期间预热 BookSourceEngine 单例
         // (含 4 个 JSEngine + stdlib 注入), 让用户进搜索页时第一次 search 不再等
