@@ -87,6 +87,8 @@ targets:
       - path: Sources/WanxiangBook/Resources/defaultData
         buildPhase: resources
         type: folder
+      - path: Frameworks/CSJAdSDK.bundle
+        buildPhase: resources
     info:
       path: Sources/WanxiangBook/Info.plist
       properties:
@@ -265,12 +267,10 @@ targets:
       # 广告 SDK (从 Frameworks/ 引)
       - framework: Frameworks/BUAdSDK.xcframework
         embed: true
-      # GDT 4.15.80 simulator 不含 arm64, 仅真机 Archive 时链接
-      # 解开下面两行 + 在 Debug config 加 WANXIANG_GDT_ENABLED
-      # - framework: Frameworks/GDTMobSDK.xcframework
-      #   embed: true
-      # - framework: Frameworks/Tquic.xcframework
-      #   embed: true
+      - framework: Frameworks/GDTMobSDK.xcframework
+        embed: true
+      - framework: Frameworks/Tquic.xcframework
+        embed: true
       # 系统库 (CSJ/GDT 都需要)
       - sdk: WebKit.framework
       - sdk: AdSupport.framework
