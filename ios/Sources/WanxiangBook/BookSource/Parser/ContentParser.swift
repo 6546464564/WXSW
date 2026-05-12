@@ -16,11 +16,13 @@ public final class ContentParser: @unchecked Sendable {
 
     public let dispatcher: SelectorDispatcher
     public let fetcher: HTTPFetcher
+    public let jsEngine: JSEngine
     public static let maxContentPages = 20
 
-    public init(dispatcher: SelectorDispatcher, fetcher: HTTPFetcher = .shared) {
+    public init(dispatcher: SelectorDispatcher, fetcher: HTTPFetcher = .shared, jsEngine: JSEngine? = nil) {
         self.dispatcher = dispatcher
         self.fetcher = fetcher
+        self.jsEngine = jsEngine ?? dispatcher.js
     }
 
     /// 万象书屋: 正文解析入口
@@ -63,10 +65,17 @@ public final class ContentParser: @unchecked Sendable {
             //   - 没这个钩子, iOS 会瞬间打 N 次同站请求触发反爬封 IP,
             //     用户体感是"读到一半突然全章节空白".
             await SourceRateLimiter.shared.acquire(source: source)
-            let resp = try await fetcher.fetch(
+            // 万象书屋 (2026-05-12): 改走 URLTemplate.legadoFetch — 对齐 Android AnalyzeUrl.
+            //   关键 bug: QQ 浏览器柳树这类章节 URL 形如
+            //     "https://x.com/api/chapter,{method:'POST',body:'docId=...'}"
+            //   之前直 fetcher.fetch 把整段当 GET URL ⇒ 1-2KB 错误页 ⇒ "content too short".
+            //   legadoFetch 会拆 `,{...}` 选项 → POST + body + 自定义 header. 也兼容
+            //   `,{"webView":true}` 单章 SPA 场景, GET 失败回退 HTTP.
+            let (html, baseUrl) = try await URLTemplate.legadoFetch(
                 urlString: currentUrl,
-                headers: source.parseHeaders(),
-                sourceKey: source.bookSourceUrl,
+                in: source,
+                jsEngine: jsEngine,
+                fetcher: fetcher,
                 // 万象书屋 (M2.8 perf): retries: 1, 让上层 (BookDownloader / ReaderEngine)
                 // 控 retry 节奏. 之前 HTTPFetcher 默认 retries: 3, BookDownloader 外层
                 // 又 maxAttempts: 3, 双层 retry 叠加: 单章最坏 25s × 3 × 3 = 225s 卡死 worker.
@@ -77,8 +86,6 @@ public final class ContentParser: @unchecked Sendable {
                 // = 用户报"阅读不了"; 30s 测试时同源 24k 字正文能完整拉到.
                 requestTimeoutSec: 25
             )
-            let html = resp.bodyText
-            let baseUrl = resp.finalURL?.absoluteString ?? currentUrl
             let scope = JSContextScope()
             scope.baseUrl = baseUrl
             scope.src = html

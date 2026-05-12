@@ -43,6 +43,12 @@ public struct ChangeSourceView: View {
     @State private var scrollToken: UUID = UUID()
     /// 用户主动点了候选 → push 哪个 anchor 给 caller (默认 instant, 但有 confirm alert 时延后)
     @State private var pendingPick: ChangeSourceViewModel.Candidate? = nil
+    /// 万象书屋 (UX): 用户点了当前源 / 评分按钮等 silent action 时, 顶部弹一条 1.5s 的提示,
+    /// 避免"点了没反应"的困惑.
+    @State private var transientHint: String? = nil
+    @State private var transientHintTask: Task<Void, Never>? = nil
+    /// 万象书屋 (perf 2026-05-11): screenFilter 输入 debounce → 触发二轮精准搜索任务.
+    @State private var screenFilterDebounceTask: Task<Void, Never>? = nil
 
     public init(target: Target,
                 onSelect: @escaping (SearchBook, BookSource) -> Void) {
@@ -85,11 +91,46 @@ public struct ChangeSourceView: View {
             .navigationTitle("换源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+            .overlay(alignment: .top) {
+                if let hint = transientHint {
+                    Text(hint)
+                        .font(.caption)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(Capsule().fill(.black.opacity(0.78)))
+                        .foregroundStyle(.white)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .accessibilityIdentifier("change-source-transient-hint")
+                }
+            }
             .task {
                 if vm.candidates.isEmpty {
                     await vm.startSearch(target: target)
                 }
+                // 万象书屋 (perf 2026-05-11): 对话框打开同时自动起一轮"name + 作者"精准搜索,
+                // 跟主搜并行跑 — 很多源 (番茄/晋江/起点系) 对 "name + 作者" 命中率比 "name" 高,
+                // 能秒补一批主搜静默掉的真候选. author 为空时跳过.
+                let author = target.author.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !author.isEmpty {
+                    Task { await vm.startSecondaryRound(target: target, extraKeyword: author) }
+                }
                 runDebugAutoPick()
+            }
+        }
+    }
+
+    /// 万象书屋: 1.5s 自动消失的顶部提示气泡 (toast 等价)
+    private func showTransientHint(_ msg: String) {
+        transientHintTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            transientHint = msg
+        }
+        transientHintTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if !Task.isCancelled {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    transientHint = nil
+                }
             }
         }
     }
@@ -113,24 +154,54 @@ public struct ChangeSourceView: View {
     // MARK: - 顶栏二次过滤输入框 (Android menu_screen SearchView)
 
     private var screenField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "line.3.horizontal.decrease.circle")
-                .foregroundStyle(.secondary)
-            TextField("按源名 / 作者 / 最新章过滤候选", text: $vm.screenFilter)
-                .textFieldStyle(.plain)
-                .submitLabel(.search)
-            if !vm.screenFilter.isEmpty {
-                Button {
-                    vm.screenFilter = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .foregroundStyle(.secondary)
+                TextField("过滤 + 精准搜索 (如作者名)", text: $vm.screenFilter)
+                    .textFieldStyle(.plain)
+                    .submitLabel(.search)
+                    .onChange(of: vm.screenFilter) { _, new in
+                        scheduleSecondaryRound(extraKeyword: new)
+                    }
+                if !vm.screenFilter.isEmpty {
+                    Button {
+                        vm.screenFilter = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(width: 28, height: 26)
                 }
-                .buttonStyle(.borderless)
+            }
+            if let activeKey = vm.secondaryRoundActiveKey, !activeKey.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "bolt.fill").font(.caption2).foregroundStyle(WanxiangColors.accent)
+                    Text("正在用 \"\(activeKey)\" 在所有源做精准搜索…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
         .background(WanxiangColors.card)
+    }
+
+    /// 万象书屋: 在 screenFilter 输入 600ms 静默后发起一轮"精准搜索".
+    /// 同一个 (target, extraKey) 只发一次, 用户来回擦写不会重打源.
+    private func scheduleSecondaryRound(extraKeyword: String) {
+        screenFilterDebounceTask?.cancel()
+        let kw = extraKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 太短的 key 不发 (1 个字符基本是噪音)
+        guard kw.count >= 2 else { return }
+        screenFilterDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if Task.isCancelled { return }
+            await vm.startSecondaryRound(target: target, extraKeyword: kw)
+        }
     }
 
     // MARK: - 候选列表 (Android RecyclerView)
@@ -361,9 +432,13 @@ public struct ChangeSourceView: View {
     private func handlePick(_ item: ChangeSourceViewModel.Candidate) {
         guard let source = vm.sourceFor(origin: item.book.origin) else { return }
         if target.currentOrigin == item.book.origin {
-            // 已经是当前源, 不做任何动作 (跟 Android `bookUrl == oldBookUrl` 早返 一致)
+            // 万象书屋 (UX 2026-05-11): 不再无反馈早返. 用户点当前源, 给一条 toast
+            // 解释"已经在使用此源", 并加触觉反馈, 避免"行不能点"的错觉.
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showTransientHint(vm.isSearching ? "已经是当前源, 其他候选搜索中…" : "已经是当前源")
             return
         }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         onSelect(item.book, source)
         dismiss()
     }
@@ -421,31 +496,85 @@ final class ChangeSourceViewModel: ObservableObject {
 
     private var searchTask: Task<Void, Never>? = nil
     private var infoFillTasks: [Task<Void, Never>] = []
-    private let fetchInfoConcurrency = 4
+    /// 万象书屋 (perf 2026-05-11): fetchInfo 并发提到 8 (原 4). info-fill 单源 8s timeout,
+    /// 串行 4 个 slot 时 80 个候选最坏 160s. 提到 8 后基本能跟上 search stream.
+    /// BookSourceEngine 有 4 个 infoParser pool, 8 个 in-flight 会 2:1 排队, 仍比之前快 2x.
+    private let fetchInfoConcurrency = 8
     private var infoFillInflight = 0
+    /// 万象书屋 (perf 2026-05-11): 提到 12. SearchView 已用 9, 但换源是单本场景, 用户更
+    /// 期望"秒出多个源", 且 BookSourceEngine 已用 4 个 JSEngine pool + InfoCache, 12 不爆.
+    private let searchConcurrency = 12
+
+    /// 万象书屋 (perf 2026-05-11): 跨"主搜索"+"二轮精准搜索"共享的去重 key 集.
+    /// 主搜 keyword=name, 二轮 keyword=name+作者 / name+screenFilter, 两端可能返同一本书,
+    /// 用统一集合保证 candidates 不会出现重复.
+    private var seenCandidateKeys: Set<String> = []
+
+    /// 万象书屋: 二轮精准搜索任务 (跟主搜索独立, 并行跑)
+    private var secondaryRoundTask: Task<Void, Never>? = nil
+    /// 已经发过的二轮关键词, 同 key 不再重复发 (用户清空再输同样的词不会重打源)
+    private var firedSecondaryKeys: Set<String> = []
+    /// 二轮搜索当前关键词 (UI 显示用); nil = 没在跑二轮
+    @Published var secondaryRoundActiveKey: String? = nil
 
     // MARK: - 搜索控制
 
     /// 启动一次搜索 (Android `ChangeBookSourceViewModel.startSearch`).
     /// 已经在搜就忽略.
+    ///
+    /// 万象书屋 (perf 2026-05-11): 仿 Android `searchDataFlow.callbackFlow` 双阶段:
+    ///   1. **同步从磁盘 cache 拉历史候选** → 立即填 `candidates`, 列表不再空白.
+    ///      (Android `getDbSearchBooks` 等价, 用文件 plist 替代 SQLite.)
+    ///   2. 后台启动并发搜索, 增量 merge 新候选 + 写 cache.
     func startSearch(target: ChangeSourceView.Target) async {
         if isSearching { return }
         cancelInfoFill()
+        // 万象书屋: 主搜启动时重置二轮状态 (用户重新打开换源 / 点刷新都从 0 开始)
+        secondaryRoundTask?.cancel()
+        secondaryRoundTask = nil
+        secondaryRoundActiveKey = nil
+        firedSecondaryKeys.removeAll()
+
+        // 1) 同步加载磁盘 cache → 立即填. 跟 Android `getDbSearchBooks` 等价.
+        let cached = ChangeSourceCandidateCache.shared.get(name: target.name, author: target.author) ?? []
+        seenCandidateKeys.removeAll()
         candidates = []
+        for c in cached {
+            let key = "\(c.book.origin)::\(c.book.bookUrl)"
+            guard seenCandidateKeys.insert(key).inserted else { continue }
+            var cand = Candidate(book: c.book)
+            cand.respondTimeMs = c.respondTimeMs
+            // cache 里 lastChapter 应已经填好; 即便没填, 不再 fetchInfo (避免冷启动一窝蜂打网络)
+            cand.isLoadingInfo = false
+            self.insertCandidate(cand, currentOrigin: target.currentOrigin)
+        }
+
         searchedCount = 0
         currentSearchingName = ""
-        let sources = filteredSourcesForSearch()
+
+        // 2) 排好序的源 list → 历史好源先发, 用户感知速度 ↑
+        let rawSources = filteredSourcesForSearch()
+        let sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
         totalSourceCount = sources.count
         availableGroups = collectGroups()
         isSearching = true
         let t0 = Date()
+        let concurrency = searchConcurrency
         let task = Task { [weak self] in
             guard let self else { return }
-            let stream = await BookSourceEngine.shared.searchAll(in: sources, key: target.name)
-            var seen = Set<String>()
+            let stream = await BookSourceEngine.shared.searchAll(
+                in: sources, key: target.name,
+                maxConcurrency: concurrency
+            )
             for await (src, result) in stream {
                 if Task.isCancelled { break }
                 let dt = Int((Date().timeIntervalSince(t0)) * 1000)
+                // 万象书屋: 记录 search perf, 让下次开换源时本源优先级动态调整.
+                let okFlag: Bool
+                if case .success(let arr) = result, !arr.isEmpty { okFlag = true } else { okFlag = false }
+                SourcePerformanceTracker.shared.record(
+                    sourceUrl: src.bookSourceUrl, ok: okFlag, durationMs: dt
+                )
                 await MainActor.run {
                     self.searchedCount += 1
                     self.currentSearchingName = src.bookSourceName
@@ -453,19 +582,8 @@ final class ChangeSourceViewModel: ObservableObject {
                 switch result {
                 case .success(let books):
                     for b in books where self.matches(target: target, candidate: b) {
-                        let key = "\(b.origin)::\(b.bookUrl)"
-                        if seen.insert(key).inserted {
-                            var cand = Candidate(book: b)
-                            cand.respondTimeMs = dt
-                            let alreadyHasLast = (b.lastChapter?
-                                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-                            cand.isLoadingInfo = !alreadyHasLast
-                            await MainActor.run {
-                                self.insertCandidate(cand, currentOrigin: target.currentOrigin)
-                                if !alreadyHasLast {
-                                    self.scheduleInfoFill(for: key)
-                                }
-                            }
+                        await MainActor.run {
+                            self.tryInsertCandidate(SearchBook: b, target: target, respondTimeMs: dt)
                         }
                     }
                 case .failure:
@@ -475,9 +593,110 @@ final class ChangeSourceViewModel: ObservableObject {
             await MainActor.run {
                 self.isSearching = false
                 self.currentSearchingName = ""
+                // 万象书屋: 搜索结束兜底一次写盘. info-fill 可能在搜索完后还在跑,
+                // 那部分 lastChapter 补全由 performInfoFill 的最后一步另存.
+                self.persistAllCandidatesToCache(target: target)
             }
         }
         searchTask = task
+    }
+
+    /// 万象书屋 (perf 2026-05-11): 二轮精准搜索.
+    ///
+    /// 主搜 keyword = `name` (例: "青山"), 用户在顶栏输入 "screenFilter" 后我们再拼一轮
+    /// `"<name> <screenFilter>"` (例: "青山 会说话的肘子") 发给所有源. 很多源 (尤其
+    /// 番茄/晋江/起点系) 对"书名 + 作者"的搜索 URL 命中率比单"书名"高得多, 能补回
+    /// 一些只在主搜静默掉的真候选.
+    ///
+    /// 不清候选 / 不动 isSearching — 新结果 merge 进 candidates, 共享 `seenCandidateKeys`
+    /// 去重. 同 extra key 不重复发. 主搜在跑 / 不在跑都可以发.
+    func startSecondaryRound(target: ChangeSourceView.Target, extraKeyword: String) async {
+        let trimmed = extraKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 太短 (<2) 容易把搜索打成单字符, 大量源响应内容大 + 命中率低, 不发
+        guard trimmed.count >= 2 else { return }
+        let combined = "\(target.name) \(trimmed)"
+        let dedupeKey = combined.lowercased()
+        if firedSecondaryKeys.contains(dedupeKey) { return }
+        firedSecondaryKeys.insert(dedupeKey)
+
+        secondaryRoundTask?.cancel()
+        secondaryRoundActiveKey = combined
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            let rawSources = await MainActor.run { self.filteredSourcesForSearch() }
+            let sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
+            let stream = await BookSourceEngine.shared.searchAll(
+                in: sources, key: combined,
+                maxConcurrency: 12
+            )
+            let t0 = Date()
+            for await (src, result) in stream {
+                if Task.isCancelled { break }
+                let dt = Int((Date().timeIntervalSince(t0)) * 1000)
+                let okFlag: Bool
+                if case .success(let arr) = result, !arr.isEmpty { okFlag = true } else { okFlag = false }
+                SourcePerformanceTracker.shared.record(
+                    sourceUrl: src.bookSourceUrl, ok: okFlag, durationMs: dt
+                )
+                switch result {
+                case .success(let books):
+                    // 万象书屋: 仍然用 `matches(target:candidate:)` 过滤 — 即使源对组合 key
+                    // 命中, 也要确保返回的 SearchBook.name == target.name (避免源乱返).
+                    for b in books where self.matches(target: target, candidate: b) {
+                        await MainActor.run {
+                            self.tryInsertCandidate(SearchBook: b, target: target, respondTimeMs: dt)
+                        }
+                    }
+                case .failure:
+                    continue
+                }
+            }
+            await MainActor.run {
+                if self.secondaryRoundActiveKey == combined {
+                    self.secondaryRoundActiveKey = nil
+                }
+                self.persistAllCandidatesToCache(target: target)
+            }
+        }
+        secondaryRoundTask = task
+    }
+
+    /// 万象书屋: 主搜 / 二轮共用的"插入候选"通道. seenCandidateKeys 去重 + insert + 调度 info-fill + 落盘.
+    private func tryInsertCandidate(
+        SearchBook b: SearchBook,
+        target: ChangeSourceView.Target,
+        respondTimeMs: Int
+    ) {
+        let key = "\(b.origin)::\(b.bookUrl)"
+        guard seenCandidateKeys.insert(key).inserted else { return }
+        var cand = Candidate(book: b)
+        cand.respondTimeMs = respondTimeMs
+        let alreadyHasLast = (b.lastChapter?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        cand.isLoadingInfo = !alreadyHasLast
+        insertCandidate(cand, currentOrigin: target.currentOrigin)
+        if !alreadyHasLast {
+            scheduleInfoFill(for: key)
+        }
+        ChangeSourceCandidateCache.shared.upsert(
+            name: target.name,
+            author: target.author,
+            candidate: ChangeSourceCandidateCache.CachedCandidate(
+                book: b, respondTimeMs: respondTimeMs
+            )
+        )
+    }
+
+    /// 全量重写当前候选到磁盘 cache. info-fill 完成 / 搜索结束时调.
+    private func persistAllCandidatesToCache(target: ChangeSourceView.Target) {
+        let snapshot = candidates.map { c in
+            ChangeSourceCandidateCache.CachedCandidate(book: c.book, respondTimeMs: c.respondTimeMs)
+        }
+        guard !snapshot.isEmpty else { return }
+        ChangeSourceCandidateCache.shared.put(
+            name: target.name, author: target.author, candidates: snapshot
+        )
     }
 
     func stopSearch() {
@@ -490,6 +709,8 @@ final class ChangeSourceViewModel: ObservableObject {
     /// 刷新列表: 清掉所有候选, 重新搜 (Android `menu_refresh_list` → `startRefreshList`)
     func refreshList(target: ChangeSourceView.Target) async {
         stopSearch()
+        // 强制刷新: 清磁盘 cache, 下面 startSearch 不会读到旧候选, 跟 Android 行为一致.
+        ChangeSourceCandidateCache.shared.clear(name: target.name, author: target.author)
         await startSearch(target: target)
     }
 
@@ -625,6 +846,16 @@ final class ChangeSourceViewModel: ObservableObject {
                 if c.book.intro?.isEmpty != false, let intro = info.intro { c.book.intro = intro }
                 if c.book.coverUrl?.isEmpty != false, let cv = info.coverUrl { c.book.coverUrl = cv }
                 if c.book.wordCount?.isEmpty != false, let wc = info.wordCount { c.book.wordCount = wc }
+            }
+            // 万象书屋: 补完最新章后再写一次 cache (跟 Android `searchBookDao.insert` 等价).
+            if let updated = candidates.first(where: { "\($0.book.origin)::\($0.book.bookUrl)" == key }) {
+                ChangeSourceCandidateCache.shared.upsert(
+                    name: updated.book.name,
+                    author: updated.book.author,
+                    candidate: ChangeSourceCandidateCache.CachedCandidate(
+                        book: updated.book, respondTimeMs: updated.respondTimeMs
+                    )
+                )
             }
         } catch {
             updateCandidate(forKey: key) { c in

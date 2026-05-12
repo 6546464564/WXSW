@@ -316,3 +316,55 @@ extension KeyedDecodingContainer where K == AnyCodingKey {
         return nil
     }
 }
+
+// MARK: - 请求头 (@js Header, 对齐 Android BaseSource.getHeaderMap)
+
+extension BookSource {
+
+    /// `header` 支持 `@js:` / `<js>...</js>` — Android `evalJS` 后把返回值解析成 JSON headers.
+    /// 之前 iOS 只解析字面 JSON, `@js:` 失败 ⇒ 空 headers ⇒ QQ 企鹅 API “incorrect referrer”十几字节 ⇒ 目录 0 章.
+    public func resolvedHeaders(js: JSEngine) async -> [String: String] {
+        guard let h = header, !h.isEmpty else { return [:] }
+        let t = h.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = t.lowercased()
+
+        func dictFromJsOutput(_ out: Any?) -> [String: String] {
+            guard let out else { return [:] }
+            let jsonStr: String
+            if let s = out as? String {
+                jsonStr = s
+            } else if JSONSerialization.isValidJSONObject(out),
+                      let data = try? JSONSerialization.data(withJSONObject: out, options: []),
+                      let s = String(data: data, encoding: .utf8) {
+                jsonStr = s
+            } else {
+                jsonStr = String(describing: out)
+            }
+            guard let data = jsonStr.data(using: .utf8),
+                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return [:]
+            }
+            return dict.compactMapValues { String(describing: $0) }
+        }
+
+        if lower.hasPrefix("@js:") {
+            let script = String(t.dropFirst(4))
+            let scope = JSContextScope()
+            scope.bookSource = self
+            let out = try? await js.evaluate(script: script, source: "", baseUrl: bookSourceUrl, scope: scope)
+            let parsed = dictFromJsOutput(out)
+            return parsed.isEmpty ? parseHeaders() : parsed
+        }
+        if lower.hasPrefix("<js>"),
+           let endRange = t.range(of: "</js>", options: .caseInsensitive) {
+            let start = t.index(t.startIndex, offsetBy: 4)
+            let script = String(t[start..<endRange.lowerBound])
+            let scope = JSContextScope()
+            scope.bookSource = self
+            let out = try? await js.evaluate(script: script, source: "", baseUrl: bookSourceUrl, scope: scope)
+            let parsed = dictFromJsOutput(out)
+            return parsed.isEmpty ? parseHeaders() : parsed
+        }
+        return parseHeaders()
+    }
+}

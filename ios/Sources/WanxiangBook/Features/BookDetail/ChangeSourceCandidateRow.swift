@@ -157,6 +157,11 @@ struct ChangeSourceCandidateRow: View {
                 Image(systemName: score == 1 ? "hand.thumbsup.fill" : "hand.thumbsup")
                     .font(.caption)
                     .foregroundStyle(score == 1 ? Color.red.opacity(0.85) : Color.secondary.opacity(0.5))
+                    // 万象书屋 (UX 2026-05-11): 限制评分按钮命中区到 28×26.
+                    // 之前 Image 自动撑满外层 VStack 高度, 整行右侧 1/3 被这两个按钮吃掉,
+                    // 用户点行右侧"没反应"误以为是 row 不能点.
+                    .frame(width: 28, height: 26)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             Button {
@@ -165,6 +170,8 @@ struct ChangeSourceCandidateRow: View {
                 Image(systemName: score == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                     .font(.caption)
                     .foregroundStyle(score == -1 ? Color.blue.opacity(0.85) : Color.secondary.opacity(0.5))
+                    .frame(width: 28, height: 26)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
         }

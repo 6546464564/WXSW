@@ -30,6 +30,9 @@ struct GroupManageView: View {
     /// 删除二次确认
     @State private var deleteConfirm: BookGroup?
 
+    /// 万象书屋 (2026-05-11): 未分组 tab 当前是否被隐藏 (用户长按 chip 选了"隐藏此 tab")
+    @State private var ungroupedHidden: Bool = BookGroup.isUngroupedHidden
+
     var body: some View {
         NavigationStack {
             List {
@@ -73,6 +76,29 @@ struct GroupManageView: View {
                     Text("自定义分组")
                 } footer: {
                     Text("点击重命名;左滑删除。删除分组后,该分组下的书将归入「未分组」。")
+                        .font(.caption2)
+                }
+
+                // 万象书屋 (2026-05-11): 系统分组管理. 目前只放"未分组 tab 可见性"开关.
+                // group_id=0 这个桶永远存在 (用作落点), 开关只控制书架顶部 chip 是否显示.
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { !ungroupedHidden },
+                        set: { newValue in
+                            ungroupedHidden = !newValue
+                            BookGroup.isUngroupedHidden = ungroupedHidden
+                        }
+                    )) {
+                        HStack {
+                            Image(systemName: "tray")
+                                .foregroundStyle(WanxiangColors.primary)
+                            Text("显示「未分组」tab")
+                        }
+                    }
+                } header: {
+                    Text("系统分组")
+                } footer: {
+                    Text("「未分组」是没有归类的书的落点, 不可真删, 只能在书架顶部隐藏 tab。隐藏后, 这些书仍可在「全部」里找到。")
                         .font(.caption2)
                 }
             }

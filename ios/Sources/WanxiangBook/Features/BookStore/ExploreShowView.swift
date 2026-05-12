@@ -86,7 +86,7 @@ private struct BookGridCell: View {
         VStack(alignment: .leading, spacing: 4) {
             GeometryReader { geo in
                 let h = geo.size.width * 4.2 / 3
-                BookCover(url: book.coverUrl, width: geo.size.width, height: h)
+                BookCover(url: book.coverUrl, width: geo.size.width, height: h, bookTitle: book.name)
             }
             .aspectRatio(3.0/4.2, contentMode: .fit)
             Text(book.name)

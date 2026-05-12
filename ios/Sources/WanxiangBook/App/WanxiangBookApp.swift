@@ -22,7 +22,7 @@ struct WanxiangBookApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                RootView()
+                GameGateView()
                     .environmentObject(appState)
                 if !splashFinished {
                     SplashAdView {
@@ -102,6 +102,15 @@ final class AppState: ObservableObject {
         Task.detached(priority: .utility) {
             _ = BookSourceEngine.shared
         }
+        // 万象书屋 (perf 2026-05-11): 启动时后台预热书城榜单. iOS RootView 用 `switch selectedTab`
+        // 渲染, 只有用户点到「书城」Tab 才会首次构造 BookStoreView, 这时再发 `/api/bookstore/mirror`
+        // 会让用户看到「正在加载书城…」spinner; 而 Android 用 ViewPager 邻近 Fragment 提前
+        // onCreate, 等切到 Tab 时数据已就绪. 在 bootstrap 后台跑一次 prewarm, 把两个频道的榜单
+        // 灌进 BookStoreViewModel 的进程级 cache, 用户切 Tab 直接命中, 不再闪 loading.
+        BookStoreViewModel.prewarmInBackground()
+        // 万象书屋: 书城 banner「热门排行 (月票 TOP 50)」/「完本书库 50」一并预热, 让用户
+        // 从 banner 进 RankDetailView 直接命中进程级 cache, 永远不闪 ProgressView.
+        RankDetailViewModel.prewarmInBackground()
         // 万象书屋: 启 4 分钟一次心跳定时器 (跟后端 rateLimitPing 对齐, 防超频)
         startHeartbeatLoop()
     }

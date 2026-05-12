@@ -13,13 +13,17 @@ public struct BookCover: View {
     public let url: String?
     public let width: CGFloat
     public let height: CGFloat
+    /// 万象书屋 (2026-05-11): 真 URL 加载失败 / 缺失时, 用 bookTitle 渲染彩色占位封面,
+    /// 跟 Android `CoverImageView` 的"渐变 + 书名首字"占位行为对齐. 默认 nil = 用旧灰占位.
+    public let bookTitle: String?
     @State private var image: UIImage?
     @State private var isLoading = false
 
-    public init(url: String?, width: CGFloat, height: CGFloat) {
+    public init(url: String?, width: CGFloat, height: CGFloat, bookTitle: String? = nil) {
         self.url = url
         self.width = width
         self.height = height
+        self.bookTitle = bookTitle
     }
 
     public var body: some View {
@@ -41,13 +45,52 @@ public struct BookCover: View {
         }
     }
 
+    @ViewBuilder
     private var placeholder: some View {
-        RoundedRectangle(cornerRadius: 4)
-            .fill(WanxiangColors.divider)
-            .overlay(
-                Image(systemName: "book.closed.fill")
-                    .foregroundStyle(WanxiangColors.textSecondary.opacity(0.5))
-            )
+        if let title = bookTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            // 彩色渐变 + 首字 (1-2 字), 跟 Android CoverImageView 同款.
+            let palette = Self.colorPair(for: title)
+            ZStack {
+                LinearGradient(
+                    colors: palette,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Text(String(title.prefix(2)))
+                    .font(.system(size: max(12, min(width, height) * 0.32), weight: .bold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .padding(.horizontal, 4)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.7)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        } else {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(WanxiangColors.divider)
+                .overlay(
+                    Image(systemName: "book.closed.fill")
+                        .foregroundStyle(WanxiangColors.textSecondary.opacity(0.5))
+                )
+        }
+    }
+
+    /// 万象书屋: 按书名哈希挑一组深浅相近的渐变色 (8 候选), 让占位看起来像真封面.
+    private static func colorPair(for title: String) -> [Color] {
+        let palettes: [(Color, Color)] = [
+            (Color(red: 0.76, green: 0.42, blue: 0.34), Color(red: 0.52, green: 0.20, blue: 0.16)),
+            (Color(red: 0.40, green: 0.52, blue: 0.72), Color(red: 0.18, green: 0.28, blue: 0.48)),
+            (Color(red: 0.56, green: 0.42, blue: 0.68), Color(red: 0.32, green: 0.18, blue: 0.48)),
+            (Color(red: 0.36, green: 0.60, blue: 0.50), Color(red: 0.16, green: 0.36, blue: 0.30)),
+            (Color(red: 0.78, green: 0.58, blue: 0.34), Color(red: 0.52, green: 0.36, blue: 0.16)),
+            (Color(red: 0.46, green: 0.46, blue: 0.55), Color(red: 0.24, green: 0.24, blue: 0.32)),
+            (Color(red: 0.68, green: 0.36, blue: 0.50), Color(red: 0.44, green: 0.18, blue: 0.32)),
+            (Color(red: 0.42, green: 0.62, blue: 0.68), Color(red: 0.20, green: 0.40, blue: 0.48)),
+        ]
+        var hasher = Hasher()
+        hasher.combine(title)
+        let idx = abs(hasher.finalize()) % palettes.count
+        return [palettes[idx].0, palettes[idx].1]
     }
 
     private var normalizedURLKey: String {

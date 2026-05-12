@@ -75,6 +75,30 @@ public struct CSSSelectorEngine: SelectorEngine {
         }
 
         let (selector, extractors) = parseRule(rule)
+
+        // 万象书屋 (2026-05-12): 优先走「逐段处理」(对齐 Android AnalyzeByJSoup):
+        //   每个 `@` 段独立 legadoFindIndexSet + translateLegadoKeyword + 元素级 index filter.
+        //   解决 `tag.div.0@tag.ul@tag.li!-1@a`、`ul@li!-1@a` 这类
+        //   "中段 Legado index 不是数字、jsoup 无对应伪类" 的情况.
+        //   失败 (e.g. 含 `:has` / `:not` 等需要全 CSS 字符串的复杂选择器) 回退到旧 mergeSubSelectors 路径.
+        if let chainElements = stepChain(doc: doc, selector: selector, extractors: extractors) {
+            let elements = chainElements.elements
+            let finalExtractors = chainElements.remainingExtractors
+            var out: [String] = []
+            out.reserveCapacity(elements.count)
+            for el in elements {
+                if finalExtractors.isEmpty {
+                    if let h = try? el.outerHtml() { out.append(h) }
+                    continue
+                }
+                if let v = applyExtractors(finalExtractors, to: el, baseUrl: baseUrl) {
+                    out.append(v)
+                }
+            }
+            return out
+        }
+
+        // Fallback: 旧 mergeSubSelectors 路径 (含 `:has` 等复杂 CSS).
         let idx = legadoFindIndexSet(selector)
         let cssRoot = idx.beforeRule
         let (mergedSelector, finalExtractors) = mergeSubSelectors(selector: cssRoot, extractors: extractors)
@@ -90,7 +114,6 @@ public struct CSSSelectorEngine: SelectorEngine {
         var out: [String] = []
         out.reserveCapacity(elements.count)
         for el in elements {
-            // 没有 extractor → 默认输出元素 outerHTML (后续选择器可继续在子树查)
             if finalExtractors.isEmpty {
                 if let h = try? el.outerHtml() { out.append(h) }
                 continue
@@ -111,6 +134,22 @@ public struct CSSSelectorEngine: SelectorEngine {
         }
 
         let (selector, extractors) = parseRule(rule)
+
+        if let chainElements = stepChain(doc: doc, selector: selector, extractors: extractors) {
+            let narrowed = chainElements.elements
+            let finalExtractors = chainElements.remainingExtractors
+            guard !narrowed.isEmpty else { return nil }
+            if finalExtractors.isEmpty {
+                return try? narrowed.first?.text()
+            }
+            for el in narrowed {
+                if let v = applyExtractors(finalExtractors, to: el, baseUrl: baseUrl), !v.isEmpty {
+                    return v
+                }
+            }
+            return nil
+        }
+
         let idx = legadoFindIndexSet(selector)
         let cssRoot = idx.beforeRule
         let (mergedSelector, finalExtractors) = mergeSubSelectors(selector: cssRoot, extractors: extractors)
@@ -132,6 +171,88 @@ public struct CSSSelectorEngine: SelectorEngine {
             }
         }
         return nil
+    }
+
+    /// 万象书屋 (2026-05-12 fix): 逐 `@` 段 Legado 风格 element 选择.
+    ///
+    /// 对齐 Android `AnalyzeByJSoup.getElementsSingle` 的链式语义:
+    ///   每段先用 `legadoFindIndexSet` 拆 "selector ↔ 末尾 Legado index" (`.N` / `!N` / `[N,M]`),
+    ///   selector 用 `tag./class./id./text.` 关键字 + 标准 jsoup 翻译,
+    ///   然后在「当前 element 集合」上 select 拿子树, 再用 index 过滤.
+    ///
+    /// 适用条件:
+    ///   - 段里只有 jsoup 兼容选择器, 不含跨段需要 string-level 处理的 `:has()` / `:not()` 等. 检测到这类时 return nil 让 caller 走 mergeSubSelectors fallback.
+    ///
+    /// 返回 nil = 让 caller 走旧路径; 返回 some = 逐段处理已完成, caller 用 `elements` + `remainingExtractors` 取最终值.
+    private func stepChain(doc: Document, selector: String, extractors: [String])
+        -> (elements: [Element], remainingExtractors: [String])? {
+        // 复杂 CSS pseudo (`:has(...)` / `:not(...)`) 包含 `(` `)`/`@`, 退回 mergeSubSelectors 安全.
+        if selector.contains(":has(") || selector.contains(":not(") {
+            return nil
+        }
+
+        let attrKeywords: Set<String> = ["text", "textnodes", "owntext",
+                                          "html", "innerhtml", "outerhtml", "all",
+                                          "tag", "tagname", "href", "src", "data-src", "data-url",
+                                          "data-original", "alt", "title", "value", "content"]
+
+        // 第 1 段
+        let firstParsed = legadoFindIndexSet(selector)
+        let firstCSS = applyIndexSugar(translateLegadoKeyword(firstParsed.beforeRule))
+        var elements: [Element]
+        if firstCSS.isEmpty || firstCSS == "children" {
+            elements = doc.body()?.children().array() ?? []
+        } else {
+            elements = (try? doc.select(firstCSS).array()) ?? []
+        }
+        elements = applyLegadoIndexFilter(parsed: firstParsed, elements: elements)
+
+        // 后续段: 要么是 attribute extractor (停止, 留给 applyExtractors), 要么是新 selector 段.
+        var i = 0
+        while i < extractors.count {
+            let raw = extractors[i]
+            let lower = raw.lowercased()
+            // 1) attribute keyword → 停, 后面所有的交给 applyExtractors 串行处理
+            if attrKeywords.contains(lower) { break }
+            if lower.hasPrefix("data-") { break }
+
+            // 2) children / children[...] / `[N]` / `.N` / `!N` 等纯索引段, 走 jsoup pseudo
+            //    复用现有 `childIndexSelector` 行为 — 但要在元素级 reduce.
+            //    跟 `mergeSubSelectors` 同写法.
+            if lower == "children" || lower.hasPrefix("children[") || lower.hasPrefix("children.") || lower.hasPrefix("children!") || lower.hasPrefix("children:") {
+                let suffix = String(raw.dropFirst("children".count))
+                let nextRule = "*" + (suffix.isEmpty ? "" : suffix)
+                let p = legadoFindIndexSet(nextRule)
+                let css = applyIndexSugar(translateLegadoKeyword(p.beforeRule))
+                var next: [Element] = []
+                for el in elements {
+                    let cand = (try? el.children().select(css).array()) ?? []
+                    next.append(contentsOf: cand)
+                }
+                elements = applyLegadoIndexFilter(parsed: p, elements: next)
+                i += 1
+                continue
+            }
+
+            // 3) 普通 selector 段 (可能含 tag./class./id./text. 前缀 + Legado index)
+            let p = legadoFindIndexSet(raw)
+            let css = applyIndexSugar(translateLegadoKeyword(p.beforeRule))
+            var next: [Element] = []
+            for el in elements {
+                let cand: [Element]
+                if css.isEmpty || css == "*" {
+                    cand = el.children().array()
+                } else {
+                    cand = (try? el.select(css).array()) ?? []
+                }
+                next.append(contentsOf: cand)
+            }
+            elements = applyLegadoIndexFilter(parsed: p, elements: next)
+            i += 1
+        }
+
+        let remainingExtractors = Array(extractors.dropFirst(i))
+        return (elements, remainingExtractors)
     }
 
     /// 对齐 Android `AnalyzeByJSoup.ElementsSingle.findIndexSet(rule)`
@@ -414,10 +535,21 @@ public struct CSSSelectorEngine: SelectorEngine {
 
     /// 万象书屋: legado `class.X` / `id.X` / `tag.X` 关键字翻译成标准 CSS
     /// 例: `class.searchresult` → `.searchresult`, `id.main` → `#main`
-    /// 万象书屋 (M2.8 fix bug): 支持 `class.foo bar` 多 class 写法 (空格分隔表
-    /// "同时具备多个 class"), 翻译成 `.foo.bar`. 例: 肉文小说的
-    /// `class.book chapterlist` ⇒ `.book.chapterlist`. 之前只剥 `class.` 前缀,
-    /// 留下 `book chapterlist` 当 CSS 跑被解释成"book 内的 chapterlist 后代"导致空.
+    /// 支持 `class.foo bar` 多 class 写法 (空格分隔, "同时具备"), 翻译成 `.foo.bar`.
+    ///
+    /// 万象书屋 (2026-05-12 fix): 对齐 Android `AnalyzeByJSoup.getElementsSingle`:
+    ///   ```kotlin
+    ///   val rules = beforeRule.split(".")
+    ///   when (rules[0]) {
+    ///     "class" -> temp.getElementsByClass(rules[1])  // 只用 rules[1]
+    ///     "tag"   -> temp.getElementsByTag(rules[1])
+    ///     "id"    -> Collector.collect(Evaluator.Id(rules[1]), temp)
+    ///     "text"  -> temp.getElementsContainingOwnText(rules[1])
+    ///   }
+    ///   ```
+    /// 即 `class.list.ul` Android 只用 `list`, `.ul` 整段被丢. 之前 iOS 把它转成
+    /// `.list.ul` (多 class) ⇒ 匹配不到 ⇒ 笔趣阁#59/书耽/猫眼看书等 toc 0 章节.
+    /// 数字尾段 (`class.foo.0`) 已在 `legadoFindIndexSet` 阶段被剥掉作 index, 不会进到这里.
     private func translateLegadoKeyword(_ s: String) -> String {
         if s.hasPrefix("class.") {
             let inner = String(s.dropFirst(6))
@@ -425,22 +557,40 @@ public struct CSSSelectorEngine: SelectorEngine {
                 let parts = inner.split(separator: " ").filter { !$0.isEmpty }
                 return parts.map { "." + $0 }.joined()
             }
+            // Android 只取 `.` 之前第一段, 后续非数字 (e.g. `.ul`) 整段忽略.
+            if let dotIdx = inner.firstIndex(of: ".") {
+                return "." + String(inner[..<dotIdx])
+            }
             return "." + inner
         }
         if s.hasPrefix("id.") {
-            return "#" + String(s.dropFirst(3))
+            let inner = String(s.dropFirst(3))
+            if let dotIdx = inner.firstIndex(of: ".") {
+                return "#" + String(inner[..<dotIdx])
+            }
+            return "#" + inner
         }
         // 万象书屋 (M2.8 fix bug): 首段 selector 是 `tag.dd` / `tag.a` 等时, 转成
         // jsoup tag selector. 之前只在 extractors 链路里处理, 首段不处理 ⇒ jsoup 收到
         // `tag.dd` 当 class+tag 解析必定 0 命中. 肉文小说 chapterName="tag.dd@text" 复现.
         if s.hasPrefix("tag.") {
-            return String(s.dropFirst(4))
+            let inner = String(s.dropFirst(4))
+            if let dotIdx = inner.firstIndex(of: ".") {
+                return String(inner[..<dotIdx])
+            }
+            return inner
         }
         // 万象书屋 (M2.8 source 对比): legado `text.<keyword>` → 找含此 own text 的元素.
         // Android `temp.getElementsContainingOwnText(rules[1])` 等价 jsoup `:containsOwn(text)`.
         // 上游对比发现 iOS 没实现这个 prefix, 部分源用 `text.第N章` 作为 toc 选择器会失效.
         if s.hasPrefix("text.") {
-            let kw = String(s.dropFirst(5))
+            let inner = String(s.dropFirst(5))
+            let kw: String
+            if let dotIdx = inner.firstIndex(of: ".") {
+                kw = String(inner[..<dotIdx])
+            } else {
+                kw = inner
+            }
             // 用 jsoup `:containsOwn()` selector (SwiftSoup 也支持)
             return ":containsOwn(\(kw))"
         }

@@ -84,6 +84,11 @@ public struct ChangeChapterSourceView: View {
                 if vm.candidates.isEmpty {
                     await vm.startSearch(target: target)
                 }
+                // 万象书屋 (perf 2026-05-11): 同 ChangeSourceView, 自动起一轮 "name + 作者" 精准搜索.
+                let author = target.author.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !author.isEmpty {
+                    Task { await vm.startSecondaryRound(target: target, extraKeyword: author) }
+                }
             }
         }
     }
@@ -109,21 +114,50 @@ public struct ChangeChapterSourceView: View {
     }
 
     private var screenField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "line.3.horizontal.decrease.circle")
-                .foregroundStyle(.secondary)
-            TextField("按源名 / 作者 / 最新章过滤候选", text: $vm.screenFilter)
-                .textFieldStyle(.plain)
-                .submitLabel(.search)
-            if !vm.screenFilter.isEmpty {
-                Button { vm.screenFilter = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .foregroundStyle(.secondary)
+                TextField("过滤 + 精准搜索 (如作者名)", text: $vm.screenFilter)
+                    .textFieldStyle(.plain)
+                    .submitLabel(.search)
+                    .onChange(of: vm.screenFilter) { _, new in
+                        scheduleSecondaryRound(extraKeyword: new)
+                    }
+                if !vm.screenFilter.isEmpty {
+                    Button { vm.screenFilter = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(width: 28, height: 26)
                 }
-                .buttonStyle(.borderless)
+            }
+            if let activeKey = vm.secondaryRoundActiveKey, !activeKey.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "bolt.fill").font(.caption2).foregroundStyle(WanxiangColors.accent)
+                    Text("正在用 \"\(activeKey)\" 在所有源做精准搜索…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
         .background(WanxiangColors.card)
+    }
+
+    @State private var screenFilterDebounceTask: Task<Void, Never>? = nil
+
+    private func scheduleSecondaryRound(extraKeyword: String) {
+        screenFilterDebounceTask?.cancel()
+        let kw = extraKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard kw.count >= 2 else { return }
+        screenFilterDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if Task.isCancelled { return }
+            await vm.startSecondaryRound(target: target, extraKeyword: kw)
+        }
     }
 
     // MARK: - Candidates list

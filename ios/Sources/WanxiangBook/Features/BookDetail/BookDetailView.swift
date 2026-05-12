@@ -27,7 +27,8 @@ struct BookDetailView: View {
 
     @StateObject private var vm = BookDetailViewModel()
     @StateObject private var downloader = BookDownloader.shared
-    @State private var addAlert: String? = nil
+    // 万象书屋 (UX 2026-05-11): 移除"已加入书架/已从书架移除"alert. 用户反馈"不要弹出这个窗口" —
+    // 按钮文案自身已经从「加书架 +」切到「已加书架 ✓」, 视觉反馈足够; 仅加触觉反馈, 不打断阅读流.
     @State private var tocSheet = false
     @State private var changeSourceSheet = false
     /// 万象书屋 (debug arg `--AutoStartReading`): 详情拉完 toc 后自动 push 进 reader,
@@ -39,6 +40,8 @@ struct BookDetailView: View {
     @State private var currentSource: BookSource?
     /// 万象书屋 (UX): stub 模式下后台找真源中. 找到后清零, "开始阅读"按钮可点.
     @State private var isResolvingSource = false
+    /// 万象书屋 (UX 2026-05-11): stub 模式找源失败 (60 源 + 双关键词全 miss) → 显示失败兜底.
+    @State private var resolveFailed = false
 
     init(book: SearchBook, source: BookSource?) {
         self.book = book
@@ -130,12 +133,6 @@ struct BookDetailView: View {
                 autoStartReader = true
             }
         }
-        .alert(item: Binding(
-            get: { addAlert.map { AlertText(text: $0) } },
-            set: { _ in addAlert = nil })
-        ) { item in
-            Alert(title: Text(item.text))
-        }
         .sheet(isPresented: $tocSheet) {
             // 复用阅读器的 TocView
             NavigationStack {
@@ -160,6 +157,32 @@ struct BookDetailView: View {
                 Task { await onSourceSwitched(to: newBook, source: newSource) }
             }
         }
+        // 万象书屋 (2026-05-11): VM 在 TOC fallback 成功切换源时, 把新 origin / bookUrl 等
+        // 通过 Notification 回推给 view, 同步 currentSource + currentBook @State, 让 UI 头部"来源:xxx"
+        // 和阅读按钮 (用的是 currentBook.bookUrl) 都切到能用的源.
+        .onReceive(NotificationCenter.default.publisher(for: .bookDetailAltSourceFound)) { note in
+            guard let info = note.userInfo,
+                  let origin = info["origin"] as? String,
+                  let newSrc = BookSourceRegistry.shared.find(origin: origin) else { return }
+            currentSource = newSrc
+            currentBook.origin = newSrc.bookSourceUrl
+            currentBook.originName = (info["originName"] as? String) ?? newSrc.bookSourceName
+            if let url = info["bookUrl"] as? String, !url.isEmpty {
+                currentBook.bookUrl = url
+            }
+            if let c = info["coverUrl"] as? String, !c.isEmpty,
+               (currentBook.coverUrl?.isEmpty ?? true) {
+                currentBook.coverUrl = c
+            }
+            if let i = info["intro"] as? String, !i.isEmpty,
+               (currentBook.intro?.isEmpty ?? true) {
+                currentBook.intro = i
+            }
+            if let l = info["lastChapter"] as? String, !l.isEmpty {
+                currentBook.lastChapter = l
+            }
+            resolveFailed = false
+        }
         // 万象书屋 (debug arg `--AutoStartReading`): 让 autoStartReader 触发 push reader.
         // 这是 NavigationLink 的姐妹形式, 共用同一个 destination 让自动化路径跟用户路径完全等价.
         .navigationDestination(isPresented: $autoStartReader) {
@@ -171,7 +194,7 @@ struct BookDetailView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
-            BookCover(url: displayedCover, width: 100, height: 140)
+            BookCover(url: displayedCover, width: 100, height: 140, bookTitle: currentBook.name)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(currentBook.name)
@@ -196,15 +219,21 @@ struct BookDetailView: View {
                     changeSourceSheet = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Image(systemName: resolveFailed && currentSource == nil
+                            ? "exclamationmark.triangle.fill"
+                            : "arrow.triangle.2.circlepath")
                             .font(.caption2)
+                            .foregroundStyle(resolveFailed && currentSource == nil
+                                ? .orange
+                                : WanxiangColors.textSecondary)
                         // 万象书屋 (UX): stub 模式还在找源时, 来源行显示"查找中…",
                         // 让用户知道按钮置灰只是临时, 不需要在主按钮文案里塞这条信息.
-                        Text(isResolvingSource && currentSource == nil
-                            ? "来源:查找中…"
-                            : "来源:\(currentBook.originName)")
+                        Text(sourceLineText)
                             .font(.caption2)
                             .lineLimit(1)
+                            .foregroundStyle(resolveFailed && currentSource == nil
+                                ? .orange
+                                : WanxiangColors.textSecondary)
                         if currentBook.distinctOriginCount > 1 {
                             Text("\(currentBook.distinctOriginCount) 源")
                                 .font(.caption2.weight(.semibold))
@@ -216,12 +245,21 @@ struct BookDetailView: View {
                             ProgressView().scaleEffect(0.6)
                         }
                     }
-                    .foregroundStyle(WanxiangColors.textSecondary)
                 }
                 .buttonStyle(.plain)
             }
             Spacer(minLength: 0)
         }
+    }
+
+    /// 头部 "来源:..." 行的文案
+    private var sourceLineText: String {
+        if currentSource != nil {
+            return "来源:\(currentBook.originName)"
+        }
+        if isResolvingSource { return "来源:查找中…" }
+        if resolveFailed { return "暂未找到此书源, 点此换源" }
+        return "来源:\(currentBook.originName)"
     }
 
     private var actionRow: some View {
@@ -242,27 +280,46 @@ struct BookDetailView: View {
             }
             .disabled(vm.isWorking)
 
-            NavigationLink {
-                // 万象书屋 (P0 fix · D-25):
-                //   ReaderView 内部 bootstrap 会自动 ensure 书在书架, 这里不再
-                //   依赖详情页先点"加书架". 直接进阅读 = 隐式加架.
-                // 万象书屋 (M2.5.5.1): 用 `currentBook` / `currentSource` (换源后已切换)
-                ReaderView(book: shelfBookFromSearch(), source: currentSource)
-            } label: {
-                HStack {
-                    Image(systemName: "book.fill")
-                    Text(readActionTitle)
-                        .font(.headline)
+            // 万象书屋 (UX 2026-05-11): 找源失败 (resolveFailed=true) 时, "开始阅读"按钮变成
+            // 一个直接打开换源 sheet 的入口, 避免用户卡在禁用按钮上不知道怎么继续.
+            if resolveFailed && currentSource == nil {
+                Button {
+                    changeSourceSheet = true
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                        Text("手动选源")
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(WanxiangColors.accent)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(currentSource == nil
-                    ? WanxiangColors.accent.opacity(0.55)
-                    : WanxiangColors.accent)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else {
+                NavigationLink {
+                    // 万象书屋 (P0 fix · D-25):
+                    //   ReaderView 内部 bootstrap 会自动 ensure 书在书架, 这里不再
+                    //   依赖详情页先点"加书架". 直接进阅读 = 隐式加架.
+                    // 万象书屋 (M2.5.5.1): 用 `currentBook` / `currentSource` (换源后已切换)
+                    ReaderView(book: shelfBookFromSearch(), source: currentSource)
+                } label: {
+                    HStack {
+                        Image(systemName: "book.fill")
+                        Text(readActionTitle)
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(currentSource == nil
+                        ? WanxiangColors.accent.opacity(0.55)
+                        : WanxiangColors.accent)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .disabled(currentSource == nil)
             }
-            .disabled(currentSource == nil)
         }
     }
 
@@ -530,10 +587,10 @@ struct BookDetailView: View {
     private func onAddOrRemove() async {
         if vm.isInShelf {
             await vm.remove(bookUrl: currentBook.bookUrl)
-            addAlert = "已从书架移除"
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
         } else {
             await vm.addToShelf(book: currentBook)
-            addAlert = "已加入书架"
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
     }
 
@@ -542,35 +599,83 @@ struct BookDetailView: View {
     ///   1. 切换 origin / bookUrl / originName / coverUrl 等"显示用"字段
     ///   2. 清掉 vm.info / vm.chapters, 走一次完整 loadDetails
     ///   3. 同步刷加架状态 (新源 bookUrl 在书架里可能不存在)
-    /// 万象书屋 (UX): 书城 stub 模式自动找源.
-    ///   - 候选: SourcePerformanceTracker 排序后前 12 个
-    ///   - 命中: 第一个 `name 完全匹配 + (author 空 || author 匹配)` 的 SearchBook
+    /// 万象书屋 (UX 2026-05-11): 书城 stub 模式自动找源 (双关键词并行).
+    ///   - 候选池: SourcePerformanceTracker 排序后前 60 (原 12 — 起点原创书在通用源命中率低,
+    ///     12 个里全 miss 时用户一直看到 "查找中...", 没有兜底)
+    ///   - 两条并发 stream:
+    ///       * 流 A: key = name           (常规)
+    ///       * 流 B: key = "name 作者"    (作者非空时 — 番茄/晋江/起点系命中率显著更高)
+    ///   - 任意一条流先命中 → 取消另一条 → 切源
+    ///   - 两条都 drain 完没命中 → 报失败, 让用户走"换源"sheet 手动选
     ///   - 命中后保留 stub 里的 cover/intro/kind (起点封面质量更好), 切到真源 + onSourceSwitched
     private func resolveSourceIfNeeded() async {
         guard currentSource == nil else { return }
         await MainActor.run { isResolvingSource = true }
-        defer { Task { @MainActor in isResolvingSource = false } }
 
         let allSources = BookSourceRegistry.shared.sources
         let sorted = SourcePerformanceTracker.shared.sortByScore(allSources)
-        let candidates = Array(sorted.prefix(12))
-        guard !candidates.isEmpty else { return }
+        let candidates = Array(sorted.prefix(60))
+        guard !candidates.isEmpty else {
+            await MainActor.run { isResolvingSource = false }
+            return
+        }
 
         let bookName = currentBook.name
-        let bookAuthor = currentBook.author
+        let bookAuthor = currentBook.author.trimmingCharacters(in: .whitespacesAndNewlines)
         let stubCover = currentBook.coverUrl
         let stubIntro = currentBook.intro
         let stubKind = currentBook.kind
 
-        let stream = await BookSourceEngine.shared.searchAll(
-            in: candidates, key: bookName, maxConcurrency: 8, perSourceTimeoutSec: 6
-        )
-        for await (src, result) in stream {
-            if Task.isCancelled { return }
-            guard case .success(let books) = result else { continue }
-            guard let match = books.first(where: {
-                $0.name == bookName && (bookAuthor.isEmpty || $0.author == bookAuthor)
-            }) else { continue }
+        // 万象书屋: TaskGroup 同时跑两条 search stream, 各自挑首个 name/author 匹配后回报.
+        let result: (SearchBook, BookSource)? = await withTaskGroup(of: (SearchBook, BookSource)?.self) { group in
+            // 流 A: 只用书名搜
+            group.addTask {
+                let stream = await BookSourceEngine.shared.searchAll(
+                    in: candidates, key: bookName,
+                    maxConcurrency: 10, perSourceTimeoutSec: 8
+                )
+                for await (src, r) in stream {
+                    if Task.isCancelled { return nil }
+                    guard case .success(let books) = r else { continue }
+                    if let match = books.first(where: {
+                        $0.name == bookName && (bookAuthor.isEmpty || $0.author == bookAuthor)
+                    }) {
+                        return (match, src)
+                    }
+                }
+                return nil
+            }
+            // 流 B: 书名 + 作者, 作者非空时才跑
+            if !bookAuthor.isEmpty {
+                group.addTask {
+                    let combined = "\(bookName) \(bookAuthor)"
+                    let stream = await BookSourceEngine.shared.searchAll(
+                        in: candidates, key: combined,
+                        maxConcurrency: 10, perSourceTimeoutSec: 8
+                    )
+                    for await (src, r) in stream {
+                        if Task.isCancelled { return nil }
+                        guard case .success(let books) = r else { continue }
+                        if let match = books.first(where: {
+                            $0.name == bookName && (bookAuthor.isEmpty || $0.author == bookAuthor)
+                        }) {
+                            return (match, src)
+                        }
+                    }
+                    return nil
+                }
+            }
+            // 任一流先返非 nil → 拿到; 取消所有其他流
+            for await r in group {
+                if let r = r {
+                    group.cancelAll()
+                    return r
+                }
+            }
+            return nil
+        }
+
+        if let (match, src) = result {
             var merged = match
             if merged.coverUrl?.isEmpty != false, let c = stubCover, !c.isEmpty {
                 merged.coverUrl = c
@@ -582,7 +687,13 @@ struct BookDetailView: View {
                 merged.kind = k
             }
             await onSourceSwitched(to: merged, source: src)
-            return
+            await MainActor.run { isResolvingSource = false }
+        } else {
+            // 60 源 × 双关键词 都 miss → 失败. 让 UI 显示"未找到源, 试试换源" + 可点的换源入口.
+            await MainActor.run {
+                isResolvingSource = false
+                resolveFailed = true
+            }
         }
     }
 
@@ -594,15 +705,18 @@ struct BookDetailView: View {
         b.mergedSourceNames = currentBook.mergedSourceNames
         currentBook = b
         currentSource = newSource
+        // 万象书屋: 用户在换源 sheet 选了一个源, 或自动解析成功 → 清除 stub 失败状态.
+        resolveFailed = false
         vm.resetForSourceSwitch()
         await vm.refreshShelfStatus(bookUrl: b.bookUrl)
         await vm.loadDetails(book: b, source: newSource)
     }
 }
 
-private struct AlertText: Identifiable {
-    let id = UUID()
-    let text: String
+extension Notification.Name {
+    /// 万象书屋: BookDetailView 用 mergedSourceURLs 兜底拉 TOC 成功后, viewModel 发这个通知,
+    /// 让 BookDetailView 的 @State currentSource 同步切到 alt 源. userInfo["origin"] = 新源 URL.
+    static let bookDetailAltSourceFound = Notification.Name("wanxiang.bookDetail.altSourceFound")
 }
 
 @MainActor
@@ -661,30 +775,20 @@ final class BookDetailViewModel: ObservableObject {
                 self.isLoadingToc = false
             }
 
-            // Step B: 并行启 fetchInfo + (cache miss 时) fetchToc
-            //   - fetchToc 用 search 数据组 fallback BookInfo (多数源 tocUrl == bookUrl 时 work)
-            //   - 少数源依赖 fetchInfo 解出来的 tocUrl, 那种源 fetchToc 会失败 →
-            //     用户感知是 toc 加载失败 errorState, 跟之前串行体验一样, 但成功 case 加速 1 倍
+            // Step B: 顺序拉 fetchInfo → fetchToc(用 info.tocUrl).
+            //
+            // 万象书屋 (2026-05-11 critical fix): 之前并行拉 fetchInfo + fetchToc(tocUrl=bookUrl)
+            // — 对很多源 (例: 晴天小说5.0 的 tocUrl 模板 `/catalog?book_id={{$.book_id}}...`)
+            // 用 bookUrl 当 tocUrl 是错的端点, 永远拉不到 → 详情页"目录加载失败".
+            // 改成 Android `WebBook.getChapterListAwait` 一样的语义:
+            //   1. fetchInfo 先把 ruleBookInfo.tocUrl 模板渲染成真 tocUrl
+            //   2. fetchToc 用 info.tocUrl 拉真目录
+            // 性能代价: 串行 1+1 ~ 3-5s (并行 ~2-3s). 但正确性 / 跟 Android 一致是头等优先级.
             let cacheHit = !self.chapters.isEmpty
-            async let detailFuture: BookInfo? = {
-                guard let s = source else { return nil }
-                return try? await BookSourceEngine.shared.fetchInfo(of: book, in: s)
-            }()
-            async let tocFuture: [BookChapter]? = {
-                // 已 cache 命中就别再拉
-                if cacheHit { return nil }
-                guard let s = source else { return nil }
-                let infoForToc = BookInfo(
-                    bookUrl: book.bookUrl, name: book.name, author: book.author,
-                    intro: book.intro, kind: book.kind, coverUrl: book.coverUrl,
-                    tocUrl: book.bookUrl, lastChapter: book.lastChapter,
-                    updateTime: book.updateTime, wordCount: book.wordCount
-                )
-                return try? await BookSourceEngine.shared.fetchToc(of: infoForToc, in: s)
-            }()
-
-            // 收 detail 先到先显示
-            let detail = await detailFuture
+            var detail: BookInfo? = nil
+            if let s = source {
+                detail = try? await BookSourceEngine.shared.fetchInfo(of: book, in: s)
+            }
             if Task.isCancelled { return }
             self.info = detail
             if detail == nil, source != nil {
@@ -692,8 +796,18 @@ final class BookDetailViewModel: ObservableObject {
             }
             self.isLoadingDetail = false
 
-            // 收 toc
-            let fetchedToc = await tocFuture
+            var fetchedToc: [BookChapter]? = nil
+            if !cacheHit, let s = source {
+                // 用 fetchInfo 解出来的真 BookInfo (含真 tocUrl); fetchInfo 失败时 fallback 到
+                // search 数据 + bookUrl 当 tocUrl (这种 fallback 适配 ruleBookInfo.tocUrl 为空的源)
+                let infoForToc = detail ?? BookInfo(
+                    bookUrl: book.bookUrl, name: book.name, author: book.author,
+                    intro: book.intro, kind: book.kind, coverUrl: book.coverUrl,
+                    tocUrl: book.bookUrl, lastChapter: book.lastChapter,
+                    updateTime: book.updateTime, wordCount: book.wordCount
+                )
+                fetchedToc = try? await BookSourceEngine.shared.fetchToc(of: infoForToc, in: s)
+            }
             if Task.isCancelled { return }
             if let toc = fetchedToc, !toc.isEmpty {
                 self.chapters = toc
@@ -702,8 +816,14 @@ final class BookDetailViewModel: ObservableObject {
                     try? await ChapterRepository.shared.saveToc(bookUrl: bookUrl, chapters: toc)
                 }
             } else if self.chapters.isEmpty {
-                // 既没 cache 也没拉到 → toc fail
-                self.tocError = "目录加载失败"
+                // TOC 失败 → 用 SearchVariantsCache 里的其它源变体兜底, 每个变体都走完整
+                // fetchInfo → fetchToc 链路.
+                let altSwitched = await self.tryAlternativeSources(
+                    forBook: book, source: source
+                )
+                if !altSwitched, self.chapters.isEmpty {
+                    self.tocError = "目录加载失败"
+                }
             }
             self.isLoadingToc = false
 
@@ -713,6 +833,75 @@ final class BookDetailViewModel: ObservableObject {
             await self.prefetchTargetChapterContent(book: book, source: source)
         }
         await loadTask?.value
+    }
+
+    /// 万象书屋 (2026-05-11 真修): TOC 失败时, 用搜索时记录的"同书所有源变体"依次试.
+    /// **每个变体用它自己的 bookUrl**, 不再跨源用主 row 的 bookUrl (那样备用源永远拉不到 TOC).
+    /// 命中第一个能拉 TOC 的就切过去 (写 currentBook/currentSource + 后台落盘).
+    ///
+    /// - returns: true 表示找到了能用的源已切; false 表示全部 alt 也失败.
+    @MainActor
+    private func tryAlternativeSources(forBook book: SearchBook, source failedSource: BookSource?) async -> Bool {
+        let dk = book.dedupeKey
+        let allVariants = SearchVariantsCache.shared.get(key: dk)
+        guard !allVariants.isEmpty else { return false }
+
+        let failedUrl = failedSource?.bookSourceUrl ?? ""
+        let failedBookUrl = book.bookUrl
+
+        // 万象书屋: 过滤掉已经失败过的源 (主源 + 同 bookUrl 的同 origin); 剩下的按 SourcePerformanceTracker
+        // 历史响应分降序试, 命中率最高的优先.
+        let stats = SourcePerformanceTracker.shared.allStats()
+        let candidates = allVariants
+            .filter { v in
+                if v.origin == failedUrl && v.bookUrl == failedBookUrl { return false }
+                return BookSourceRegistry.shared.find(origin: v.origin) != nil
+            }
+            .sorted { lhs, rhs in
+                let ls = stats[lhs.origin]?.score ?? 50
+                let rs = stats[rhs.origin]?.score ?? 50
+                return ls > rs
+            }
+
+        for variant in candidates {
+            if Task.isCancelled { return false }
+            guard let altSrc = BookSourceRegistry.shared.find(origin: variant.origin) else { continue }
+            // 万象书屋 (2026-05-11 critical fix): 先 fetchInfo 把 ruleBookInfo.tocUrl 模板
+            // 渲染成真 tocUrl, 再 fetchToc — 否则用 variant.bookUrl 当 tocUrl 调多数源会失败.
+            let altInfo = (try? await BookSourceEngine.shared.fetchInfo(of: variant, in: altSrc))
+                ?? BookInfo(
+                    bookUrl: variant.bookUrl, name: variant.name, author: variant.author,
+                    intro: variant.intro, kind: variant.kind, coverUrl: variant.coverUrl,
+                    tocUrl: variant.bookUrl, lastChapter: variant.lastChapter,
+                    updateTime: variant.updateTime, wordCount: variant.wordCount
+                )
+            let toc = (try? await BookSourceEngine.shared.fetchToc(of: altInfo, in: altSrc)) ?? []
+            if !toc.isEmpty {
+                if Task.isCancelled { return false }
+                self.chapters = toc
+                // 注意 saveToc 用**变体的 bookUrl** (跟 reader / ChapterRepository 后续读取一致),
+                // 不是主 row 的. ReaderEngine 通过 ShelfBook.bookUrl 找 chapters.
+                let altBookUrl = variant.bookUrl
+                Task.detached(priority: .utility) {
+                    try? await ChapterRepository.shared.saveToc(bookUrl: altBookUrl, chapters: toc)
+                }
+                // 通知 View 同步 currentSource + currentBook (新 bookUrl/origin/originName).
+                NotificationCenter.default.post(
+                    name: .bookDetailAltSourceFound,
+                    object: nil,
+                    userInfo: [
+                        "origin": altSrc.bookSourceUrl,
+                        "originName": altSrc.bookSourceName,
+                        "bookUrl": variant.bookUrl,
+                        "coverUrl": variant.coverUrl ?? "",
+                        "intro": variant.intro ?? "",
+                        "lastChapter": variant.lastChapter ?? ""
+                    ]
+                )
+                return true
+            }
+        }
+        return false
     }
 
     /// 后台预拉用户即将打开的章节正文 (durChapterIndex, 默认 0).

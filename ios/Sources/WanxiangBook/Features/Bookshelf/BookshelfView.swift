@@ -216,26 +216,55 @@ struct BookshelfView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        // 万象书屋: 跟 Android 长按 Tab 弹 GroupEditDialog 等价 — 重命名 / 删除
-                        if g.id != BookGroup.allId && g.id != BookGroup.ungroupedId {
+                        // 万象书屋: 跟 Android 长按 Tab 弹 GroupEditDialog 等价.
+                        // 「全部」不允许任何操作 (meta filter);
+                        // 「未分组」允许重命名 + 隐藏 tab (group_id=0 桶仍保留, 在 GroupManageView 恢复);
+                        // 用户分组重命名 + 删除都支持.
+                        if g.id != BookGroup.allId {
                             Button {
                                 renameInput = g.name
                                 renamingGroup = g
                             } label: { Label("重命名", systemImage: "pencil") }
-                            Button(role: .destructive) {
-                                Task {
-                                    try? await BookGroupRepository.shared.delete(id: g.id)
-                                    await vm.loadGroups()
-                                }
-                            } label: { Label("删除分组", systemImage: "trash") }
+                            if g.id == BookGroup.ungroupedId {
+                                Button(role: .destructive) {
+                                    BookGroup.isUngroupedHidden = true
+                                    if selectedGroupId == BookGroup.ungroupedId {
+                                        selectedGroupId = BookGroup.allId
+                                    }
+                                    Task {
+                                        await vm.loadGroups()
+                                        await vm.refresh(sort: sort, groupId: selectedGroupId)
+                                    }
+                                } label: { Label("隐藏此 tab", systemImage: "eye.slash") }
+                            } else {
+                                Button(role: .destructive) {
+                                    Task {
+                                        try? await BookGroupRepository.shared.delete(id: g.id)
+                                        await vm.loadGroups()
+                                    }
+                                } label: { Label("删除分组", systemImage: "trash") }
+                            }
                         }
                     }
                 }
-                Button {
-                    newGroupName = ""
-                    showCreateGroup = true
+                // 万象书屋 (UX 2026-05-11): "+" 改成 Menu, 同时承载 新建 / 管理 两个入口.
+                // 之前是单按钮只能"创建", 用户找不到删除 → 反馈"分组只能增加不能删除".
+                // 现在点 "+" 弹菜单, 显式提供"新建分组 / 管理分组 (重命名+删除)".
+                // 长按 chip 弹 contextMenu 的快捷方式照样保留.
+                Menu {
+                    Button {
+                        newGroupName = ""
+                        showCreateGroup = true
+                    } label: {
+                        Label("新建分组", systemImage: "plus")
+                    }
+                    Button {
+                        showGroupManage = true
+                    } label: {
+                        Label("管理分组 (重命名/删除)", systemImage: "folder.badge.gearshape")
+                    }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "ellipsis")
                         .font(.caption)
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(Capsule().stroke(Color.gray.opacity(0.4)))
@@ -295,7 +324,7 @@ struct BookshelfView: View {
 
     private func bookListRow(_ book: ShelfBook) -> some View {
         HStack(spacing: 12) {
-            BookCover(url: book.coverUrl, width: 50, height: 70)
+            BookCover(url: book.coverUrl, width: 50, height: 70, bookTitle: book.name)
             VStack(alignment: .leading, spacing: 4) {
                 Text(book.name).font(.subheadline.weight(.medium))
                 Text(book.author).font(.caption2).foregroundStyle(.secondary)
@@ -427,7 +456,7 @@ private struct BookCard: View {
             ZStack(alignment: .bottomLeading) {
                 GeometryReader { geo in
                     let h = geo.size.width * 4.2 / 3
-                    BookCover(url: book.coverUrl, width: geo.size.width, height: h)
+                    BookCover(url: book.coverUrl, width: geo.size.width, height: h, bookTitle: book.name)
                 }
                 .aspectRatio(3.0/4.2, contentMode: .fit)
                 if book.progress > 0 {

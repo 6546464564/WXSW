@@ -85,6 +85,21 @@ struct CLI {
                 let precArg = args.dropFirst(2).first?.lowercased() ?? ""
                 let precision = (precArg == "1" || precArg == "true" || precArg == "yes")
                 try await mergeSearch(key: key, precision: precision)
+            case "prune-file":
+                // 万象书屋: 离线剔除"用不了"的源.
+                // 用法: prune-file <input.json> <output.json> ["kw1,kw2,..."]
+                let inputPath = args.dropFirst().first ?? ""
+                let outputPath = args.dropFirst(2).first ?? ""
+                let kws = args.dropFirst(3).first ?? "凡人修仙,斗罗大陆,诡秘之主"
+                try await pruneFile(inputPath: inputPath, outputPath: outputPath, keywords: kws)
+            case "deep-batch-file":
+                // 万象书屋: 批量端到端 (与 App 一致): 多关键字 probing → info → toc → 正文
+                // deep-batch-file <input.json> <report.json> ["kw1,kw2,..."]
+                // 并发 WX_DEEP_CONCURRENCY (默认 6), 超时 WX_TIMEOUT (默认 20)
+                let inputPath = args.dropFirst().first ?? ""
+                let reportPath = args.dropFirst(2).first ?? ""
+                let kws = args.dropFirst(3).first ?? "凡人修仙,斗罗大陆,诡秘之主,斗破苍穹"
+                try await deepBatchFile(inputPath: inputPath, reportPath: reportPath, keywords: kws)
             default:                 printHelp()
             }
         } catch {
@@ -113,6 +128,7 @@ struct CLI {
           real-search \"关键字\" [源名过滤]   # 走后端 /api/sources
           merge-search \"关键字\" [true]      # 全源合并 + iOS 同款去重/排序 (对照安卓列表用)
           real-search-file <legado.json> \"关键字\" [源名过滤]   # 本地 JSON
+          deep-batch-file <legado.json> <report.json> [\"kw1,kw2,...\"] # 批量端到端 + JSON 报告
         """)
     }
 }
@@ -538,7 +554,7 @@ func debugSourceFromFile(path: String, nameSub: String, key: String) async throw
             urlString: rendered.url,
             method: rendered.method,
             body: rendered.body,
-            headers: s.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
+            headers: (await s.resolvedHeaders(js: dbgEngine)).merging(rendered.headers, uniquingKeysWith: { _, b in b }),
             sourceKey: s.bookSourceUrl)
     } catch {
         print("❌ HTTP 失败: \(error)"); return
@@ -654,7 +670,8 @@ func runRealDeep(sources: [BookSource], key: String) async {
             }
             do {
                 let cn = try await withTimeout(seconds: timeoutSec) {
-                    try await engine.fetchContent(of: toc[0], in: s)
+                    // 必须与 App 一致: 正文规则里常引用 book.* (例 java.ajax(book.bookUrl))
+                    try await engine.fetchContent(of: toc[0], in: s, book: info)
                 }
                 if cn.content.count < 100 {
                     details.append("\(label) ⚠️ content too short (\(cn.content.count) chars)"); continue
@@ -675,6 +692,200 @@ func runRealDeep(sources: [BookSource], key: String) async {
     print("  info   ✓:  \(nInfo)   / \(nSearch)")
     print("  toc    ✓:  \(nToc)    / \(nInfo)")
     print("  content✓: \(nContent) / \(nToc)")
+}
+
+// MARK: - deep-batch-file: 多关键字 + 并发端到端体检 (对齐 iOS App 链路)
+
+private struct DeepBatchReportRow: Codable {
+    var bookSourceName: String
+    var bookSourceUrl: String
+    var ok: Bool
+    var keywordUsed: String?
+    var searchHitCount: Int?
+    var tocCount: Int?
+    var contentChars: Int?
+    var failedStage: String?
+    var errorSnippet: String?
+}
+
+private struct DeepBatchReport: Codable {
+    var generatedAt: String
+    var inputPath: String
+    var keywordsTried: [String]
+    var total: Int
+    var okCount: Int
+    var rows: [DeepBatchReportRow]
+}
+
+/// 对源单逐个跑: search(多词探测) → fetchInfo → fetchToc → fetchContent(book: info).
+/// 输出 JSON 报告便于筛「只在 iOS CLI 挂了」的规则问题.
+func deepBatchFile(inputPath: String, reportPath: String, keywords: String) async throws {
+    setvbuf(stdout, nil, _IOLBF, 0)
+    guard !inputPath.isEmpty, !reportPath.isEmpty else {
+        print("用法: deep-batch-file <input.json> <report.json> [\"kw1,kw2,...\"]")
+        return
+    }
+    let kwList = keywords.split(separator: ",").map {
+        $0.trimmingCharacters(in: .whitespaces)
+    }.filter { !$0.isEmpty }
+    guard !kwList.isEmpty else {
+        print("❌ 至少给一个关键字")
+        return
+    }
+
+    let sources = try loadSourcesFromLegadoJson(path: inputPath).filter {
+        !$0.bookSourceUrl.isEmpty && !$0.bookSourceName.isEmpty
+    }
+    let timeoutSec = TimeInterval(Int(ProcessInfo.processInfo.environment["WX_TIMEOUT"] ?? "20") ?? 20)
+    let concurrency = max(1, Int(ProcessInfo.processInfo.environment["WX_DEEP_CONCURRENCY"] ?? "6") ?? 6)
+
+    print("=== deep-batch-file ===")
+    print("输入: \(inputPath) (\(sources.count) 源)")
+    print("报告: \(reportPath)")
+    print("关键字: \(kwList.joined(separator: ", "))")
+    print("并发: \(concurrency), 超时: \(Int(timeoutSec))s\n")
+
+    let engine = await BookSourceEngine.shared
+
+    func errSnip(_ e: Error) -> String {
+        let s = String(describing: e)
+        return String(s.prefix(280))
+    }
+
+    func runRow(idx _: Int, s: BookSource) async -> DeepBatchReportRow {
+        var firstHit: SearchBook?
+        var usedKw: String?
+        var hits = 0
+        kwLoop: for kw in kwList {
+            do {
+                let books = try await withTimeout(seconds: timeoutSec) {
+                    try await engine.search(in: s, key: kw)
+                }
+                if let b = books.first {
+                    firstHit = b
+                    usedKw = kw
+                    hits = books.count
+                    break kwLoop
+                }
+            } catch {
+                continue
+            }
+        }
+
+        guard let book = firstHit else {
+            return DeepBatchReportRow(
+                bookSourceName: s.bookSourceName, bookSourceUrl: s.bookSourceUrl,
+                ok: false, keywordUsed: nil, searchHitCount: nil, tocCount: nil, contentChars: nil,
+                failedStage: "search", errorSnippet: "0 hits (all keywords or timeout)")
+        }
+
+        let info: BookInfo
+        do {
+            info = try await withTimeout(seconds: timeoutSec) {
+                try await engine.fetchInfo(of: book, in: s)
+            }
+        } catch {
+            return DeepBatchReportRow(
+                bookSourceName: s.bookSourceName, bookSourceUrl: s.bookSourceUrl,
+                ok: false, keywordUsed: usedKw, searchHitCount: hits, tocCount: nil, contentChars: nil,
+                failedStage: "info", errorSnippet: errSnip(error))
+        }
+
+        let toc: [BookChapter]
+        do {
+            toc = try await withTimeout(seconds: timeoutSec) {
+                try await engine.fetchToc(of: info, in: s)
+            }
+        } catch {
+            return DeepBatchReportRow(
+                bookSourceName: s.bookSourceName, bookSourceUrl: s.bookSourceUrl,
+                ok: false, keywordUsed: usedKw, searchHitCount: hits, tocCount: nil, contentChars: nil,
+                failedStage: "toc", errorSnippet: errSnip(error))
+        }
+
+        if toc.isEmpty {
+            return DeepBatchReportRow(
+                bookSourceName: s.bookSourceName, bookSourceUrl: s.bookSourceUrl,
+                ok: false, keywordUsed: usedKw, searchHitCount: hits, tocCount: 0, contentChars: nil,
+                failedStage: "toc", errorSnippet: "0 chapters")
+        }
+
+        do {
+            let cn = try await withTimeout(seconds: timeoutSec) {
+                try await engine.fetchContent(of: toc[0], in: s, book: info)
+            }
+            if cn.content.count < 100 {
+                return DeepBatchReportRow(
+                    bookSourceName: s.bookSourceName, bookSourceUrl: s.bookSourceUrl,
+                    ok: false, keywordUsed: usedKw, searchHitCount: hits, tocCount: toc.count, contentChars: cn.content.count,
+                    failedStage: "content", errorSnippet: "too short (\(cn.content.count) chars)")
+            }
+            return DeepBatchReportRow(
+                bookSourceName: s.bookSourceName, bookSourceUrl: s.bookSourceUrl,
+                ok: true, keywordUsed: usedKw, searchHitCount: hits, tocCount: toc.count, contentChars: cn.content.count,
+                failedStage: nil, errorSnippet: nil)
+        } catch {
+            return DeepBatchReportRow(
+                bookSourceName: s.bookSourceName, bookSourceUrl: s.bookSourceUrl,
+                ok: false, keywordUsed: usedKw, searchHitCount: hits, tocCount: toc.count, contentChars: nil,
+                failedStage: "content", errorSnippet: errSnip(error))
+        }
+    }
+
+    var slot = Array(repeating: Optional<DeepBatchReportRow>.none, count: sources.count)
+
+    await withTaskGroup(of: (Int, DeepBatchReportRow).self) { group in
+        var iterator = sources.enumerated().makeIterator()
+        var inflight = 0
+
+        while inflight < concurrency, let (idx, s) = iterator.next() {
+            inflight += 1
+            group.addTask {
+                let r = await runRow(idx: idx, s: s)
+                return (idx, r)
+            }
+        }
+
+        while inflight > 0 {
+            if let (idx, row) = await group.next() {
+                inflight -= 1
+                slot[idx] = row
+                let done = slot.compactMap { $0 }.count
+                if done % 10 == 0 || done == sources.count {
+                    let okN = slot.compactMap { $0 }.filter { $0.ok }.count
+                    print("  [\(done)/\(sources.count)] ok=\(okN)")
+                }
+                if let (j, sx) = iterator.next() {
+                    inflight += 1
+                    group.addTask {
+                        let r = await runRow(idx: j, s: sx)
+                        return (j, r)
+                    }
+                }
+            }
+        }
+    }
+
+    let rows = slot.compactMap { $0 }
+    let okCount = rows.filter { $0.ok }.count
+    let iso = ISO8601DateFormatter()
+    iso.formatOptions = [.withInternetDateTime]
+    let report = DeepBatchReport(
+        generatedAt: iso.string(from: Date()),
+        inputPath: inputPath,
+        keywordsTried: kwList,
+        total: rows.count,
+        okCount: okCount,
+        rows: rows
+    )
+    let enc = JSONEncoder()
+    enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try enc.encode(report)
+    try data.write(to: URL(fileURLWithPath: reportPath), options: .atomic)
+
+    print("\n=== deep-batch Summary ===")
+    print("  全链路 OK: \(okCount) / \(rows.count)")
+    print("  报告: \(reportPath)")
 }
 
 // MARK: - Debug single source (一步步打印中间结果)
@@ -728,7 +939,7 @@ func debugSource(name: String, key: String) async throws {
         urlString: rendered.url,
         method: rendered.method,
         body: rendered.body,
-        headers: s.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
+        headers: (await s.resolvedHeaders(js: dbgEngine)).merging(rendered.headers, uniquingKeysWith: { _, b in b }),
         sourceKey: s.bookSourceUrl
     )
     let body = resp.bodyText
@@ -991,7 +1202,7 @@ func mergeSearch(key rawKey: String, precision: Bool) async throws {
         case .success(let books):
             for b in books {
                 if precision && relevanceTierMergeSearch(book: b, k: key) >= 2 { continue }
-                let dk = b.androidStrictMergeKey
+                let dk = b.dedupeKey
                 if let idx = dedupeRowIndex[dk] {
                     var row = merged[idx]
                     var seen = Set<String>([row.origin])
@@ -1188,6 +1399,148 @@ func realSearchFromFile(path: String, key: String, sourceFilter: String?) async 
     print("  ⚠️ 0 hit:    \(parseEmpty)")
     print("  ❌ 异常:      \(fail)")
     print("  ⏱  timeout:  \(timeout)")
+}
+
+// MARK: - prune-file: 在线探测后剔除不可用的源, 写新 JSON
+
+/// 万象书屋 (2026-05-11): 离线剔除"用不了"的源.
+///
+/// 算法:
+///   1. 读 input.json (legado 格式 array)
+///   2. 用 N 个关键字 (默认 "凡人修仙,斗罗大陆,诡秘之主") 依次探测每个源
+///      - 任一关键字返 ≥1 hit → 保留 (源能工作)
+///      - 所有关键字 timeout / error / 0 hit → 剔除
+///   3. 把保留的源写到 output.json
+///
+/// 性能: 并发 = WX_PRUNE_CONCURRENCY (默认 8), 单源超时 = WX_PRUNE_TIMEOUT (默认 10s).
+/// 1500 源 × 3 关键字 ≈ 1500 / 8 * 10s * 1.5 = ~30 分钟最坏情况, 多数源首词就命中提前 break.
+func pruneFile(inputPath: String, outputPath: String, keywords: String) async throws {
+    // 万象书屋: nohup/管道场景下 stdout 默认 fully-buffered, print() 不实时刷盘.
+    // 切到 line-buffered 让用户/我能看到进度.
+    setvbuf(stdout, nil, _IOLBF, 0)
+    guard !inputPath.isEmpty, !outputPath.isEmpty else {
+        print("用法: prune-file <input.json> <output.json> [\"kw1,kw2,...\"]")
+        return
+    }
+    let kwList = keywords.split(separator: ",").map {
+        $0.trimmingCharacters(in: .whitespaces)
+    }.filter { !$0.isEmpty }
+    guard !kwList.isEmpty else {
+        print("❌ 至少给一个关键字")
+        return
+    }
+    let sources = try loadSourcesFromLegadoJson(path: inputPath)
+    print("=== prune-file ===")
+    print("输入: \(inputPath) (\(sources.count) 源)")
+    print("关键字: \(kwList.joined(separator: ", "))")
+    let timeoutSec = TimeInterval(Int(ProcessInfo.processInfo.environment["WX_PRUNE_TIMEOUT"] ?? "10") ?? 10)
+    let concurrency = Int(ProcessInfo.processInfo.environment["WX_PRUNE_CONCURRENCY"] ?? "8") ?? 8
+    print("并发: \(concurrency), 单源超时: \(Int(timeoutSec))s\n")
+
+    let engine = await BookSourceEngine.shared
+    typealias R = (idx: Int, keep: Bool, status: String)
+
+    // 同时跑多个源, 每个源内部串行试关键字, 任意一个 hit 就 keep.
+    actor Progress {
+        var done = 0
+        let total: Int
+        var ok = 0
+        var dropped = 0
+        init(total: Int) { self.total = total }
+        func tick(keep: Bool) -> Int {
+            done += 1
+            if keep { ok += 1 } else { dropped += 1 }
+            return done
+        }
+    }
+    let progress = Progress(total: sources.count)
+
+    // 万象书屋: 中途落盘 — 每完成 N 个源就写一次部分结果到 output.json + .partial 标记,
+    // 避免中断丢全部进度. 用户可以查看 partial 文件确认进度.
+    var results = Array(repeating: R(idx: -1, keep: false, status: ""), count: sources.count)
+    let inputData = try Data(contentsOf: URL(fileURLWithPath: inputPath))
+    guard let inputArr = (try? JSONSerialization.jsonObject(with: inputData)) as? [[String: Any]] else {
+        print("❌ 输入 JSON 格式异常 (不是 array)")
+        return
+    }
+    let urlToDict: [String: [String: Any]] = Dictionary(uniqueKeysWithValues:
+        inputArr.compactMap { dict in
+            (dict["bookSourceUrl"] as? String).map { ($0, dict) }
+        }
+    )
+    @Sendable func flushPartial(results: [R]) {
+        let keptUrls = results.compactMap { r -> String? in
+            guard r.idx >= 0, r.keep else { return nil }
+            return sources[r.idx].bookSourceUrl
+        }
+        let keptDicts = keptUrls.compactMap { urlToDict[$0] }
+        if let data = try? JSONSerialization.data(withJSONObject: keptDicts, options: [.prettyPrinted]) {
+            try? data.write(to: URL(fileURLWithPath: outputPath))
+        }
+    }
+    await withTaskGroup(of: R.self) { group in
+        var iter = sources.enumerated().makeIterator()
+        var inflight = 0
+
+        @Sendable
+        func makeTask(idx: Int, s: BookSource) -> @Sendable () async -> R {
+            return {
+                let label = s.bookSourceName
+                for kw in kwList {
+                    let result: [SearchBook]?
+                    do {
+                        result = try await withTimeout(seconds: timeoutSec) {
+                            try await engine.search(in: s, key: kw)
+                        }
+                    } catch {
+                        continue
+                    }
+                    if let r = result, !r.isEmpty {
+                        return (idx, true, "✓ \(kw) → \(r.count)")
+                    }
+                }
+                return (idx, false, "✗ all keywords miss [\(label)]")
+            }
+        }
+
+        while let (idx, s) = iter.next() {
+            while inflight >= concurrency {
+                if let r = await group.next() {
+                    inflight -= 1
+                    results[r.idx] = r
+                    let n = await progress.tick(keep: r.keep)
+                    if n % 20 == 0 || n == sources.count {
+                        let okN = await progress.ok
+                        let dropN = await progress.dropped
+                        print("  [\(n)/\(sources.count)] kept=\(okN) dropped=\(dropN)")
+                        flushPartial(results: results)
+                    }
+                }
+            }
+            inflight += 1
+            group.addTask { await makeTask(idx: idx, s: s)() }
+        }
+        for await r in group {
+            results[r.idx] = r
+            let n = await progress.tick(keep: r.keep)
+            if n % 20 == 0 || n == sources.count {
+                let okN = await progress.ok
+                let dropN = await progress.dropped
+                print("  [\(n)/\(sources.count)] kept=\(okN) dropped=\(dropN)")
+                flushPartial(results: results)
+            }
+        }
+    }
+
+    // 最后落盘一次 (覆盖期间所有 partial 写入)
+    flushPartial(results: results)
+    let keptCount = results.filter { $0.keep }.count
+    let okN = await progress.ok
+    let dropN = await progress.dropped
+    print()
+    print("=== 完成 ===")
+    print("  保留: \(keptCount) / \(sources.count) (实际命中 \(okN), 剔除 \(dropN))")
+    print("  输出: \(outputPath)")
 }
 
 func withTimeout<T: Sendable>(seconds: TimeInterval, op: @escaping @Sendable () async throws -> T) async throws -> T {

@@ -49,6 +49,8 @@ public final class SearchParser: @unchecked Sendable {
         //   - 没限速 iOS 多源并发搜索时一秒打 30+ 次同一站点, 触发反爬封 IP
         await SourceRateLimiter.shared.acquire(source: source)
 
+        let baseHeaders = await source.resolvedHeaders(js: jsEngine)
+
         // 万象书屋: 显式 `,{webView:true}` 优先 WK 渲染, 不走 URLSession.
         //   - 对应 legado UrlOption.webView. 这个标志位的本意是
         //     "这个 URL 必须在浏览器里跑过 JS 才能拿到 DOM" (SPA + Cloudflare 必经).
@@ -70,7 +72,7 @@ public final class SearchParser: @unchecked Sendable {
                     urlString: rendered.url,
                     method: rendered.method,
                     body: rendered.body,
-                    headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
+                    headers: baseHeaders.merging(rendered.headers, uniquingKeysWith: { _, b in b }),
                     sourceKey: source.bookSourceUrl,
                     retries: rendered.retry ?? 1   // 万象书屋 (M2.4 perf): search 不 retry, 单源失败立即让位多源并发
                 )
@@ -87,7 +89,7 @@ public final class SearchParser: @unchecked Sendable {
                     urlString: rendered.url,
                     method: rendered.method,
                     body: rendered.body,
-                    headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
+                    headers: baseHeaders.merging(rendered.headers, uniquingKeysWith: { _, b in b }),
                     sourceKey: source.bookSourceUrl,
                     retries: rendered.retry ?? 1
                 )
@@ -253,8 +255,13 @@ public final class SearchParser: @unchecked Sendable {
         guard var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
             return nil
         }
-        // "作者: 天蚕土豆" / "作者：天蚕土豆"
-        let prefixes = ["作者:", "作者:", "作者：", "Author:", "Author:"]
+        // 万象书屋 (2026-05-11): 一些源的 intro 直接 dump HTML 片段, 例如:
+        //   "《<font color='#ff4242'>青山</font>》以 20 世纪 90 年代到如今二三十年..."
+        // 在搜索行 / 详情页直接展示这种带标签的文字非常违和. 这里统一 strip 掉 HTML 标签
+        // (含 `&nbsp;`, `&amp;` 等常见实体) 让正文干净.
+        s = Self.stripHTML(s)
+        // "作者: 天蚕土豆" / "作者:天蚕土豆"
+        let prefixes = ["作者:", "作者:", "作者:", "作者：", "Author:", "Author:"]
         for p in prefixes {
             if s.hasPrefix(p) {
                 s = String(s.dropFirst(p.count)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -277,6 +284,41 @@ public final class SearchParser: @unchecked Sendable {
         // 合并多余空白
         s = s.replacingOccurrences(of: "[\\s\u{3000}]+", with: " ", options: .regularExpression)
         return s.isEmpty ? nil : s
+    }
+
+    /// 万象书屋: 简易 HTML strip + 实体解码. 跟 Android `String.htmlFormat()` 等价.
+    /// 不依赖 SwiftSoup (它太重, 这里 intro 通常就一行), 用 regex + 简单字典.
+    nonisolated static func stripHTML(_ raw: String) -> String {
+        var s = raw
+        // 1. 去标签 (含 `<font>`, `<br/>`, `<div>` 等). 非贪婪以免吃过头.
+        if s.contains("<") {
+            s = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        }
+        // 2. 解码常见 HTML 实体
+        let entities: [(String, String)] = [
+            ("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+            ("&quot;", "\""), ("&apos;", "'"), ("&#39;", "'"), ("&hellip;", "…"),
+            ("&mdash;", "—"), ("&ndash;", "–"), ("&laquo;", "«"), ("&raquo;", "»"),
+            ("&middot;", "·"), ("&copy;", "©"), ("&reg;", "®"),
+        ]
+        for (k, v) in entities {
+            if s.contains(k) {
+                s = s.replacingOccurrences(of: k, with: v)
+            }
+        }
+        // 3. 数字实体 `&#数字;` → Unicode 字符
+        if s.contains("&#"),
+           let regex = try? NSRegularExpression(pattern: #"&#(\d+);"#) {
+            let ns = s as NSString
+            let matches = regex.matches(in: s, range: NSRange(0..<ns.length))
+            for m in matches.reversed() {
+                if let codeStr = Range(m.range(at: 1), in: s).map({ String(s[$0]) }),
+                   let code = Int(codeStr), let scalar = Unicode.Scalar(code) {
+                    s = (s as NSString).replacingCharacters(in: m.range, with: String(scalar))
+                }
+            }
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func optString(_ rule: String?, html: String, baseUrl: String?, scope: JSContextScope? = nil) async -> String? {

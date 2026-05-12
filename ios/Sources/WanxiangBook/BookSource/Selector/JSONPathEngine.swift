@@ -52,6 +52,12 @@ public struct JSONPathEngine: SelectorEngine {
     private func evaluate(rule: String, on root: Any) -> [Any] {
         var path = rule.trimmingCharacters(in: .whitespaces)
         if path.hasPrefix("$") { path.removeFirst() }
+        // 万象书屋 (2026-05-12 fix): legado 部分源把根数组写成 `$.[*]` 而不是标准 `$[*]`
+        //   米读小说 / 长佩文学等 chapterList 用 `$.[*]` 取根数组每项. 之前 walk 在 `.[*]`
+        //   里走 `.field` 分支, readToken 拿空 token ⇒ 返回空集 ⇒ toc 0.
+        if path.hasPrefix(".[") {
+            path.removeFirst()
+        }
         return walk([root], path: path)
     }
 

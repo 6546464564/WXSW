@@ -79,6 +79,37 @@ final class SearchLegadoOrderingTests: XCTestCase {
         let sorted = SearchLegadoOrdering.sort(books: books, key: "临圣", precision: false)
         XCTAssertEqual(sorted.first?.name, "临圣演义")
     }
+
+    /// 万象书屋 (2026-05-11): 同 tier 0 内 (三本都叫"青山"), 字数最大的应排前.
+    /// 模拟用户搜"青山" 看到 "南归雁73" vs "阳三沘" vs "会说话的肘子(421万字)" 的差异.
+    func test_ordering_higherWordCountFirstWithinExactTier() {
+        var nansheng = makeSB(name: "青山", author: "南归雁73", url: "https://a.test")
+        var yangsanshen = makeSB(name: "青山", author: "阳三沘", url: "https://b.test")
+        var zhouzi = makeSB(name: "青山", author: "会说话的肘子", url: "https://c.test")
+        nansheng.wordCount = ""
+        yangsanshen.wordCount = ""
+        zhouzi.wordCount = "421万字"
+        let sorted = SearchLegadoOrdering.sort(
+            books: [nansheng, yangsanshen, zhouzi], key: "青山", precision: false
+        )
+        XCTAssertEqual(sorted.first?.author, "会说话的肘子",
+                       "tier 0 内 421 万字的『青山』(会说话的肘子) 应该排第一, 跟 Android 一致")
+    }
+
+    /// 字数解析: "421万字" → 4_210_000; "1.2万" → 12_000; "12000" → 12000
+    func test_wordCountInt_variousFormats() {
+        var b = makeSB(name: "x", author: "y")
+        b.wordCount = "421万字"
+        XCTAssertEqual(SearchLegadoOrdering.wordCountInt(b), 4_210_000)
+        b.wordCount = "1.2万"
+        XCTAssertEqual(SearchLegadoOrdering.wordCountInt(b), 12_000)
+        b.wordCount = "12000"
+        XCTAssertEqual(SearchLegadoOrdering.wordCountInt(b), 12_000)
+        b.wordCount = ""
+        XCTAssertEqual(SearchLegadoOrdering.wordCountInt(b), 0)
+        b.wordCount = nil
+        XCTAssertEqual(SearchLegadoOrdering.wordCountInt(b), 0)
+    }
 }
 
 private func makeSB(name: String, author: String, url: String = "https://ex.test") -> SearchBook {

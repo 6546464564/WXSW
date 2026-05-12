@@ -1,0 +1,282 @@
+{
+  "generatedAt" : "2026-05-12T05:17:15Z",
+  "inputPath" : "\/Users\/stark\/Desktop\/WXSW\/ios\/Sources\/WanxiangBook\/Resources\/defaultData\/bookSources.json",
+  "keywordsTried" : [
+    "凡人修仙",
+    "斗罗大陆",
+    "诡秘之主",
+    "斗破苍穹",
+    "遮天",
+    "完美世界",
+    "武动乾坤",
+    "一念永恒",
+    "仙逆",
+    "吞噬星空"
+  ],
+  "okCount" : 10,
+  "rows" : [
+    {
+      "bookSourceName" : "🔞漫蛙可直连",
+      "bookSourceUrl" : "https:\/\/manwatp.cc\/",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "黄易天地",
+      "bookSourceUrl" : "http:\/\/www.xhytd.com\/",
+      "errorSnippet" : "0 chapters",
+      "failedStage" : "toc",
+      "keywordUsed" : "斗罗大陆",
+      "ok" : false,
+      "searchHitCount" : 100,
+      "tocCount" : 0
+    },
+    {
+      "bookSourceName" : "速读谷",
+      "bookSourceUrl" : "https:\/\/www.sudugu.org\/",
+      "contentChars" : 10961,
+      "keywordUsed" : "凡人修仙",
+      "ok" : true,
+      "searchHitCount" : 10,
+      "tocCount" : 2512
+    },
+    {
+      "bookSourceName" : "小说之家",
+      "bookSourceUrl" : "http:\/\/www.itxtbook.net",
+      "contentChars" : 18131,
+      "keywordUsed" : "凡人修仙",
+      "ok" : true,
+      "searchHitCount" : 20,
+      "tocCount" : 348
+    },
+    {
+      "bookSourceName" : "来漫画",
+      "bookSourceUrl" : "https:\/\/m.laimanhua.org\/",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "不良小说",
+      "bookSourceUrl" : "https:\/\/blxsw1.com",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "成人小说网",
+      "bookSourceUrl" : "https:\/\/crxs.me",
+      "contentChars" : 17306,
+      "keywordUsed" : "斗罗大陆",
+      "ok" : true,
+      "searchHitCount" : 5,
+      "tocCount" : 6
+    },
+    {
+      "bookSourceName" : "看漫画",
+      "bookSourceUrl" : "https:\/\/www.kanman.com",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "第一版主",
+      "bookSourceUrl" : "http:\/\/m.xiaobanzhu.com\/",
+      "contentChars" : 2213,
+      "keywordUsed" : "凡人修仙",
+      "ok" : true,
+      "searchHitCount" : 9,
+      "tocCount" : 4
+    },
+    {
+      "bookSourceName" : "爱下电子书",
+      "bookSourceUrl" : "https:\/\/ixdzs8.com",
+      "contentChars" : 0,
+      "errorSnippet" : "too short (0 chars)",
+      "failedStage" : "content",
+      "keywordUsed" : "凡人修仙",
+      "ok" : false,
+      "searchHitCount" : 20,
+      "tocCount" : 139
+    },
+    {
+      "bookSourceName" : "小说网\n🍅番茄小说源",
+      "bookSourceUrl" : "https:\/\/novel.cooks.tw",
+      "contentChars" : 2389,
+      "keywordUsed" : "凡人修仙",
+      "ok" : true,
+      "searchHitCount" : 20,
+      "tocCount" : 1132
+    },
+    {
+      "bookSourceName" : "笔趣阁900",
+      "bookSourceUrl" : "https:\/\/m.biquge900.com\/",
+      "contentChars" : 1951,
+      "keywordUsed" : "凡人修仙",
+      "ok" : true,
+      "searchHitCount" : 2,
+      "tocCount" : 1402
+    },
+    {
+      "bookSourceName" : "🐑繁星四月[分页]",
+      "bookSourceUrl" : "http:\/\/www.fuxsb.com\/",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "图库漫画",
+      "bookSourceUrl" : "https:\/\/www.tuku.cc\/",
+      "contentChars" : 3014,
+      "keywordUsed" : "凡人修仙",
+      "ok" : true,
+      "searchHitCount" : 21,
+      "tocCount" : 2
+    },
+    {
+      "bookSourceName" : "🥝猕猴桃漫画",
+      "bookSourceUrl" : "https:\/\/www.mwwz.cc",
+      "contentChars" : 1129,
+      "keywordUsed" : "凡人修仙",
+      "ok" : true,
+      "searchHitCount" : 20,
+      "tocCount" : 147
+    },
+    {
+      "bookSourceName" : "刚够小说网",
+      "bookSourceUrl" : "https:\/\/m.ganggou.net\/",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "顶点小说",
+      "bookSourceUrl" : "https:\/\/m.terry-haass.com",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "爱发电（导入前请备份好自己的发现规则，登录直接点登录，填账号密码，不要改登录规则里的东西，阅读升级最新版，网站只能搜作者）",
+      "bookSourceUrl" : "http:\/\/ifdian.net",
+      "errorSnippet" : "0 chapters",
+      "failedStage" : "toc",
+      "keywordUsed" : "斗罗大陆",
+      "ok" : false,
+      "searchHitCount" : 1,
+      "tocCount" : 0
+    },
+    {
+      "bookSourceName" : "百合会论坛",
+      "bookSourceUrl" : "https:\/\/bbs.yamibo.com",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "八叉书库",
+      "bookSourceUrl" : "https:\/\/bcshuku.com\/",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "七星阁小说网",
+      "bookSourceUrl" : "http:\/\/www.qixinge.net",
+      "errorSnippet" : "CancellationError()",
+      "failedStage" : "info",
+      "keywordUsed" : "凡人修仙",
+      "ok" : false,
+      "searchHitCount" : 20
+    },
+    {
+      "bookSourceName" : "asmrEgg",
+      "bookSourceUrl" : "https:\/\/a.asmregg.top\/",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "BB成人小说",
+      "bookSourceUrl" : "https:\/\/bbxxxx.com",
+      "contentChars" : 27366,
+      "keywordUsed" : "凡人修仙",
+      "ok" : true,
+      "searchHitCount" : 10,
+      "tocCount" : 62
+    },
+    {
+      "bookSourceName" : "瀚海书阁",
+      "bookSourceUrl" : "https:\/\/www.txtdd.top",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "QQ浏览器柳树",
+      "bookSourceUrl" : "https:\/\/novel.html5.qq.com\/#柳树",
+      "contentChars" : 2233,
+      "keywordUsed" : "凡人修仙",
+      "ok" : true,
+      "searchHitCount" : 24,
+      "tocCount" : 1131
+    },
+    {
+      "bookSourceName" : "随梦小说网",
+      "bookSourceUrl" : "https:\/\/m.suimeng.co\/",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "禁漫[国内]",
+      "bookSourceUrl" : "https:\/\/jmcomicne.net\/",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "📖海淘者",
+      "bookSourceUrl" : "http:\/\/www.haitaozhe.com",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "🏷晋江文学",
+      "bookSourceUrl" : "https:\/\/m.jjwxc.net\/channel\/",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    },
+    {
+      "bookSourceName" : "乐乐",
+      "bookSourceUrl" : "https:\/\/www.lcmhx.asia",
+      "errorSnippet" : "0 chapters",
+      "failedStage" : "toc",
+      "keywordUsed" : "斗罗大陆",
+      "ok" : false,
+      "searchHitCount" : 1,
+      "tocCount" : 0
+    },
+    {
+      "bookSourceName" : "🌈爱去小说",
+      "bookSourceUrl" : "https:\/\/www.aqxsw555.com\/",
+      "errorSnippet" : "missingRule(\"ruleContent.content\")",
+      "failedStage" : "content",
+      "keywordUsed" : "凡人修仙",
+      "ok" : false,
+      "searchHitCount" : 4,
+      "tocCount" : 1
+    },
+    {
+      "bookSourceName" : "🎨禁漫天堂[国内]",
+      "bookSourceUrl" : "https:\/\/jmcomicgo.me",
+      "errorSnippet" : "0 hits (all keywords or timeout)",
+      "failedStage" : "search",
+      "ok" : false
+    }
+  ],
+  "total" : 32
+}

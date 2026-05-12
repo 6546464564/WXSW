@@ -22,8 +22,33 @@ public struct BookGroup: Identifiable, Hashable, Sendable {
     public static let allId: Int64 = -1
     public static let ungroupedId: Int64 = 0
 
+    /// 万象书屋 (2026-05-11): 用户可自定义"未分组"的展示名 (例如改成"我的小说"/"待整理").
+    /// id 仍是 0, 只是 UI label 取 UserDefaults; 跟 Android 不同, 那边是 hardcoded resource.
+    static let ungroupedNameDefaultsKey = "wx.bookGroup.ungrouped.name"
+    static let defaultUngroupedName = "未分组"
+
+    /// 万象书屋 (2026-05-11): 用户可"隐藏"未分组 tab — 仅 UI 层面藏起来, 不删 group_id=0 桶
+    /// (那个桶是必需的: 加书没指定分组 / 用户分组被删时落点). 在 GroupManageView 可恢复.
+    static let ungroupedHiddenDefaultsKey = "wx.bookGroup.ungrouped.hidden"
+
+    public static var isUngroupedHidden: Bool {
+        get { UserDefaults.standard.bool(forKey: ungroupedHiddenDefaultsKey) }
+        set {
+            if newValue {
+                UserDefaults.standard.set(true, forKey: ungroupedHiddenDefaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: ungroupedHiddenDefaultsKey)
+            }
+        }
+    }
+
     public static var all: BookGroup { .init(id: allId, name: "全部", orderIdx: -100) }
-    public static var ungrouped: BookGroup { .init(id: ungroupedId, name: "未分组", orderIdx: -1) }
+    public static var ungrouped: BookGroup {
+        let custom = UserDefaults.standard.string(forKey: ungroupedNameDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = (custom?.isEmpty == false ? custom! : defaultUngroupedName)
+        return .init(id: ungroupedId, name: name, orderIdx: -1)
+    }
 }
 
 public actor BookGroupRepository {
@@ -47,7 +72,12 @@ public actor BookGroupRepository {
 
     public func listAll() async throws -> [BookGroup] {
         try await ensureSchema()
-        var groups: [BookGroup] = [.all, .ungrouped]
+        // 万象书屋 (2026-05-11): "未分组" 可被用户隐藏 — 隐藏时 chip 不显示, 但 group_id=0
+        // 桶仍存在 (用作未指定分组的兜底落点). 在 GroupManageView "系统分组"区可恢复.
+        var groups: [BookGroup] = [.all]
+        if !BookGroup.isUngroupedHidden {
+            groups.append(.ungrouped)
+        }
         try await DB.shared.execQuery { handle in
             var stmt: OpaquePointer?
             defer { sqlite3_finalize(stmt) }
@@ -110,11 +140,29 @@ public actor BookGroupRepository {
     }
 
     public func rename(id: Int64, newName: String) async throws {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw NSError(domain: "BookGroup", code: 10, userInfo: [NSLocalizedDescriptionKey: "分组名不能为空"])
+        }
+        // 万象书屋 (2026-05-11): "未分组" (id=0) 的展示名走 UserDefaults, 不写 SQLite.
+        // 这样既能让用户改成"我的小说"等个性化名字, 也不污染 book_groups 表 (它只装用户分组).
+        if id == BookGroup.ungroupedId {
+            if trimmed == BookGroup.defaultUngroupedName {
+                UserDefaults.standard.removeObject(forKey: BookGroup.ungroupedNameDefaultsKey)
+            } else {
+                UserDefaults.standard.set(trimmed, forKey: BookGroup.ungroupedNameDefaultsKey)
+            }
+            return
+        }
+        // "全部" 是 meta filter, 不允许改名 (跟 Android 一致).
+        if id == BookGroup.allId {
+            throw NSError(domain: "BookGroup", code: 11, userInfo: [NSLocalizedDescriptionKey: "「全部」不可改名"])
+        }
         try await DB.shared.execQuery { handle in
             var stmt: OpaquePointer?
             defer { sqlite3_finalize(stmt) }
             sqlite3_prepare_v2(handle, "UPDATE book_groups SET name=? WHERE id=?", -1, &stmt, nil)
-            sqlite3_bind_text(stmt, 1, newName, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 1, trimmed, -1, SQLITE_TRANSIENT)
             sqlite3_bind_int64(stmt, 2, id)
             sqlite3_step(stmt)
         }

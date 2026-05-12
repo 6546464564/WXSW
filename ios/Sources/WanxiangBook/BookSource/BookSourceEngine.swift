@@ -35,7 +35,15 @@ public final class BookSourceEngine: @unchecked Sendable {
     /// JSContext 自身单线程 (不能跨 thread 用同一 ctx), 但**多个独立 JSContext 实例**之间可真并发.
     /// 4 个池足够覆盖典型搜索负载, 注入 stdlib 一次性 cost ~200ms (App 启动期, 用户无感).
     /// 大于 4 收益递减: pool size > sourcesNeedingJS 时多余, JS 评估也不是瓶颈大头.
-    private static let JS_POOL_SIZE = 4
+    /// 万象书屋: JS pool 大小. 默认 4 (4 个 JSEngine 实例真并发). CLI 批量探测时可通过
+    /// 环境变量 `WX_JS_POOL_SIZE` 调大到 16+, 让 1500 源探测从 80min → 20min.
+    private static let JS_POOL_SIZE: Int = {
+        if let env = ProcessInfo.processInfo.environment["WX_JS_POOL_SIZE"],
+           let n = Int(env), n > 0, n <= 64 {
+            return n
+        }
+        return 4
+    }()
     private let searchParserPool: [SearchParser]
     private let poolCounter = ManagedAtomicLite()
     /// 万象书屋 (M2.8 perf): info/toc/content parser 也分 4 个 pool, 让 reader prefetch

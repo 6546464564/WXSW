@@ -183,7 +183,7 @@ struct BookStoreView: View {
             tapBookCell(book)
         } label: {
             HStack(alignment: .top, spacing: 14) {
-                BookCover(url: book.coverUrl, width: 96, height: 128)
+                BookCover(url: book.coverUrl, width: 96, height: 128, bookTitle: book.name)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Text("榜首")
@@ -370,7 +370,7 @@ struct BookStoreView: View {
             ZStack(alignment: .topLeading) {
                 GeometryReader { geo in
                     let h = geo.size.width * 4.0 / 3
-                    BookCover(url: book.coverUrl, width: geo.size.width, height: h)
+                    BookCover(url: book.coverUrl, width: geo.size.width, height: h, bookTitle: book.name)
                 }
                 .aspectRatio(3.0/4.0, contentMode: .fit)
                 if book.rank == 1 {
@@ -405,7 +405,7 @@ struct BookStoreView: View {
             ZStack(alignment: .topLeading) {
                 GeometryReader { geo in
                     let h = geo.size.width * 4.0 / 3
-                    BookCover(url: book.coverUrl, width: geo.size.width, height: h)
+                    BookCover(url: book.coverUrl, width: geo.size.width, height: h, bookTitle: book.name)
                 }
                 .aspectRatio(3.0/4.0, contentMode: .fit)
                 Text("\(displayRank)")
@@ -538,9 +538,13 @@ final class BookStoreViewModel: ObservableObject {
 
     private var ranks: [QidianRankType: [QidianBook]] = [:]
 
-    /// 万象书屋 D-22: 频道维度短时缓存 (整张榜单 map + 时间戳).
-    private var channelRankCache: [QidianChannel: (ranks: [QidianRankType: [QidianBook]], at: Date)] = [:]
-    private let cacheTtl: TimeInterval = 5 * 60
+    /// 万象书屋 D-22 perf (2026-05-11): 频道维度短时缓存改成**进程级**单例.
+    /// 之前 instance-bound 时, 用户从 Bookshelf Tab 切到 Bookstore, BookStoreView 被
+    /// SwiftUI 首次构造, vm 全新, cache 空 → 走 `isLoading=true` → 闪 "正在加载书城…"
+    /// (即使后端 mirror 已经在 `AppState.bootstrap` 后台预热好).
+    /// 改成 static 后, prewarm() 写进的数据所有 View 实例都看得到, 切 Tab 不再闪 loading.
+    private static var channelRankCache: [QidianChannel: (ranks: [QidianRankType: [QidianBook]], at: Date)] = [:]
+    private static let cacheTtl: TimeInterval = 5 * 60
 
     /// 「换一批」翻页偏移, 跟 Android swapPageMustRead/Complete/Ranked 对齐
     private var swapPageMustRead = 0
@@ -647,8 +651,8 @@ final class BookStoreViewModel: ObservableObject {
         loadTask?.cancel()
 
         if !force,
-           let hit = channelRankCache[ch],
-           Date().timeIntervalSince(hit.at) < cacheTtl {
+           let hit = Self.channelRankCache[ch],
+           Date().timeIntervalSince(hit.at) < Self.cacheTtl {
             apply(ranks: hit.ranks, channel: ch)
             return
         }
@@ -669,13 +673,37 @@ final class BookStoreViewModel: ObservableObject {
             if !result.values.contains(where: { !$0.isEmpty }) {
                 return
             }
-            self.channelRankCache[ch] = (result, Date())
+            Self.channelRankCache[ch] = (result, Date())
             self.apply(ranks: result, channel: ch)
         }
         loadTask = task
         await task.value
         if currentChannel == ch && isLoading {
             isLoading = false
+        }
+    }
+
+    /// 万象书屋: App 启动时 (`AppState.bootstrap`) 在后台调一次, 把 male/publish 两个频道的
+    /// 榜单预先灌进 `channelRankCache`. 之后用户从 Bookshelf 切到 Bookstore, vm 命中 cache,
+    /// `isLoading` 永远不会被置 true, 跟 Android `ViewPager` 预加载邻 Fragment 的实际效果对齐.
+    ///
+    /// fire-and-forget; 失败 (后端没起来 / 网络断) 静默 noop, 用户切 Tab 时自然走原冷路径.
+    static func prewarmInBackground() {
+        Task.detached(priority: .utility) {
+            async let male: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchAllRanks()) ?? [:]
+            async let finish: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchFinishRanks()) ?? [:]
+            let m = await male
+            let p = await finish
+            await MainActor.run {
+                let now = Date()
+                if m.values.contains(where: { !$0.isEmpty }) {
+                    BookStoreViewModel.channelRankCache[.male] = (m, now)
+                    BookStoreViewModel.channelRankCache[.female] = (m, now)
+                }
+                if p.values.contains(where: { !$0.isEmpty }) {
+                    BookStoreViewModel.channelRankCache[.publish] = (p, now)
+                }
+            }
         }
     }
 

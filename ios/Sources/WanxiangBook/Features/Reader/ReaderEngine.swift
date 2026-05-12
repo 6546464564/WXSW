@@ -91,11 +91,24 @@ public final class ReaderEngine: ObservableObject {
             if !cachedToc.isEmpty {
                 self.chapters = cachedToc
             } else if let s = source {
-                let info = BookInfo(
-                    bookUrl: book.bookUrl, name: book.name, author: book.author,
-                    coverUrl: book.coverUrl, tocUrl: book.tocUrl ?? book.bookUrl
+                // 万象书屋 (2026-05-11 critical fix): 先 fetchInfo 把 ruleBookInfo.tocUrl 模板
+                // 渲染成真 tocUrl, 再 fetchToc — 跟 Android `WebBook.getChapterListAwait` 同语义.
+                // 之前直接用 book.bookUrl 当 tocUrl, 对 ruleBookInfo.tocUrl != bookUrl 的源 (例
+                // 晴天小说5.0 的 tocUrl=/catalog?..., bookUrl=/detail?...) 完全访问错端点 →
+                // reader 进去就显示"目录为空".
+                let searchBook = SearchBook(
+                    origin: book.origin, originName: book.originName,
+                    name: book.name, author: book.author,
+                    bookUrl: book.bookUrl,
+                    coverUrl: book.coverUrl, intro: book.intro,
+                    kind: book.kind, lastChapter: book.latestChapterTitle
                 )
-                let toc = try await BookSourceEngine.shared.fetchToc(of: info, in: s)
+                let resolvedInfo = (try? await BookSourceEngine.shared.fetchInfo(of: searchBook, in: s))
+                    ?? BookInfo(
+                        bookUrl: book.bookUrl, name: book.name, author: book.author,
+                        coverUrl: book.coverUrl, tocUrl: book.tocUrl ?? book.bookUrl
+                    )
+                let toc = try await BookSourceEngine.shared.fetchToc(of: resolvedInfo, in: s)
                 self.chapters = toc
                 // 万象书屋 (M2.6 perf): saveToc 后台跑, 不阻塞 loadChapter
                 let bookUrl = book.bookUrl

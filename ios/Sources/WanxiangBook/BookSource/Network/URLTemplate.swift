@@ -33,6 +33,12 @@ public struct URLTemplate {
         public var retry: Int? = nil
         /// 万象书屋: legado `,{webView:true}` 选项 — caller 应该走 WKWebView 渲染再取 HTML
         public var useWebView: Bool = false
+        /// 对齐 Android `UrlOption.js` — 解析完选项后执行的 JS，结果赋值给 url
+        public var optionJs: String? = nil
+        /// 对齐 Android `UrlOption.webJs` — webView 中执行的 JS
+        public var webJs: String? = nil
+        /// 对齐 Android `UrlOption.webViewDelayTime` — webView 加载延迟 (ms)
+        public var webViewDelayTime: Int = 0
     }
 
     /// 万象书屋: 异步版 render — 真正执行 `<js>...</js>` 块, 注入 source / cookie / host 全局.
@@ -191,15 +197,47 @@ public struct URLTemplate {
                 else if let s = webView as? String { rendered.useWebView = !s.isEmpty && s.lowercased() != "false" && s != "0" }
                 else { rendered.useWebView = true }
             }
-            if let b = dict["body"] as? String {
-                let bodyStr = substituteVars(b, key: key, page: page, vars: vars, charset: charset)
-                if let cs = charset, let enc = stringEncoding(for: cs) {
-                    rendered.body = bodyStr.data(using: enc) ?? bodyStr.data(using: .utf8)
+            // body: Android UrlOption.getBody() 支持 String 和 JSON Object/Array
+            if let bodyVal = dict["body"] {
+                let bodyStr: String
+                if let s = bodyVal as? String {
+                    bodyStr = s
+                } else if JSONSerialization.isValidJSONObject(bodyVal),
+                          let data = try? JSONSerialization.data(withJSONObject: bodyVal),
+                          let s = String(data: data, encoding: .utf8) {
+                    bodyStr = s
                 } else {
-                    rendered.body = bodyStr.data(using: .utf8)
+                    bodyStr = String(describing: bodyVal)
+                }
+                let substituted = substituteVars(bodyStr, key: key, page: page, vars: vars, charset: charset)
+                if let cs = charset, let enc = stringEncoding(for: cs) {
+                    rendered.body = substituted.data(using: enc) ?? substituted.data(using: .utf8)
+                } else {
+                    rendered.body = substituted.data(using: .utf8)
                 }
             }
-            if let h = dict["headers"] as? [String: String] { rendered.headers = h }
+            // headers: Android getHeaderMap() 支持 Map 和 JSON String
+            if let h = dict["headers"] as? [String: Any] {
+                for (k, v) in h { rendered.headers[k] = "\(v)" }
+            } else if let hStr = dict["headers"] as? String,
+                      let hData = hStr.data(using: .utf8),
+                      let hDict = try? JSONSerialization.jsonObject(with: hData) as? [String: Any] {
+                for (k, v) in hDict { rendered.headers[k] = "\(v)" }
+            }
+            // js: 对齐 Android UrlOption.js — 解析完选项后执行 JS 覆盖 url
+            if let jsStr = dict["js"] as? String, !jsStr.isEmpty {
+                rendered.optionJs = jsStr
+            }
+            // webJs: webView 中执行的 JS
+            if let wjs = dict["webJs"] as? String, !wjs.isEmpty {
+                rendered.webJs = wjs
+            }
+            // webViewDelayTime
+            if let delay = dict["webViewDelayTime"] as? Int {
+                rendered.webViewDelayTime = max(0, delay)
+            } else if let delayStr = dict["webViewDelayTime"] as? String, let delay = Int(delayStr) {
+                rendered.webViewDelayTime = max(0, delay)
+            }
         }
         return rendered
     }
@@ -329,6 +367,104 @@ public struct URLTemplate {
             return out
         }
         return s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+    }
+
+    // MARK: - Legado-aware fetch
+
+    /// 万象书屋: 按 Legado `AnalyzeUrl` 语义抓 URL。
+    ///
+    /// 区别于直接调 `HTTPFetcher.fetch`:
+    ///   - 解析 URL 后的 `,{method, body, headers, charset, retry, js, webView}` 选项
+    ///     (跟 Android `AnalyzeUrl.analyzeUrl()` 对齐: 第一个非引号/未配对的 `,{` 切开)
+    ///   - 合并 BookSource 的 header (含 `@js` / `<js>`)
+    ///   - `,{"webView":true}` GET URL 走 WKWebView 渲染再取 HTML (跟 search 路径一致)
+    ///   - 渲染后的 url 也是后续 dispatcher 的 baseUrl, 避免相对路径错位
+    ///
+    /// 用在 `BookInfoParser` / `TocParser` / `ContentParser` 三处, 解决:
+    ///   - QQ 浏览器柳树「URL 里带 POST body」型章节正文一直空
+    ///   - 章节链接显式 `,{webView:true}` 在 iOS 直拉 HTTP 拿不到 SPA DOM
+    ///   - 详情/目录页源里 `,{headers:{...}}` 自定义头被丢
+    public static func legadoFetch(
+        urlString: String,
+        in source: BookSource,
+        jsEngine: JSEngine,
+        fetcher: HTTPFetcher = .shared,
+        retries: Int = 1,
+        requestTimeoutSec: TimeInterval? = nil,
+        webViewKeyword: String? = nil,
+        webViewTimeout: TimeInterval = 25
+    ) async throws -> (bodyText: String, finalUrl: String) {
+        var rendered = await renderAsync(
+            urlString, bookSource: source, jsEngine: jsEngine,
+            baseURL: source.bookSourceUrl, key: nil, page: 1
+        )
+
+        // 对齐 Android UrlOption.js: 解析完选项后执行 JS，结果覆盖 url
+        if let optJs = rendered.optionJs, !optJs.isEmpty {
+            let scope = JSContextScope()
+            scope.bookSource = source
+            scope.baseUrl = rendered.url
+            if let result = try? await jsEngine.evaluate(
+                script: optJs, source: nil, baseUrl: rendered.url, scope: scope
+            ), let urlStr = result as? String, !urlStr.isEmpty {
+                rendered.url = urlStr
+            }
+        }
+
+        let baseHeaders = await source.resolvedHeaders(js: jsEngine)
+        var mergedHeaders = baseHeaders.merging(rendered.headers, uniquingKeysWith: { _, b in b })
+
+        // 万象书屋 (2026-05-12): POST body 没显式 Content-Type 时按内容自动判.
+        //   对齐 Android okhttp `postJson(body)` (自动 application/json) /
+        //   `postForm(encodedForm)` (自动 x-www-form-urlencoded) 的行为.
+        //   关键 case: QQ 浏览器柳树 ruleToc.chapterUrl JS 返回
+        //     "https://x.com/api,{method:POST,body:JSON.stringify(...)}"
+        //   body 是 JSON 串, 没 Content-Type 服务器会按 form-data 解析 → 返回错误页 0 字符正文.
+        // 对齐 Android AnalyzeUrl.analyzeUrl() POST 分支:
+        //   - body 是 JSON / XML → 原样发送 (application/json 或 text/xml)
+        //   - 其它 → URL-encoded form (application/x-www-form-urlencoded)
+        //   - 仅在没有显式 Content-Type 时自动补
+        if rendered.method.uppercased() == "POST",
+           let body = rendered.body, !body.isEmpty,
+           !mergedHeaders.keys.contains(where: { $0.lowercased() == "content-type" }),
+           let bodyStr = String(data: body, encoding: .utf8) {
+            let trimmedBody = bodyStr.trimmingCharacters(in: .whitespacesAndNewlines)
+            let isJson = trimmedBody.hasPrefix("{") || trimmedBody.hasPrefix("[")
+            let isXml = trimmedBody.hasPrefix("<") && !trimmedBody.hasPrefix("<!")
+            if isJson {
+                mergedHeaders["Content-Type"] = "application/json; charset=\(rendered.charset ?? "utf-8")"
+            } else if isXml {
+                mergedHeaders["Content-Type"] = "text/xml; charset=\(rendered.charset ?? "utf-8")"
+            } else {
+                mergedHeaders["Content-Type"] = "application/x-www-form-urlencoded; charset=\(rendered.charset ?? "utf-8")"
+            }
+        }
+
+        // `,{"webView":true}` GET URL: 先 WK, 失败回退 HTTP (一些源 webView:true 是冗余声明)
+        if rendered.useWebView, rendered.method.uppercased() == "GET" {
+            let bridge = await BrowserBridgeRegistry.shared.get()
+            let effectiveTimeout = rendered.webViewDelayTime > 0
+                ? TimeInterval(rendered.webViewDelayTime) / 1000.0 + webViewTimeout
+                : webViewTimeout
+            if let html = await bridge.loadAndWait(
+                url: rendered.url, expectedKeyword: webViewKeyword, timeout: effectiveTimeout
+            ), !html.isEmpty {
+                return (html, rendered.url)
+            }
+        }
+
+        // legado retry 优先取 option 里的, 否则按调用方默认
+        let effectiveRetries = max(1, rendered.retry ?? retries)
+        let resp = try await fetcher.fetch(
+            urlString: rendered.url,
+            method: rendered.method,
+            body: rendered.body,
+            headers: mergedHeaders,
+            sourceKey: source.bookSourceUrl,
+            retries: effectiveRetries,
+            requestTimeoutSec: requestTimeoutSec
+        )
+        return (resp.bodyText, resp.finalURL?.absoluteString ?? rendered.url)
     }
 
     /// 把 JS 对象字面量 (单引号 / 无引号 key) 转标准 JSON

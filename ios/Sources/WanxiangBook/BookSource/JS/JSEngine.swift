@@ -545,6 +545,12 @@ public actor JSEngine {
         // iOS 不真做强制刷新, noop OK.
         let refreshExplore: @convention(block) () -> Void = { }
         sourceObj.setObject(refreshExplore, forKeyedSubscript: "refreshExplore" as NSString)
+        // Android BaseSource.bookSourceUrl / bookSourceName 在 JS 里可直接点访问;
+        // 大量源 header/login 模板写 `"Referer": source.bookSourceUrl` — 不注则 undefined,
+        // JSON.stringify 整段省略键 ⇒ 企鹅/微信系 API「incorrect referrer」.
+        sourceObj.setObject(sourceUrl, forKeyedSubscript: "bookSourceUrl" as NSString)
+        sourceObj.setObject(source.bookSourceName, forKeyedSubscript: "bookSourceName" as NSString)
+
         ctx.setObject(sourceObj, forKeyedSubscript: "source" as NSString)
 
         // 2. cookie 全局

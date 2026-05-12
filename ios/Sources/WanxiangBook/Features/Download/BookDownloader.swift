@@ -345,6 +345,8 @@ public final class ChapterImageCache: @unchecked Sendable {
 
     private let dir: URL
     private let session: URLSession
+    /// `@js:` header 规则解析 (与 Search/BookInfo 对齐; 单实例足够)
+    private let headerJs = JSEngine()
     private static let UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) " +
         "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
@@ -364,7 +366,7 @@ public final class ChapterImageCache: @unchecked Sendable {
     /// 一张一张串行快 ~4x. 章节 30 张图 30s → 7-8s.
     public func downloadIfNeeded(bookUrl: String, urls: [String], source: BookSource) async -> Int {
         _ = bookUrl  // 暂未按 bookUrl 分目录 (URL 全局唯一)
-        let headers = source.parseHeaders()
+        let headers = await source.resolvedHeaders(js: headerJs)
         return await withTaskGroup(of: Bool.self) { group in
             // 一章内最多 4 个图同时下, 跨多章 fire-and-forget 加起来仍然 detached parallel
             let perChapterParallel = 4

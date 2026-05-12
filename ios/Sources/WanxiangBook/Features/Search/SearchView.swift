@@ -361,10 +361,11 @@ struct SearchView: View {
                     // 闭包绑定 NavigationLink 自身) 不依赖 `.navigationDestination(for:)` 全局
                     // 注册, 避免嵌套场景 SwiftUI 丢失注册的 known issue.
                     NavigationLink {
-                        BookDetailView(
-                            book: book,
-                            source: BookSourceRegistry.shared.find(origin: book.origin)
-                        )
+                        // 万象书屋 (2026-05-11 best-source pick): 把"第一个回来"的源换成
+                        // "数据质量评分最高"的源进 detail. pickBestSource 看 lastChapter / intro /
+                        // wordCount / cover / 历史响应分综合挑. fallback: row.origin 找不到时 nil.
+                        let pick = vm.pickBestSource(for: book)
+                        BookDetailView(book: pick?.book ?? book, source: pick?.source)
                     } label: {
                         SearchResultRow(book: book)
                     }
@@ -438,7 +439,9 @@ private struct SearchResultRow: View {
             seen.insert(t)
             tags.append(t)
         }
-        if let w = book.wordCount { push(w) }
+        if let w = book.wordCount, !w.isEmpty {
+            push(Self.formatWordCount(w))
+        }
         if let raw = book.kind?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
             let parts = raw.split { ch in
                 ",，、|｜/\n".contains(ch)
@@ -448,9 +451,36 @@ private struct SearchResultRow: View {
         return tags
     }
 
+    /// 万象书屋 (2026-05-11): 字数显示规范化, 跟 Android `BookSourceConfig.formatWordCount` 一致.
+    ///   "2188581" → "218万字"
+    ///   "12345"   → "1.2万字"  (一万以上做万化, 保留 1 位)
+    ///   "9999"    → "9999字"
+    ///   "218万字" / "1.2万" / "218万"  → 原样输出 (已是人类可读)
+    static func formatWordCount(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return s }
+        if s.contains("万") || s.contains("字") || s.contains("k") || s.contains("K") {
+            // 已经带单位, 不动
+            return s
+        }
+        // 纯数字 (含千分位逗号) 才走 format
+        let cleaned = s.replacingOccurrences(of: ",", with: "").replacingOccurrences(of: " ", with: "")
+        guard let n = Int(cleaned) else { return s }
+        if n >= 10_000 {
+            let wan = Double(n) / 10_000
+            // ≥100 万取整数, <100 万保留 1 位
+            if wan >= 100 {
+                return "\(Int(wan))万字"
+            } else {
+                return String(format: "%.1f万字", wan)
+            }
+        }
+        return "\(n)字"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            BookCover(url: book.coverUrl, width: 56, height: 78)
+            BookCover(url: book.coverUrl, width: 56, height: 78, bookTitle: book.name)
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -459,6 +489,8 @@ private struct SearchResultRow: View {
                         .lineLimit(1)
                         .foregroundStyle(WanxiangColors.textPrimary)
                     Spacer(minLength: 4)
+                    // 万象书屋: 多源徽章始终显示, 跟 Android `BadgeView.setBadgeCount(origins.size)`
+                    // 行为完全一致 — 数字就是同名同作者跨多少个书源被收录到. 1 也照常显示.
                     Text("\(book.distinctOriginCount)")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white)
@@ -506,6 +538,10 @@ private struct SearchResultRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 6)
+        // 万象书屋 (UX 2026-05-11): NavigationLink 默认只在 label 的"实际像素"上响应点击,
+        // 行右侧的 Spacer / 角标周边空白不算 → 用户戳右上角"1"附近没反应.
+        // contentShape 把整行 bounding box 全设为点击区, 跟 List row 默认全行可点的预期一致.
+        .contentShape(Rectangle())
     }
 
     private static func authorLine(_ author: String) -> String {
@@ -550,6 +586,30 @@ enum SearchLegadoOrdering {
         return n.distance(from: n.startIndex, to: r.lowerBound)
     }
 
+    /// 万象书屋 (2026-05-11): SearchBook.wordCount 字段归一化为 Int 字数估算.
+    /// 用作 tier 内的"热度"代理 — 大字数书通常是连载/完结的热门书, 应排在前面.
+    /// 对齐 Android `BookSourceConfig.changeSourceLoadWordCount` 排序意图.
+    /// 解析失败 / 无字段返 0 (排到字数有数据的书后面, 不打破已有 tie-breaker).
+    /// "421万字" / "1.2万" / "12000" / "421万" 都支持.
+    static func wordCountInt(_ book: SearchBook) -> Int {
+        guard let raw = book.wordCount?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return 0 }
+        let t = raw.replacingOccurrences(of: " ", with: "")
+                   .replacingOccurrences(of: "字", with: "")
+        if t.contains("万") {
+            let head = t.replacingOccurrences(of: "万", with: "")
+            if let n = Double(head) { return Int(n * 10_000) }
+        }
+        if let n = Int(t) { return n }
+        // 提取首段连续数字 (例如 "12,345" / "12,345章" 这类)
+        if let regex = try? NSRegularExpression(pattern: #"\d+"#),
+           let m = regex.firstMatch(in: t, range: NSRange(0..<(t as NSString).length)),
+           let r = Range(m.range, in: t),
+           let n = Int(t[r]) {
+            return n
+        }
+        return 0
+    }
+
     static func sort(books: [SearchBook], key: String, precision: Bool) -> [SearchBook] {
         let k = trimmed(key)
         guard !k.isEmpty else { return books }
@@ -590,6 +650,17 @@ enum SearchLegadoOrdering {
                 }
             }
 
+            // 万象书屋 (2026-05-11): tier 0/1 内的"热度"代理 — 字数大的书优先,
+            // 跟 Android `wordCountComparator` 思路一致 (大字数 → 老 IP / 连载到位).
+            // 用户搜"青山", 三本同名: "青山(421万字)" vs "青山(无)" vs "青山(无)",
+            // 让 421 万字的那本先冒出来; 体感跟 Android 第一名一致.
+            // 只在 tier 2 (其他) 不参与 — 那本身就快被淘汰了, 字数无意义.
+            if ta < 2 {
+                let lw = wordCountInt(lhs.1)
+                let rw = wordCountInt(rhs.1)
+                if lw != rw { return lw > rw }
+            }
+
             let ca = lhs.1.distinctOriginCount
             let cb = rhs.1.distinctOriginCount
             if ca != cb { return ca > cb }
@@ -614,9 +685,15 @@ final class SearchViewModel: ObservableObject {
     private static let kMaxHistory = 20
     private var currentTask: Task<Void, Never>? = nil
     private var searchGeneration: Int = 0
-    /// `androidStrictMergeKey` → `results` 下标, 同名同作者跨源合并为一行 (对齐 Android `addOrigin`).
-    /// 用 Android 严格 `==` 等价 key, 不再 normalize, 行为与 Android 完全一致.
+    /// `dedupeKey` (normalized name+author) → `results` 下标, 同名同作者跨源合并为一行
+    /// (对齐 Android `addOrigin`). 2026-05-11 起从 `androidStrictMergeKey` (严格 ==) 切换到
+    /// `dedupeKey` — 跨源 (name, author) 因空白/标点差异不能 byte-相等导致合并失败,
+    /// 切换后合并率显著提高.
     private var dedupeRowIndex: [String: Int] = [:]
+    /// 万象书屋 (2026-05-11 best-source pick): 每个 dedupeKey 对应的所有源变体 SearchBook.
+    /// 用户点 row → `pickBestSource` 按数据质量评分挑一个进 detail, 不再用"第一个回来的"作为
+    /// 默认源 — 解决"七猫小说返 1970 / 目录加载失败"这类垃圾源被随机选中的问题.
+    private var rowVariants: [String: [SearchBook]] = [:]
     /// 当前这次搜索的关键词 (用于对齐 Android 的相关性排序)
     private var activeSearchKey: String = ""
     /// 对齐 Android `precisionSearch`: 为 true 时丢弃书名/作者都不含关键词的条目
@@ -660,6 +737,9 @@ final class SearchViewModel: ObservableObject {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
         currentTask?.cancel()
+        enrichmentTask?.cancel()
+        enrichedKeys.removeAll()
+        rowVariants.removeAll()
         searchGeneration += 1
         let generation = searchGeneration
         self.activeSearchKey = key
@@ -721,10 +801,22 @@ final class SearchViewModel: ObservableObject {
                            SearchLegadoOrdering.relevanceTier(book: b, key: self.activeSearchKey) >= 2 {
                             continue
                         }
-                        // 万象书屋: 完全对齐 Android `SearchModel.mergeItems` —
-                        //   `pBook.name == nBook.name && pBook.author == nBook.author` 严格比.
-                        // 不再用 normalize 过的 dedupeKey, 否则会比 Android 多合并一些条目, 行数对不上.
-                        let dk = b.androidStrictMergeKey
+                        // 万象书屋 (2026-05-11): 合并 key 从 `androidStrictMergeKey` (严格 ==)
+                        // 改成 `dedupeKey` (normalized: trim + 半角化 + lowercase + 去"作者:"前缀
+                        // + 只留字母数字汉字). 1800+ 源里同一本书的 name/author 经常因为
+                        // `\u3000` 全角空格 / " 著"后缀 / 标点不同 等原因不能 byte-相等, 导致
+                        // 多源命中无法合并, "源数" 永远是 1. dedupeKey 容错后, 同名同作者的不同源
+                        // 才能真正合并成"N 源" — 用户看到的多源徽章才有意义.
+                        let dk = b.dedupeKey
+                        // 万象书屋 (best-source pick): 把这本书的当前源变体存进 rowVariants,
+                        // 用户点 row 时 pickBestSource 从所有变体里挑数据最完整的源.
+                        var bForVariant = b
+                        bForVariant.mergedSourceURLs = []
+                        bForVariant.mergedSourceNames = []
+                        self.rowVariants[dk, default: []].append(bForVariant)
+                        // 万象书屋 (2026-05-11): 同时落进程级 cache, 让 BookDetailView 在 TOC fallback
+                        // 时能拿到每个备用源**自己的 bookUrl**, 而不是用主 row 的 bookUrl 跨源乱用.
+                        SearchVariantsCache.shared.set(key: dk, variants: self.rowVariants[dk] ?? [])
                         if let idx = self.dedupeRowIndex[dk] {
                             var row = self.results[idx]
                             var seen = Set<String>([row.origin])
@@ -781,6 +873,11 @@ final class SearchViewModel: ObservableObject {
                 self.isSearching = false
                 // 万象书屋 (M2.8): 把这次 search 的 stats 落盘, 下次启动也能用上排序.
                 SourcePerformanceTracker.shared.persistToDisk()
+                // 万象书屋 (2026-05-11): 搜索结束后给前 12 行做一轮 info 富化, 给那些
+                // 搜索接口没返 cover/kind/wordCount 的源补全字段. Android 之所以"全有真封面"
+                // 是因为 searchBookDao 里历史数据也帮充, 加上很多源 search 接口本身就带 cover;
+                // iOS 这里靠主动 fetchInfo 在背景补完, 不阻塞主流程.
+                self.scheduleResultEnrichment(generation: generation)
             }
         }
     }
@@ -791,6 +888,190 @@ final class SearchViewModel: ObservableObject {
             key: activeSearchKey,
             precision: activePrecision
         )
+        // 万象书屋 (2026-05-11 critical bug fix): 排序后 results 顺序变, dedupeRowIndex 里
+        // 记的 idx 全部漂移 — 下次新源命中同一本书时拿到错误 idx, 要么合并到错误的行, 要么
+        // 新建一行 → 永远显示 "1 源". Android 不必处理这个因为它的列表数据结构是 mutable List
+        // 不靠 idx 索引. iOS 用 Dictionary[dedupeKey: Int], 排序后必须重建.
+        dedupeRowIndex.removeAll(keepingCapacity: true)
+        for (i, book) in results.enumerated() {
+            dedupeRowIndex[book.dedupeKey] = i
+        }
+    }
+
+    // MARK: - 结果富化 (cover / kind / wordCount fill-in)
+
+    /// 万象书屋: 已经发起过 enrichment 的 (origin, bookUrl) 集, 避免重复打.
+    private var enrichedKeys: Set<String> = []
+    private var enrichmentTask: Task<Void, Never>? = nil
+
+    private func scheduleResultEnrichment(generation: Int) {
+        enrichmentTask?.cancel()
+        // 取前 12 行里 cover/kind/wordCount 任一缺失的 (origin, bookUrl) 作为 target
+        let targets: [(SearchBook, BookSource)] = results.prefix(12).compactMap { b in
+            let key = "\(b.origin)::\(b.bookUrl)"
+            guard !enrichedKeys.contains(key) else { return nil }
+            let missingCover = (b.coverUrl?.isEmpty ?? true)
+            let missingKind = (b.kind?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            let missingWords = (b.wordCount?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            guard missingCover || missingKind || missingWords else { return nil }
+            guard let src = BookSourceRegistry.shared.find(origin: b.origin) else { return nil }
+            return (b, src)
+        }
+        guard !targets.isEmpty else { return }
+        for (b, _) in targets {
+            enrichedKeys.insert("\(b.origin)::\(b.bookUrl)")
+        }
+        enrichmentTask = Task { [weak self] in
+            await self?.runEnrichment(targets: targets, generation: generation)
+        }
+    }
+
+    /// 万象书屋: 4 个 in-flight 并发跑 fetchInfo, 每个 6s timeout (硬性, 慢源直接放弃).
+    /// 命中后 merge 进对应 row, applyLegadoStyleOrdering 重排.
+    private func runEnrichment(
+        targets: [(SearchBook, BookSource)], generation: Int
+    ) async {
+        await withTaskGroup(of: (SearchBook, BookInfo)?.self) { group in
+            var iter = targets.makeIterator()
+            let cap = min(4, targets.count)
+
+            @discardableResult
+            func addNext() -> Bool {
+                guard let t = iter.next() else { return false }
+                group.addTask {
+                    let (b, src) = t
+                    return await Self.fetchInfoWithTimeout(book: b, source: src, timeoutSec: 6)
+                }
+                return true
+            }
+            for _ in 0..<cap { _ = addNext() }
+            while let r = await group.next() {
+                if Task.isCancelled || generation != self.searchGeneration { break }
+                if let (b, info) = r {
+                    self.mergeInfoIntoRow(book: b, info: info)
+                }
+                addNext()
+            }
+        }
+        if generation == self.searchGeneration {
+            self.applyLegadoStyleOrdering()
+        }
+    }
+
+    private nonisolated static func fetchInfoWithTimeout(
+        book: SearchBook, source: BookSource, timeoutSec: TimeInterval
+    ) async -> (SearchBook, BookInfo)? {
+        await withTaskGroup(of: BookInfo?.self) { inner -> (SearchBook, BookInfo)? in
+            inner.addTask {
+                return try? await BookSourceEngine.shared.fetchInfo(of: book, in: source)
+            }
+            inner.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSec * 1_000_000_000))
+                return nil
+            }
+            for await v in inner {
+                inner.cancelAll()
+                if let v { return (book, v) }
+                // 第一个 race 结束但没拿到 info → 超时/失败, 跳过
+                return nil
+            }
+            return nil
+        }
+    }
+
+    /// 万象书屋 (2026-05-11): 用户点 row → 从所有源变体里挑数据质量最高的源 (book + source) 进 detail.
+    ///
+    /// 旧逻辑: BookDetailView 用 `BookSourceRegistry.find(origin: row.origin)`, row.origin 是
+    /// "第一个回来的源" — 如果这个源数据质量糟 (lastChapter='1970'/目录加载失败), 用户得手动换源.
+    ///
+    /// 新逻辑: 评分所有变体 (含主 origin + mergedSourceURLs 对应的 SearchBook), 选分最高的.
+    /// 评分维度:
+    ///   +50  lastChapter 像真章节 (含 "第" / "章" / "卷")
+    ///   +20  intro ≥10 字符 (剔除 "暂无简介")
+    ///   +10  wordCount 含数字
+    ///   +5   coverUrl 非空
+    ///   +SourcePerformanceTracker.score (0..100 区间, 历史快源加分)
+    ///   −100 source not blocked but search failed history
+    ///
+    /// row 来自磁盘 cache / 历史 (没参与本次 search) 时 rowVariants 空 → fallback 到原逻辑.
+    func pickBestSource(for row: SearchBook) -> (book: SearchBook, source: BookSource)? {
+        let dk = row.dedupeKey
+        let variants = rowVariants[dk] ?? []
+        if variants.isEmpty {
+            // 历史 row / 磁盘 cache → 仍按 row.origin 找
+            if let src = BookSourceRegistry.shared.find(origin: row.origin) {
+                return (row, src)
+            }
+            return nil
+        }
+        let stats = SourcePerformanceTracker.shared.allStats()
+        var scored: [(score: Double, book: SearchBook, source: BookSource)] = []
+        for v in variants {
+            guard let src = BookSourceRegistry.shared.find(origin: v.origin) else { continue }
+            var s: Double = 0
+            // lastChapter 像真章节
+            if let lc = v.lastChapter?.trimmingCharacters(in: .whitespacesAndNewlines), !lc.isEmpty {
+                if lc.contains("章") || lc.contains("卷") || lc.contains("第") || lc.contains("话") || lc.contains("回") {
+                    s += 50
+                } else if Int(lc) == nil {
+                    // 至少不是纯数字垃圾 (例如 "1970")
+                    s += 20
+                }
+            }
+            if let intro = v.intro?.trimmingCharacters(in: .whitespacesAndNewlines), intro.count >= 10 {
+                s += 20
+            }
+            if let wc = v.wordCount?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !wc.isEmpty,
+               wc.rangeOfCharacter(from: .decimalDigits) != nil {
+                s += 10
+            }
+            if let cv = v.coverUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !cv.isEmpty {
+                s += 5
+            }
+            // 历史源响应分 (新源中性 50)
+            s += stats[src.bookSourceUrl]?.score ?? 50
+            scored.append((s, v, src))
+        }
+        guard !scored.isEmpty else { return nil }
+        // 按分降序; 同分时保留输入顺序 (Swift 排序非稳定, 加 index tiebreak)
+        let withIdx = scored.enumerated().map { ($0.offset, $0.element) }
+        let sorted = withIdx.sorted { lhs, rhs in
+            if lhs.1.score != rhs.1.score { return lhs.1.score > rhs.1.score }
+            return lhs.0 < rhs.0
+        }
+        let best = sorted[0].1
+        return (best.book, best.source)
+    }
+
+    private func mergeInfoIntoRow(book: SearchBook, info: BookInfo) {
+        guard let idx = results.firstIndex(where: {
+            $0.origin == book.origin && $0.bookUrl == book.bookUrl
+        }) else { return }
+        var r = results[idx]
+        if (r.coverUrl?.isEmpty ?? true), let c = info.coverUrl, !c.isEmpty {
+            r.coverUrl = c
+        }
+        if (r.intro?.isEmpty ?? true), let i = info.intro, !i.isEmpty {
+            r.intro = i
+        }
+        if (r.kind?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+           let k = info.kind?.trimmingCharacters(in: .whitespacesAndNewlines), !k.isEmpty {
+            r.kind = info.kind
+        }
+        if (r.wordCount?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+           let w = info.wordCount?.trimmingCharacters(in: .whitespacesAndNewlines), !w.isEmpty {
+            r.wordCount = info.wordCount
+        }
+        if (r.lastChapter?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+           let l = info.lastChapter?.trimmingCharacters(in: .whitespacesAndNewlines), !l.isEmpty {
+            r.lastChapter = info.lastChapter
+        }
+        if (r.updateTime?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+           let u = info.updateTime?.trimmingCharacters(in: .whitespacesAndNewlines), !u.isEmpty {
+            r.updateTime = info.updateTime
+        }
+        results[idx] = r
     }
 
     // MARK: - 本地源 (M0-B 后端 platform=ios 后真拉远端)

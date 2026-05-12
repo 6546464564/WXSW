@@ -98,7 +98,7 @@ private struct RankDetailRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             ZStack(alignment: .topLeading) {
-                BookCover(url: book.coverUrl, width: 72, height: 96)
+                BookCover(url: book.coverUrl, width: 72, height: 96, bookTitle: book.name)
                 Text("\(rank)")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.white)
@@ -172,8 +172,36 @@ final class RankDetailViewModel: ObservableObject {
     /// 万象书屋 D-22.3: 目标加载本数. 50 本是起点 m 站 majax 3 页能稳拉的量.
     private let targetCount = 50
 
+    /// 万象书屋 (perf 2026-05-11): 进程级 cache, mode → (books, 时间戳).
+    /// 让 banner 跳进来时 vm.books 立即同步填充, 永远不闪 ProgressView.
+    /// 跟 BookStoreViewModel.channelRankCache 同思路: `AppState.bootstrap` 后台预热.
+    private static var cache: [CacheKey: (books: [QidianBook], at: Date)] = [:]
+    private static let cacheTtl: TimeInterval = 5 * 60
+
+    private enum CacheKey: Hashable {
+        case rank(QidianRankType)
+        case finish
+
+        init(_ mode: RankDetailView.Mode) {
+            switch mode {
+            case .rank(let t): self = .rank(t)
+            case .finish: self = .finish
+            }
+        }
+    }
+
     func load(mode: RankDetailView.Mode, force: Bool) async {
         if !force && !books.isEmpty { return }
+
+        // 命中进程级 cache: 同步填充, 完全跳过 isLoading
+        if !force,
+           let hit = Self.cache[CacheKey(mode)],
+           Date().timeIntervalSince(hit.at) < Self.cacheTtl,
+           !hit.books.isEmpty {
+            books = hit.books
+            return
+        }
+
         isLoading = true
         defer { isLoading = false }
 
@@ -181,17 +209,44 @@ final class RankDetailViewModel: ObservableObject {
         case .rank(let type):
             let result = await QidianRepository.shared.fetchRankPages(type: type, target: targetCount)
             books = result
+            if !result.isEmpty {
+                Self.cache[.rank(type)] = (result, Date())
+            }
         case .finish:
-            books = await loadFinishLibrary()
+            let result = await loadFinishLibrary()
+            books = result
+            if !result.isEmpty {
+                Self.cache[.finish] = (result, Date())
+            }
         }
     }
 
-    /// 万象书屋 D-22.3: 完本书库扩展到 50 本.
-    /// /finish/ 23 本经典完本 + Yuepiao 月票榜大字数书 (200 万字+ 多为完本) 凑 50 本.
-    private func loadFinishLibrary() async -> [QidianBook] {
+    /// 万象书屋: `AppState.bootstrap` 后台调一次. 预热「热门排行 (月票 TOP 50)」+「完本书库 50」,
+    /// 用户从书城 banner 进 RankDetailView 时直接命中 cache, 跟 Android tab 切换秒开体感一致.
+    /// 跟 BookSourceEngine / BookStoreViewModel 预热同步骤, fire-and-forget 失败静默 noop.
+    static func prewarmInBackground() {
+        Task.detached(priority: .utility) {
+            async let yuepiao: [QidianBook] = await QidianRepository.shared.fetchRankPages(type: .yuepiao, target: 50)
+            async let finish: [QidianBook] = await Self.computeFinishLibrary(target: 50)
+            let yp = await yuepiao
+            let fl = await finish
+            await MainActor.run {
+                let now = Date()
+                if !yp.isEmpty {
+                    RankDetailViewModel.cache[.rank(.yuepiao)] = (yp, now)
+                }
+                if !fl.isEmpty {
+                    RankDetailViewModel.cache[.finish] = (fl, now)
+                }
+            }
+        }
+    }
+
+    /// 万象书屋: 完本书库 50 本算法 (Finish 4 榜合并 + Yuepiao 大字数补足) — 拆成 nonisolated static
+    /// 让 instance 和 prewarm 都可调.
+    nonisolated static func computeFinishLibrary(target: Int) async -> [QidianBook] {
         var seen = Set<String>()
         var out: [QidianBook] = []
-
         if let ranks = try? await QidianRepository.shared.fetchFinishRanks() {
             let order: [QidianRankType] = [.finishClassic, .finishBestSell, .finishDs, .finishMovie]
             for rt in order {
@@ -200,27 +255,30 @@ final class RankDetailViewModel: ObservableObject {
                 }
             }
         }
-
-        // 月票榜大字数补足
-        if out.count < targetCount {
-            let need = targetCount - out.count
-            let yuepiaoBooks = await QidianRepository.shared.fetchRankPages(type: .yuepiao, target: need * 2)
-            let highWord = yuepiaoBooks.filter { Self.parseWordCount($0.wordCount) >= 2_000_000 }
-            let midWord = yuepiaoBooks.filter {
-                let w = Self.parseWordCount($0.wordCount)
+        if out.count < target {
+            let need = target - out.count
+            let yuepiao = await QidianRepository.shared.fetchRankPages(type: .yuepiao, target: need * 2)
+            let high = yuepiao.filter { parseWordCount($0.wordCount) >= 2_000_000 }
+            let mid = yuepiao.filter {
+                let w = parseWordCount($0.wordCount)
                 return w >= 1_000_000 && w < 2_000_000
             }
-            let rest = yuepiaoBooks.filter { Self.parseWordCount($0.wordCount) < 1_000_000 }
-            for b in highWord + midWord + rest {
-                if out.count >= targetCount { break }
+            let rest = yuepiao.filter { parseWordCount($0.wordCount) < 1_000_000 }
+            for b in high + mid + rest {
+                if out.count >= target { break }
                 if seen.insert(b.bookId).inserted { out.append(b) }
             }
         }
-        return Array(out.prefix(targetCount))
+        return Array(out.prefix(target))
+    }
+
+    /// 万象书屋 D-22.3: 完本书库扩展到 50 本. 实际算法在 `computeFinishLibrary`, prewarm 共用.
+    private func loadFinishLibrary() async -> [QidianBook] {
+        await Self.computeFinishLibrary(target: targetCount)
     }
 
     /// "569.44万字" → 5_694_400; "27.39万字" → 273_900; 解析失败返 0
-    private static func parseWordCount(_ s: String) -> Int64 {
+    nonisolated static func parseWordCount(_ s: String) -> Int64 {
         if s.isEmpty { return 0 }
         guard let regex = try? NSRegularExpression(pattern: #"([0-9]+(?:\.[0-9]+)?)\s*万"#),
               let m = regex.firstMatch(in: s, range: NSRange(0..<(s as NSString).length)),

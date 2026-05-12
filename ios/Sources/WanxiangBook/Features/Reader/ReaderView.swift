@@ -626,25 +626,40 @@ public struct ReaderView: View {
             // 底部
             VStack(spacing: 14) {
                 // 进度条
-                if !engine.chapters.isEmpty {
+                // 万象书屋 (2026-05-11 crash fix): chapters.count == 1 时 range = 0...0 + step 1
+                // 会让 SwiftUI Slider Normalizing precondition fail (EXC_BREAKPOINT 崩溃).
+                // 必须 count > 1 才显示 slider; 单章直接显示 "1/1" 文本即可.
+                if engine.chapters.count > 1 {
                     HStack {
                         Text("\(engine.currentChapterIndex + 1)")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.white)
                         Slider(
                             value: Binding(
-                                get: { Double(engine.currentChapterIndex) },
+                                get: {
+                                    let v = Double(engine.currentChapterIndex)
+                                    let upper = Double(engine.chapters.count - 1)
+                                    return min(max(0, v), upper)   // clamp 防 currentChapterIndex 越界
+                                },
                                 set: { newVal in
                                     Task { await engine.goToChapter(Int(newVal)) }
                                 }
                             ),
-                            in: 0...Double(max(0, engine.chapters.count - 1)),
+                            in: 0...Double(engine.chapters.count - 1),
                             step: 1
                         )
                         .tint(WanxiangColors.primary)
                         Text("\(engine.chapters.count)")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal)
+                } else if engine.chapters.count == 1 {
+                    HStack {
+                        Text("1 / 1")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white)
+                        Spacer()
                     }
                     .padding(.horizontal)
                 }

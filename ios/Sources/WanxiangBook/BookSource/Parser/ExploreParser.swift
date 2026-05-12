@@ -65,7 +65,8 @@ public final class ExploreParser: @unchecked Sendable {
             urlString: rendered.url,
             method: rendered.method,
             body: rendered.body,
-            headers: source.parseHeaders().merging(rendered.headers, uniquingKeysWith: { _, b in b }),
+            headers: (await source.resolvedHeaders(js: jsEngine ?? dispatcher.js))
+                .merging(rendered.headers, uniquingKeysWith: { _, b in b }),
             sourceKey: source.bookSourceUrl,
             retries: rendered.retry ?? 3
         )

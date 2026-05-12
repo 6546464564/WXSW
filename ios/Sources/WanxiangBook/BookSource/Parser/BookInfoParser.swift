@@ -10,22 +10,29 @@ public final class BookInfoParser: @unchecked Sendable {
 
     public let dispatcher: SelectorDispatcher
     public let fetcher: HTTPFetcher
+    public let jsEngine: JSEngine
 
-    public init(dispatcher: SelectorDispatcher, fetcher: HTTPFetcher = .shared) {
+    public init(dispatcher: SelectorDispatcher, fetcher: HTTPFetcher = .shared, jsEngine: JSEngine? = nil) {
         self.dispatcher = dispatcher
         self.fetcher = fetcher
+        self.jsEngine = jsEngine ?? dispatcher.js
     }
 
     public func fetchInfo(of book: SearchBook, in source: BookSource) async throws -> BookInfo {
-        let resp = try await fetcher.fetch(
+        // 万象书屋 (2026-05-12): 改走 URLTemplate.legadoFetch — 对齐 Android AnalyzeUrl.
+        //   - 让 bookUrl 形如 "https://x.com/d/123,{method:'POST',body:'id=123'}" / `,{webView:true}`
+        //     的 Legado UrlOption 语法生效 (之前直 fetch.fetch 把整段 URL 当 GET, 选项被忽略).
+        let (text, baseUrlString) = try await URLTemplate.legadoFetch(
             urlString: book.bookUrl,
-            headers: source.parseHeaders(),
-            sourceKey: source.bookSourceUrl,
+            in: source,
+            jsEngine: jsEngine,
+            fetcher: fetcher,
+            retries: 1,
             // 万象书屋 (M2.6 fix): 详情页 25s 超时, 跟 ContentParser 一致 (info/toc/content 三件套统一)
             requestTimeoutSec: 25
         )
-        var html = resp.bodyText
-        let baseUrl = resp.finalURL?.absoluteString ?? book.bookUrl
+        var html = text
+        let baseUrl = baseUrlString
 
         let rule = source.ruleBookInfo ?? BookInfoRule()
 
@@ -67,6 +74,12 @@ public final class BookInfoParser: @unchecked Sendable {
 
         let name = (await nameTask)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? book.name
 
+        let rawKind = await kindTask
+        let trimmedRuleKind = rawKind?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedSearchKind = book.kind?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedKind: String? = !trimmedRuleKind.isEmpty ? trimmedRuleKind
+            : (!trimmedSearchKind.isEmpty ? trimmedSearchKind : nil)
+
         let rawToc = await tocTask
         let resolvedToc = sanitizeTocUrl(
             absolutize(rawToc, baseUrl: baseUrl),
@@ -77,8 +90,10 @@ public final class BookInfoParser: @unchecked Sendable {
             bookUrl: book.bookUrl,
             name: name,
             author: (await authorTask)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? book.author,
-            intro: await introTask,
-            kind: await kindTask,
+            // 万象书屋 (2026-05-11): 详情页 intro 也走 stripHTML, 避免 "<font color=..>" 之类 HTML 标签
+            // 流入 BookDetailView / 搜索行 enrichment.
+            intro: (await introTask).map { SearchParser.stripHTML($0) },
+            kind: resolvedKind,
             coverUrl: absolutize(await coverTask, baseUrl: baseUrl) ?? book.coverUrl,
             tocUrl: resolvedToc,
             lastChapter: await lastTask,

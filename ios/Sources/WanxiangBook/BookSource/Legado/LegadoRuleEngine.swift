@@ -196,7 +196,10 @@ public actor LegadoRuleEngine {
             return await evalToList(ruleStr: restRule, on: newSource, ctx: newCtx, depth: depth + 1)
         }
 
-        let orBranches = LegadoRuleParser.splitTop(ruleStr, separators: ["||"])
+        // 万象书屋 (2026-05-12): `||` fallback 层关掉隐式 @js: 切, 否则
+        // `$.serialID\n@js:...result...` 形式的 legado chain 在这里就被切成两支,
+        // 第一支非空就返回 → JS body 永远跑不到. 隐式切仅 `&&` chain 层做.
+        let orBranches = LegadoRuleParser.splitTop(ruleStr, separators: ["||"], implicitJsChainSplit: false)
         for branch in orBranches {
             let merged = await evalZipOrAnd(String(branch), on: input, ctx: ctx)
             if !merged.isEmpty && !(merged.count == 1 && merged[0].isEmpty) {
@@ -215,7 +218,8 @@ public actor LegadoRuleEngine {
             invertList = true
             rs = String(rs.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        let zipSegs = LegadoRuleParser.splitTop(rs, separators: ["%%"])
+        // 同上: `%%` zip 层也关掉隐式 @js: 切.
+        let zipSegs = LegadoRuleParser.splitTop(rs, separators: ["%%"], implicitJsChainSplit: false)
         let out: [String]
         if zipSegs.count == 1 {
             out = await evalAnd(String(zipSegs[0]), on: input, ctx: ctx)
@@ -403,11 +407,29 @@ public actor LegadoRuleEngine {
 
     // MARK: - JS 真跑
 
+    /// 把 legado AnalyzeRule `result` 转成适合注入 JSCore 的值.
+    /// - JSON `{...}`/`[...]` 字符串 → 解析成字典/数组, 让 `@js:` 能用 `result.xxx` dot 访问 (目录常见).
+    /// - 其余 (HTML、`{{` 半截、纯文本) → 与原 `stringify(result)` 相同, 仍为 string.
+    private func coerceJsResultValue(from raw: Any) -> Any {
+        let s = stringifyOptional(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        if looksLikeJSON(s),
+           let d = s.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: d, options: [.fragmentsAllowed]) {
+            return obj
+        }
+        return s.isEmpty ? NSNull() : s
+    }
+
     private func runJS(_ script: String, result: Any, ctx: LegadoContext) async -> Any? {
         let scope = JSContextScope()
         scope.baseUrl = ctx.baseUrl
         scope.src = ctx.source
-        scope.result = stringify(result)
+        // legado Rhino: AnalyzeRule.result 常为当前节点本体 — JSON/HTML 都行.
+        // 万象书屋 (2026-05-12): 目录正文等场景 input 经常是 **单个 JSON object 字符串**,
+        // 若整串注进 JSCore 仍为 string，`result.serialName` 等为 undefined ⇒ 书名全空 ⇒ 0 章
+        // (QQ浏览器柳树 toc). **优先 JSON.parse**, 对齐 Android JSONObject 语义;
+        // 非 JSON (`<html>`、普通句子) 仍走 stringify 字符串, init 规则的 `JSON.parse(result)` 保持可用.
+        scope.result = coerceJsResultValue(from: result)
         scope.key = ctx.key
         scope.page = ctx.page
         scope.bookSource = ctx.bookSource
@@ -604,9 +626,19 @@ public actor LegadoRuleEngine {
         //   - `{$.field}` 单括号 (旧/简化, 爱奇艺漫画 chapterUrl 用)
         // 之前只识别双括号 ⇒ 单括号源 chapter URL 拼不出来.
         // 先把单括号 `{$.x}` 展开为标准 JSONPath 替换, 再走双括号通用逻辑.
+        //
+        // 万象书屋 (2026-05-11 fix `{顶点} {}` bug): 单括号 regex 必须加 negative
+        // lookbehind/lookahead, 否则会把 `{{$.source}}` 里的内层 `{$.source}` 误匹配,
+        // 替换后剩下外层 `{` `}` 形成 `{顶点}`; 而内层 `{$.last_chapter_title}` 若值为空
+        // 又变 `{}` — 这就是用户搜"青山"看到 "最新: {顶点} {}" 的根因.
+        //
+        //   `(?<!\{)\{(\$\.[^{}]+)\}(?!\})`:
+        //     - 起始 `{` 前面不能是 `{`
+        //     - 结束 `}` 后面不能是 `}`
+        //     - 内部 `[^{}]+` 双向排除花括号 (本来就是单括号语义)
         var working = s
         if working.contains("{$") {
-            if let singleRegex = try? NSRegularExpression(pattern: #"\{(\$\.[^}]+)\}"#) {
+            if let singleRegex = try? NSRegularExpression(pattern: #"(?<!\{)\{(\$\.[^{}]+)\}(?!\})"#) {
                 while true {
                     let ns = working as NSString
                     let ms = singleRegex.matches(in: working, range: NSRange(0..<ns.length))

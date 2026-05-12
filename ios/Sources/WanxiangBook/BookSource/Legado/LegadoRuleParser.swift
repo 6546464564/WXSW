@@ -114,7 +114,15 @@ public enum LegadoRuleParser {
 
     /// 把字符串按 separators 分割, 但 [...] (...) <...> 平衡组里的不分.
     /// 字符串 "abc&&[def&&ghi]&&jkl" 分成 ["abc", "[def&&ghi]", "jkl"]
-    static func splitTop(_ s: String, separators: [String]) -> [Substring] {
+    ///
+    /// - parameter implicitJsChainSplit: 是否把段中间出现的 `@js:` 当隐式 `&&` 切.
+    ///   仅 `&&` chain 层调用时为 true (legado 链式语义). `||` fallback 层 / `%%` zip
+    ///   层一定要传 false, 否则会把
+    ///     `$.serialID\n@js: ...result...`
+    ///   错切成 `["$.serialID", "@js: ...result..."]` 再当 `||` 两支 — 第一支
+    ///   非空就返回 "1", JS body 永远跑不到 ⇒ QQ 浏览器柳树章节 URL 永远是 chapter id.
+    static func splitTop(_ s: String, separators: [String],
+                         implicitJsChainSplit: Bool = true) -> [Substring] {
         var out: [Substring] = []
         var depthSquare = 0   // [ ]
         var depthRound = 0    // ( )
@@ -163,9 +171,15 @@ public enum LegadoRuleParser {
                 // 之前 iOS 没切 ⇒ 整段被 parseSingle 当一种 mode 解析, 第二段
                 // @js: 被忽略 ⇒ 猫眼看书等 chapterUrl `$.path@js:aesDecode(result)`
                 // 拿不到解密后的 URL ⇒ "chapter.chapterUrl 为空".
+                //
+                // 万象书屋 (2026-05-12 fix): 之前不分 `&&`/`||`/`%%` 都做隐式切,
+                // ⇒ `$.serialID\n@js:...` 在 `||` 层先被切成两支 → 第一支非空就返回,
+                // JS body 永远跑不到 ⇒ QQ 浏览器柳树章节 URL 全是 chapter id (1/2/...).
+                // 隐式切只能在 `&&` 链式层做.
                 let rest = chars[i...]
                 if rest.starts(with: "@js:") {
-                    if depthSquare == 0, depthRound == 0, depthAngle == 0, !inJsPrefix {
+                    if implicitJsChainSplit,
+                       depthSquare == 0, depthRound == 0, depthAngle == 0, !inJsPrefix {
                         // 检查 sliceStart..<i 之间有没有非空白内容 — 有就切一刀
                         let pre = String(chars[sliceStart..<i])
                         let trimmed = pre.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -177,7 +191,7 @@ public enum LegadoRuleParser {
                             continue
                         }
                     }
-                    // 段头本来就是 @js:, 不切, 进保护
+                    // 段头本来就是 @js: (或 caller 关了隐式切), 不切, 进保护
                     inJsPrefix = true
                     i += 4
                     continue

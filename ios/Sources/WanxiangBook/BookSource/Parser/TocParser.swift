@@ -15,11 +15,13 @@ public final class TocParser: @unchecked Sendable {
 
     public let dispatcher: SelectorDispatcher
     public let fetcher: HTTPFetcher
+    public let jsEngine: JSEngine
     public static let maxTocPages = 50
 
-    public init(dispatcher: SelectorDispatcher, fetcher: HTTPFetcher = .shared) {
+    public init(dispatcher: SelectorDispatcher, fetcher: HTTPFetcher = .shared, jsEngine: JSEngine? = nil) {
         self.dispatcher = dispatcher
         self.fetcher = fetcher
+        self.jsEngine = jsEngine ?? dispatcher.js
     }
 
     public func fetchToc(of info: BookInfo, in source: BookSource) async throws -> [BookChapter] {
@@ -50,15 +52,17 @@ public final class TocParser: @unchecked Sendable {
             // 万象书屋: 目录多页 (nextTocUrl 抓数十页) 也走 concurrentRate 限速,
             // 跟 Search/Content 一致避免封 IP.
             await SourceRateLimiter.shared.acquire(source: source)
-            let resp = try await fetcher.fetch(
+            // 万象书屋 (2026-05-12): 改走 URLTemplate.legadoFetch — 对齐 Android AnalyzeUrl.
+            //   tocUrl / nextTocUrl 里的 `,{method:'POST',body:'...'}` `,{webView:true}` 现在生效.
+            let (html, baseUrl) = try await URLTemplate.legadoFetch(
                 urlString: currentUrl,
-                headers: source.parseHeaders(),
-                sourceKey: source.bookSourceUrl,
+                in: source,
+                jsEngine: jsEngine,
+                fetcher: fetcher,
+                retries: 1,
                 // 万象书屋 (M2.6 fix): 目录页 (大书可能 1-2MB HTML) 25s 超时, 跟 ContentParser 一致
                 requestTimeoutSec: 25
             )
-            let html = resp.bodyText
-            let baseUrl = resp.finalURL?.absoluteString ?? currentUrl
             let pageScope = JSContextScope()
             pageScope.baseUrl = baseUrl
             pageScope.src = html
@@ -83,6 +87,7 @@ public final class TocParser: @unchecked Sendable {
                 // e.g. 爱下电子书), chapterName="title" / chapterUrl="url" 是 JSON 字段名.
                 // 不能 normalizeSimpleAttr 转成 `body > *@title` 走 CSS 取属性.
                 // 改成用 nodeIsJsonObject 探测, JSON node 直接走 JSONPath `$.title`.
+                // JSON 节点上的 `@js: result.xxx` 由 LegadoRuleEngine.runJS 内 `coerceJsResultValue` 解析.
                 let nodeIsJson = isJsonObjectString(node)
                 let rawName = rule.chapterName ?? "text"
                 let rawUrl = rule.chapterUrl ?? "href"
