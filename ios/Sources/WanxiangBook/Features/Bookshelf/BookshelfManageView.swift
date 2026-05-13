@@ -82,13 +82,8 @@ struct BookshelfManageView: View {
                 }
             }
             ToolbarItemGroup(placement: .bottomBar) {
-                // 万象书屋 (UX 2026-05-11): 没选时不再用 `.disabled(...)` 让按钮死气沉沉 —
-                // 改成 tap 时弹一条 toast 提示, 用户立刻知道"要先勾选书". 已选时正常执行批操作.
                 actionButton(label: "更新目录", systemImage: "arrow.clockwise") {
                     Task { await batchUpdate() }
-                }
-                actionButton(label: "清缓存", systemImage: "trash.circle") {
-                    Task { await batchClearCache() }
                 }
                 Spacer()
                 actionButton(label: "删除", systemImage: "trash", role: .destructive) {
@@ -168,6 +163,7 @@ struct BookshelfManageView: View {
 
     private func batchDelete() async {
         for url in selectedIds {
+            try? await ChapterRepository.shared.clearContent(bookUrl: url)
             try? await BookshelfRepository.shared.remove(bookUrl: url)
         }
         selectedIds.removeAll()
@@ -255,10 +251,4 @@ struct BookshelfManageView: View {
         }
     }
 
-    private func batchClearCache() async {
-        for url in selectedIds {
-            try? await ChapterRepository.shared.clearContent(bookUrl: url)
-        }
-        selectedIds.removeAll()
-    }
 }
