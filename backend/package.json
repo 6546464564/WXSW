@@ -4,7 +4,7 @@
   "description": "万象书屋后端：书源管理 + 访问统计 + 管理面板",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --experimental-require-module server.js",
     "init-db": "node -e \"require('./db').init()\"",
     "seed": "node scripts/seed-default-sources.js",
     "test": "node --test test/sourceValidator.test.js test/ssrf.test.js",

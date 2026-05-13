@@ -13,6 +13,7 @@ module.exports = {
     {
       name: 'wanxiang-backend',
       script: './server.js',
+      node_args: '--experimental-require-module',
       instances: 1,                  // SQLite 单 writer, 不能多实例
       exec_mode: 'fork',
       autorestart: true,

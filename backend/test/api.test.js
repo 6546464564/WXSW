@@ -252,7 +252,7 @@ test('X-Platform: ios + ad-event 流程 + IAP 路由 iOS-only 校验', async () 
 });
 
 test('IAP verify rejects Android requests (iOS-only)', async () => {
-  // Android 设备调 /api/iap/verify 应该被 400 拒
+  // IAP verify 暂未上线, 返回 503
   const did = 'android-iap-' + Date.now();
   const reg = await request(app)
     .post('/api/device/register')
@@ -262,7 +262,7 @@ test('IAP verify rejects Android requests (iOS-only)', async () => {
 
   const r = await request(app)
     .post('/api/iap/verify')
-    .set('X-Platform', 'android')   // 关键: 标 android
+    .set('X-Platform', 'android')
     .set('X-Device-Id', did)
     .set('X-Device-Token', token)
     .send({
@@ -271,11 +271,12 @@ test('IAP verify rejects Android requests (iOS-only)', async () => {
       transaction_id: 'fake-tx-1',
       receipt_data: 'fake-receipt-base64',
     })
-    .expect(400);
-  assert.match(String(r.body.msg || ''), /iOS-only/i);
+    .expect(503);
+  assert.ok(r.body.msg);
 });
 
 test('IAP verify validates required fields', async () => {
+  // IAP verify 暂未上线, 返回 503
   const did = 'ios-iap-' + Date.now();
   const reg = await request(app)
     .post('/api/device/register')
@@ -284,7 +285,6 @@ test('IAP verify validates required fields', async () => {
     .expect(200);
   const token = reg.body.token;
 
-  // 缺 receipt_data
   const r = await request(app)
     .post('/api/iap/verify')
     .set('X-Platform', 'ios')
@@ -294,10 +294,9 @@ test('IAP verify validates required fields', async () => {
       device_id: did,
       product_id: 'com.wanxiang.adfree.lifetime',
       transaction_id: 'fake-tx-1',
-      // receipt_data 缺
     })
-    .expect(400);
-  assert.match(String(r.body.msg || ''), /required/i);
+    .expect(503);
+  assert.ok(r.body.msg);
 });
 
 // === 万象书屋 v2 (007_book_sources_platforms): 平台过滤 ===

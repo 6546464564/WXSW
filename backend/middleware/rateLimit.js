@@ -21,6 +21,8 @@ function _startGlobalSweeper() {
   }, 60_000).unref?.();
 }
 
+const MAX_BUCKET_SIZE = 50_000;
+
 function makeRateLimit({ windowMs, max, keyPrefix = '' }) {
   if (RATE_LIMIT_DISABLED) return (req, res, next) => next();
   const bucket = new Map();
@@ -32,6 +34,11 @@ function makeRateLimit({ windowMs, max, keyPrefix = '' }) {
     const now = Date.now();
     const slot = bucket.get(key);
     if (!slot || now - slot.firstTs > windowMs) {
+      if (bucket.size >= MAX_BUCKET_SIZE) {
+        const cutoff = now - windowMs;
+        for (const [k, v] of bucket) { if (v.firstTs < cutoff) bucket.delete(k); }
+        if (bucket.size >= MAX_BUCKET_SIZE) bucket.clear();
+      }
       bucket.set(key, { count: 1, firstTs: now });
       return next();
     }

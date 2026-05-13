@@ -43,6 +43,11 @@ public struct ReaderView: View {
     /// `BookDownloader.shared` 单例, 不管在哪开始下载状态都同步.
     @StateObject private var downloader = BookDownloader.shared
     @State private var showCancelDownloadConfirm = false
+    /// 对齐 Android RewardedAdHelper.tryPrompt — 确认弹窗
+    @State private var showRewardedPrompt = false
+    /// 对齐 Android checkChapterPaywall — 章节付费墙锁屏
+    @State private var showChapterPaywall = false
+    @State private var chapterPaywallLoading = false
 
     public init(book: ShelfBook, source: BookSource? = nil) {
         _engine = StateObject(wrappedValue: ReaderEngine(book: book, source: source))
@@ -88,6 +93,11 @@ public struct ReaderView: View {
 
                 if menuVisible {
                     menuOverlay
+                        .transition(.opacity)
+                }
+
+                if showChapterPaywall {
+                    chapterPaywallOverlay
                         .transition(.opacity)
                 }
             }
@@ -147,6 +157,33 @@ public struct ReaderView: View {
                         withAnimation { menuVisible = true }
                     }
                 }
+                #if DEBUG
+                if args.contains("--TestChapterPaywall") {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        for i in 0..<5 {
+                            PurifiedReadingState.shared.markChapterOpened(uniqueKey: "test://paywall|\(i)")
+                        }
+                        checkChapterPaywall()
+                    }
+                }
+                if args.contains("--TestRewardedPrompt") {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        if !AdManager.shared.bootstrapped { await AdManager.shared.bootstrap() }
+                        showRewardedPrompt = true
+                    }
+                }
+                if args.contains("--TestAdGrace") {
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        for _ in 1...4 {
+                            let ok = await AdManager.shared.showRewardedToUnlock()
+                            if PurifiedReadingState.shared.isActive || ok { break }
+                        }
+                    }
+                }
+                #endif
             }
             .onDisappear {
                 stopReadingTimer()
@@ -162,8 +199,11 @@ public struct ReaderView: View {
             .onChange(of: config.keepScreenOn) { _, on in
                 UIApplication.shared.isIdleTimerDisabled = on
             }
-            .onChange(of: engine.currentChapterIndex) { _, _ in
+            .onChange(of: engine.currentChapterIndex) { _, newIdx in
                 repaginateCurrent()
+                let key = "\(engine.book.bookUrl)|\(newIdx)"
+                PurifiedReadingState.shared.markChapterOpened(uniqueKey: key)
+                checkChapterPaywall()
             }
             .onChange(of: engine.loadingChapter) { _, _ in
                 repaginateCurrent()
@@ -255,6 +295,17 @@ public struct ReaderView: View {
             Button("继续下载", role: .cancel) {}
         } message: {
             Text("已下载的章节会保留, 仍可离线阅读")
+        }
+        // 对齐 Android RewardedAdHelper.tryPrompt: 确认弹窗
+        .alert("看广告解锁纯净阅读", isPresented: $showRewardedPrompt) {
+            Button("看广告") {
+                Task {
+                    _ = await AdManager.shared.showRewardedToUnlock()
+                }
+            }
+            Button("跳过", role: .cancel) {}
+        } message: {
+            Text("看一段 30 秒广告即可解锁 30 分钟无打扰阅读")
         }
         // 万象书屋: 进入 reader 启用音量键翻页, 退出关闭
         .onAppear {
@@ -797,6 +848,105 @@ public struct ReaderView: View {
     private var currentPageText: String {
         let title = engine.chapters[safe: engine.currentChapterIndex]?.title ?? ""
         return title.isEmpty ? engine.book.name : title
+    }
+
+    // MARK: - 章节付费墙 UI (对齐 Android chapter_unlock_view)
+
+    @ViewBuilder
+    private var chapterPaywallOverlay: some View {
+        ZStack {
+            config.theme.background.opacity(0.95).ignoresSafeArea()
+            VStack(spacing: 24) {
+                Spacer()
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 48))
+                    .foregroundColor(.secondary)
+                Text("需要解锁才能继续阅读")
+                    .font(.title2.bold())
+                Text("看一段广告即可解锁 30 分钟无打扰阅读")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                if chapterPaywallLoading {
+                    ProgressView("加载中…")
+                        .padding()
+                } else {
+                    VStack(spacing: 12) {
+                        Button {
+                            let unlock = (AdManager.shared.cachedConfig?["chapterUnlock"] as? [String: Any])
+                            let minutes = (unlock?["unlockMinutes"] as? Int) ?? 30
+                            triggerRewardedForPaywall(unlockMinutes: minutes)
+                        } label: {
+                            Label("看广告解锁", systemImage: "play.rectangle.fill")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button {
+                            showChapterPaywall = false
+                            Task { await engine.previousChapter() }
+                        } label: {
+                            Text("返回上一章")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(.horizontal, 40)
+                }
+                Spacer()
+            }
+            .padding()
+        }
+    }
+
+    // MARK: - 章节付费墙逻辑 (对齐 Android checkChapterPaywall)
+
+    private func checkChapterPaywall() {
+        let cfg = AdManager.shared
+        guard cfg.enabled, cfg.consented, !cfg.reviewMode else {
+            showChapterPaywall = false
+            return
+        }
+        let adConfig = cfg.cachedConfig ?? [:]
+        guard let chapterUnlock = (adConfig["chapterUnlock"] as? [String: Any]),
+              (chapterUnlock["enabled"] as? Bool) == true else {
+            showChapterPaywall = false
+            if AdManager.shared.shouldPromptRewarded() { showRewardedPrompt = true }
+            return
+        }
+        let freeChapters = (chapterUnlock["freeChapters"] as? Int) ?? 3
+        let blockOnSkip = (chapterUnlock["blockOnSkip"] as? Bool) ?? true
+
+        guard PurifiedReadingState.shared.shouldRequireUnlock(freeChapters: freeChapters) else {
+            showChapterPaywall = false
+            if AdManager.shared.shouldPromptRewarded() { showRewardedPrompt = true }
+            return
+        }
+
+        if !blockOnSkip {
+            Task { _ = await AdManager.shared.showRewardedToUnlock() }
+            return
+        }
+
+        showChapterPaywall = true
+        chapterPaywallLoading = true
+        triggerRewardedForPaywall(unlockMinutes: (chapterUnlock["unlockMinutes"] as? Int) ?? 30)
+    }
+
+    private func triggerRewardedForPaywall(unlockMinutes: Int) {
+        chapterPaywallLoading = true
+        Task {
+            let success = await AdManager.shared.showRewardedToUnlock(minutes: unlockMinutes)
+            await MainActor.run {
+                if success || PurifiedReadingState.shared.isActive {
+                    showChapterPaywall = false
+                }
+                chapterPaywallLoading = false
+            }
+        }
     }
 
     // MARK: - 分页 / 翻页处理

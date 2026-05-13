@@ -29,10 +29,10 @@ public protocol AdProvider: Sendable {
     var isReady: Bool { get async }
     /// 异步 init (拿到隐私同意后才调)
     func bootstrap(appId: String) async throws
-    /// 显示开屏广告 (返回是否成功展示)
-    func showSplash(in container: some View) async -> Bool
-    /// 显示激励视频, 用户看完返回 true (= 解锁)
-    func showRewarded() async -> Bool
+    /// 显示开屏广告 (返回是否成功展示); posId 从 /api/ad-config 下发
+    func showSplash(posId: String) async -> Bool
+    /// 显示激励视频, 用户看完返回 true (= 解锁); posId 从 /api/ad-config 下发
+    func showRewarded(posId: String) async -> Bool
 }
 
 // MARK: - Stub 实现 (开发/审核期默认)
@@ -48,14 +48,12 @@ public actor StubAdProvider: AdProvider {
         // no-op
     }
 
-    public func showSplash(in container: some View) async -> Bool {
-        // 万象书屋 stub: 假装 1 秒就跳过, 模拟广告超时
+    public func showSplash(posId: String) async -> Bool {
         try? await Task.sleep(nanoseconds: 1_000_000_000)
-        return false  // 没广告 → 直接进主界面
+        return false
     }
 
-    public func showRewarded() async -> Bool {
-        // 万象书屋 stub: 直接给奖励 (开发联调用)
+    public func showRewarded(posId: String) async -> Bool {
         try? await Task.sleep(nanoseconds: 500_000_000)
         return true
     }

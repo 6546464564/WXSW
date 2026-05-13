@@ -12,7 +12,7 @@ import Foundation
 import UIKit
 import SwiftUI
 
-#if canImport(GDTMobSDK)
+#if canImport(GDTMobSDK) && !targetEnvironment(simulator)
 import GDTMobSDK
 
 public actor GdtAdProvider: AdProvider {
@@ -34,22 +34,17 @@ public actor GdtAdProvider: AdProvider {
         isReady = true
     }
 
-    public func showSplash(in container: some View) async -> Bool {
+    public func showSplash(posId: String) async -> Bool {
         return false
     }
 
-    public func showRewarded() async -> Bool {
-        guard isReady else { return false }
-        let placementId = "REPLACE_ME_WITH_REAL_PLACEMENT_ID"
-        guard placementId != "REPLACE_ME_WITH_REAL_PLACEMENT_ID" else {
-            print("[GdtProvider] placementId 未配置, fallback")
-            return false
-        }
+    public func showRewarded(posId: String) async -> Bool {
+        guard isReady, !posId.isEmpty else { return false }
 
         return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             self.pendingReward = cont
-            DispatchQueue.main.async {
-                let ad = GDTRewardVideoAd(placementId: placementId)
+            Task { @MainActor in
+                let ad = GDTRewardVideoAd(placementId: posId)
                 ad.delegate = GdtRewardDelegateBridge.shared
                 GdtRewardDelegateBridge.shared.adRef = ad
                 GdtRewardDelegateBridge.shared.onResult = { [weak self] ok in
@@ -66,6 +61,7 @@ public actor GdtAdProvider: AdProvider {
     }
 }
 
+@MainActor
 final class GdtRewardDelegateBridge: NSObject, GDTRewardedVideoAdDelegate {
     static let shared = GdtRewardDelegateBridge()
     var onResult: ((Bool) -> Void)?
@@ -110,8 +106,8 @@ public actor GdtAdProvider: AdProvider {
     public func bootstrap(appId: String) async throws {
         throw NSError(domain: "GDT", code: 99, userInfo: [NSLocalizedDescriptionKey: "GDT 未链接 (simulator). 真机 build 才有"])
     }
-    public func showSplash(in container: some View) async -> Bool { false }
-    public func showRewarded() async -> Bool { false }
+    public func showSplash(posId: String) async -> Bool { false }
+    public func showRewarded(posId: String) async -> Bool { false }
 }
 
 #endif

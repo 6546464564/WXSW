@@ -80,21 +80,28 @@ struct SplashAdView: View {
         }
 
         let ad = AdManager.shared
+
+        // 对齐 Android 冷启动配置同步等待:
+        // 如果 bootstrap 尚未完成 (首次安装 / 清数据), 给 refreshConfig 一个 2.5s 窗口
+        // 确保远程配置到位后再判断是否展示广告, 避免"首次启动永远没 splash".
+        if !ad.bootstrapped {
+            await withTimeout(seconds: 2.5) {
+                await ad.bootstrap()
+                return true
+            }
+        }
+
         let consented = ad.consented
         let enabled = ad.enabled
         let reviewMode = ad.reviewMode
 
         if consented && enabled && !reviewMode {
-            // 走广告流程 (M3 接真 SDK 前 showSplash 永远返 false, 走品牌停留兜底)
             adShowing = true
-            // 万象书屋: 包一个 timeout 兜底, 防 SDK hang. 如果 ad 显示成功, showSplash
-            // 内部 await 直到 SDK onADDismissed; 失败/超时则任一胜出.
             let _ = await withTimeout(seconds: Self.withAdDurationSec) {
                 _ = await ad.showSplash(container: EmptyView())
                 return true
             }
         } else {
-            // 品牌停留 1s — 跟 Android consent 未同意时的 fallback 等价
             try? await Task.sleep(nanoseconds: UInt64(Self.brandOnlyDurationSec * 1e9))
         }
 

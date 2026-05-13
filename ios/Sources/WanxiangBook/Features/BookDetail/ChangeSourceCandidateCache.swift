@@ -45,7 +45,7 @@ public final class ChangeSourceCandidateCache: @unchecked Sendable {
     private var flushScheduled: Bool = false
 
     private init() {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { fatalError("cachesDirectory unavailable") }
         self.storeURL = caches.appendingPathComponent("wanxiang-change-source-cache.plist")
         loadFromDisk()
     }

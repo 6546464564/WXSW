@@ -12,6 +12,8 @@
 //   - secondsUntilNextRewardedAllowed(cooldownSec:):
 //       距下次允许看广告还剩多少秒 (0=可看)
 //   - canShowRewardedAdNow(cooldownSec:): 同 Android, true=可看
+//   - chaptersOpenedThisSession / shouldRequireUnlock: 章节级付费墙 (对齐 Android)
+//   - recordAdFailureAndCheckGrace: 连续失败兜底 (对齐 Android)
 //
 
 import Foundation
@@ -29,6 +31,10 @@ final class PurifiedReadingState: ObservableObject {
     static let defaultCooldownSec: Int = 180
     /// Android markRewardedSuccess 默认 cap (1440 分钟 = 24 小时)
     static let defaultMaxAccumulatedMinutes: Int = 1440
+    /// 连续广告加载失败 N 次后触发兜底解锁 (对齐 Android AD_FAILURE_GRACE_THRESHOLD)
+    static let adFailureGraceThreshold: Int = 3
+    /// 兜底解锁时长 (对齐 Android AD_FAILURE_GRACE_MINUTES)
+    static let adFailureGraceMinutes: Int = 5
 
     @Published private(set) var unlockedUntil: Date? = nil
     @Published private(set) var remainingSeconds: Int = 0
@@ -36,6 +42,14 @@ final class PurifiedReadingState: ObservableObject {
     @Published private(set) var cooldownSecondsRemaining: Int = 0
     /// 上次成功 reward 时间戳; 用于冷却计算
     @Published private(set) var lastRewardedAt: Date? = nil
+
+    // MARK: - 章节级付费墙 (对齐 Android chaptersOpenedThisSession)
+    /// 本次冷启动累计已读章节数 (内存计数, 进程重启清零)
+    private(set) var chaptersOpenedThisSession: Int = 0
+    private var seenChapterKeys: Set<String> = []
+
+    // MARK: - 广告失败兜底 (对齐 Android consecutiveAdFailures)
+    private var consecutiveAdFailures: Int = 0
 
     private var timer: Timer? = nil
     private static let kUnlockUntil = "wanxiang.purified.unlock_until"
@@ -51,7 +65,10 @@ final class PurifiedReadingState: ObservableObject {
         if lr > 0 {
             self.lastRewardedAt = Date(timeIntervalSince1970: lr)
         }
-        startTimer()
+        if unlockedUntil != nil || lastRewardedAt != nil {
+            ensureTimerRunning()
+        }
+        tick()
     }
 
     // MARK: - 兑现成功 (跟 Android `markRewardedSuccess` 1:1 对齐)
@@ -75,12 +92,57 @@ final class PurifiedReadingState: ObservableObject {
         lastRewardedAt = now
         UserDefaults.standard.set(newUntil.timeIntervalSince1970, forKey: Self.kUnlockUntil)
         UserDefaults.standard.set(now.timeIntervalSince1970, forKey: Self.kLastRewarded)
+        consecutiveAdFailures = 0
+        ensureTimerRunning()
         tick()
     }
 
     /// 旧 API — 兼容 mock / 调试. 正式入口应该用 `markRewardedSuccess`.
     func extendUnlock(byMinutes minutes: Int) {
         markRewardedSuccess(unlockMinutes: minutes)
+    }
+
+    // MARK: - 章节计数 (对齐 Android `markChapterOpened` / `shouldRequireUnlock`)
+
+    /// 用户进入新章节时调一次, 同一章节多次进入只算一次 (内存去重)
+    /// - Parameter uniqueKey: "\(bookUrl)|\(chapterIndex)" 之类
+    func markChapterOpened(uniqueKey: String) {
+        if !seenChapterKeys.contains(uniqueKey) {
+            seenChapterKeys.insert(uniqueKey)
+            chaptersOpenedThisSession += 1
+        }
+    }
+
+    /// 是否需要触发"付费墙" (拦截阅读, 强制看广告)
+    /// - Parameter freeChapters: 头 N 章免费 (从后台 chapterUnlock.freeChapters 取)
+    func shouldRequireUnlock(freeChapters: Int) -> Bool {
+        if isActive { return false }
+        return chaptersOpenedThisSession > max(freeChapters, 0)
+    }
+
+    // MARK: - 广告失败兜底 (对齐 Android `recordAdFailureAndCheckGrace`)
+
+    /// 广告加载失败 +1. 连续达到阈值 → 触发兜底解锁
+    /// - Returns: true = 触发了兜底解锁
+    @discardableResult
+    func recordAdFailureAndCheckGrace() -> Bool {
+        consecutiveAdFailures += 1
+        if consecutiveAdFailures >= Self.adFailureGraceThreshold {
+            let now = Date()
+            let until = now.addingTimeInterval(TimeInterval(Self.adFailureGraceMinutes * 60))
+            unlockedUntil = until
+            UserDefaults.standard.set(until.timeIntervalSince1970, forKey: Self.kUnlockUntil)
+            consecutiveAdFailures = 0
+            ensureTimerRunning()
+            tick()
+            return true
+        }
+        return false
+    }
+
+    /// 广告成功后重置失败计数
+    func resetAdFailures() {
+        consecutiveAdFailures = 0
     }
 
     // MARK: - 冷却查询 (跟 Android 对齐)
@@ -106,6 +168,9 @@ final class PurifiedReadingState: ObservableObject {
         remainingSeconds = 0
         cooldownSecondsRemaining = 0
         lastRewardedAt = nil
+        chaptersOpenedThisSession = 0
+        seenChapterKeys.removeAll()
+        consecutiveAdFailures = 0
         UserDefaults.standard.removeObject(forKey: Self.kUnlockUntil)
         UserDefaults.standard.removeObject(forKey: Self.kLastRewarded)
     }
@@ -145,16 +210,21 @@ final class PurifiedReadingState: ObservableObject {
 
     // MARK: - Timer (1s 一次, 跟 Android `startUnlockCardUpdater` 对齐)
 
-    private func startTimer() {
-        timer?.invalidate()
+    private func ensureTimerRunning() {
+        guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
-        tick()
+    }
+
+    private func stopTimerIfIdle() {
+        if unlockedUntil == nil && lastRewardedAt == nil {
+            timer?.invalidate()
+            timer = nil
+        }
     }
 
     private func tick() {
-        // 更新解锁剩余
         if let until = unlockedUntil {
             let remain = Int(until.timeIntervalSince(Date()))
             if remain <= 0 {
@@ -167,7 +237,7 @@ final class PurifiedReadingState: ObservableObject {
         } else {
             remainingSeconds = 0
         }
-        // 更新冷却剩余
         cooldownSecondsRemaining = secondsUntilNextRewardedAllowed()
+        stopTimerIfIdle()
     }
 }

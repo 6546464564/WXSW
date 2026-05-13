@@ -41,12 +41,15 @@ actor DB {
 
     /// 数据库文件路径. iOS 写在 Application Support 下 (备份不被 iCloud 同步, 内容稳定)
     static var dbPath: URL {
-        let dir = try! FileManager.default.url(
+        guard let dir = try? FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
-        )
+        ) else {
+            let fallback = FileManager.default.temporaryDirectory
+            return fallback.appendingPathComponent("wanxiang.sqlite")
+        }
         return dir.appendingPathComponent("wanxiang.sqlite")
     }
 

@@ -382,15 +382,28 @@
                     </div>
 
                     <div>
-                        <div class="text-sm font-bold text-stone-700 mb-2">广告平台 appId（账号被封时改这里）</div>
-                        <div class="grid grid-cols-2 gap-3">
-                            <label class="text-xs text-stone-500">穿山甲
-                                <input id="ad-csj-app" class="mt-1 w-full px-3 py-2 border border-stone-300 rounded text-sm font-mono" placeholder="5xxxxxxx" />
+                        <div class="text-sm font-bold text-stone-700 mb-2">广告平台 appId（按平台配置）</div>
+                        <div class="grid grid-cols-2 gap-3 mb-2">
+                            <div class="text-xs font-medium text-stone-600">穿山甲 (CSJ)</div>
+                            <div class="text-xs font-medium text-stone-600">优量汇 (YLH)</div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 mb-1">
+                            <label class="text-xs text-stone-500">iOS appId
+                                <input id="ad-csj-ios-app" class="mt-1 w-full px-3 py-2 border border-stone-300 rounded text-sm font-mono" placeholder="5xxxxxxx" />
                             </label>
-                            <label class="text-xs text-stone-500">优量汇
-                                <input id="ad-ylh-app" class="mt-1 w-full px-3 py-2 border border-stone-300 rounded text-sm font-mono" placeholder="1xxxxxxxxx" />
+                            <label class="text-xs text-stone-500">iOS appId
+                                <input id="ad-ylh-ios-app" class="mt-1 w-full px-3 py-2 border border-stone-300 rounded text-sm font-mono" placeholder="1xxxxxxxxx" />
                             </label>
                         </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <label class="text-xs text-stone-500">Android appId
+                                <input id="ad-csj-android-app" class="mt-1 w-full px-3 py-2 border border-stone-300 rounded text-sm font-mono" placeholder="5xxxxxxx" />
+                            </label>
+                            <label class="text-xs text-stone-500">Android appId
+                                <input id="ad-ylh-android-app" class="mt-1 w-full px-3 py-2 border border-stone-300 rounded text-sm font-mono" placeholder="1xxxxxxxxx" />
+                            </label>
+                        </div>
+                        <input type="hidden" id="ad-csj-app" /><input type="hidden" id="ad-ylh-app" />
                     </div>
 
                     <!-- Splash placement -->
@@ -1745,8 +1758,10 @@
                 const c = r.config || {};
                 document.getElementById('ad-disabled').checked = !!c.disabled;
                 const sdk = c.sdk || {};
-                document.getElementById('ad-csj-app').value = sdk.csj?.appId || '';
-                document.getElementById('ad-ylh-app').value = sdk.ylh?.appId || '';
+                document.getElementById('ad-csj-ios-app').value = sdk.csj?.iosAppId || sdk.csj?.appId || '';
+                document.getElementById('ad-csj-android-app').value = sdk.csj?.androidAppId || sdk.csj?.appId || '';
+                document.getElementById('ad-ylh-ios-app').value = sdk.ylh?.iosAppId || sdk.ylh?.appId || '';
+                document.getElementById('ad-ylh-android-app').value = sdk.ylh?.androidAppId || sdk.ylh?.appId || '';
                 const splash = c.placements?.splash || {};
                 document.getElementById('splash-enabled').checked = !!splash.enabled;
                 document.getElementById('splash-timeout').value = splash.timeoutMs ?? 3000;
@@ -1772,18 +1787,26 @@
             const container = document.getElementById(containerId);
             const byName = Object.fromEntries(providers.map(p => [p.name, p]));
             container.innerHTML = PROVIDERS.map(name => {
-                const p = byName[name] || { name, weight: 0, posId: '' };
+                const p = byName[name] || { name, weight: 0, posId: '', iosPosId: '', androidPosId: '' };
                 return `
-                <div class="grid grid-cols-12 gap-2 items-center" data-provider="${name}">
-                    <div class="col-span-2 text-xs">${PROVIDER_LABELS[name]}</div>
-                    <label class="col-span-3 text-xs text-stone-500">权重(0-100)
-                        <input type="number" min="0" max="100" data-field="weight"
-                            class="mt-1 w-full px-2 py-1 border border-stone-300 rounded text-sm" value="${Number(p.weight) || 0}" />
-                    </label>
-                    <label class="col-span-7 text-xs text-stone-500">广告位 ID（在该平台开放后台创建）
-                        <input data-field="posId"
-                            class="mt-1 w-full px-2 py-1 border border-stone-300 rounded text-sm font-mono" value="${escapeHtml(p.posId || '')}" />
-                    </label>
+                <div class="border border-stone-100 rounded p-2 mb-2" data-provider="${name}">
+                    <div class="flex items-center gap-3 mb-1">
+                        <span class="text-xs font-medium w-16">${PROVIDER_LABELS[name]}</span>
+                        <label class="text-xs text-stone-500">权重(0-100)
+                            <input type="number" min="0" max="100" data-field="weight"
+                                class="ml-1 w-16 px-2 py-1 border border-stone-300 rounded text-sm" value="${Number(p.weight) || 0}" />
+                        </label>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="text-xs text-stone-500">iOS 广告位 ID
+                            <input data-field="iosPosId"
+                                class="mt-1 w-full px-2 py-1 border border-stone-300 rounded text-sm font-mono" value="${escapeHtml(p.iosPosId || '')}" />
+                        </label>
+                        <label class="text-xs text-stone-500">Android 广告位 ID
+                            <input data-field="androidPosId"
+                                class="mt-1 w-full px-2 py-1 border border-stone-300 rounded text-sm font-mono" value="${escapeHtml(p.androidPosId || '')}" />
+                        </label>
+                    </div>
                 </div>`;
             }).join('');
         }
@@ -1793,7 +1816,9 @@
             return Array.from(rows).map(row => ({
                 name: row.dataset.provider,
                 weight: parseInt(row.querySelector('[data-field=weight]').value, 10) || 0,
-                posId: row.querySelector('[data-field=posId]').value.trim()
+                posId: '',
+                iosPosId: row.querySelector('[data-field=iosPosId]').value.trim(),
+                androidPosId: row.querySelector('[data-field=androidPosId]').value.trim()
             }));
         }
 
@@ -1843,9 +1868,10 @@
         async function saveAdConfig() {
             const cfg = {
                 disabled: document.getElementById('ad-disabled').checked,
+                primary: 'csj',
                 sdk: {
-                    csj: { appId: document.getElementById('ad-csj-app').value.trim() },
-                    ylh: { appId: document.getElementById('ad-ylh-app').value.trim() }
+                    csj: { appId: '', iosAppId: document.getElementById('ad-csj-ios-app').value.trim(), androidAppId: document.getElementById('ad-csj-android-app').value.trim() },
+                    ylh: { appId: '', iosAppId: document.getElementById('ad-ylh-ios-app').value.trim(), androidAppId: document.getElementById('ad-ylh-android-app').value.trim() }
                 },
                 placements: {
                     splash: {
@@ -1876,8 +1902,8 @@
                     alert(`「${PLACEMENT_LABELS[pname] || pname}」已启用, 但所有广告平台权重都为 0, 等于没开。请至少给一家 >0 权重。`);
                     return;
                 }
-                if (p.providers.some(x => x.weight > 0 && !x.posId)) {
-                    alert(`「${PLACEMENT_LABELS[pname] || pname}」中有广告平台权重 >0 但广告位 ID 为空。`);
+                if (p.providers.some(x => x.weight > 0 && !x.iosPosId && !x.androidPosId)) {
+                    alert(`「${PLACEMENT_LABELS[pname] || pname}」中有广告平台权重 >0 但 iOS 和 Android 广告位 ID 均为空。`);
                     return;
                 }
             }

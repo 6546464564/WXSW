@@ -143,15 +143,23 @@ try {
   console.warn('[swagger] not loaded:', e.message);
 }
 
-// TOTP
-const otplib = require('otplib');
-function totpVerify(token, secret) {
-  if (!token || !secret) return false;
-  return otplib.verifySync({ token: String(token), secret, options: { window: 1 } });
+// TOTP (otplib v13 requires --experimental-require-module on Node 22+)
+let _otplib = null;
+try { _otplib = require('otplib'); } catch (e) {
+  console.error('[TOTP] otplib load failed (likely ESM issue):', e.code || e.message);
+  console.error('[TOTP] 2FA will be disabled. Start with: node --experimental-require-module server.js');
 }
-function totpGenerateSecret() { return otplib.generateSecret(); }
+function totpVerify(token, secret) {
+  if (!token || !secret || !_otplib) return false;
+  return _otplib.verifySync({ token: String(token), secret, options: { window: 1 } });
+}
+function totpGenerateSecret() {
+  if (!_otplib) throw new Error('otplib not loaded, 2FA unavailable');
+  return _otplib.generateSecret();
+}
 function totpGenerateUri(label, issuer, secret) {
-  return otplib.generateURI({ label, issuer, secret });
+  if (!_otplib) throw new Error('otplib not loaded, 2FA unavailable');
+  return _otplib.generateURI({ label, issuer, secret });
 }
 
 // 设备 token HMAC
@@ -422,7 +430,7 @@ function applyBreaker(config) {
 
 app.get('/api/ad-config', rateLimitAdConfig, (req, res) => {
   const deviceId = req.get('X-Device-Id') || req.query.device_id;
-  const row = db.getAdConfig(deviceId);
+  const row = db.getAdConfig(deviceId, req.platform);
   res.set('Cache-Control', 'public, max-age=300');
   if (row.isStaging) res.set('X-Rollout-Bucket', 'staging');
   refreshBreakerIfStale();
@@ -569,8 +577,9 @@ async function _verifyAppleReceipt(receiptData, sandboxFirst = false) {
   return resp;
 }
 
+// IAP verify 暂未上线, 保留路由占位避免 404 噪音
 app.post('/api/iap/verify', _IAP_RATE, blockBlacklistedDevice, verifyDeviceToken, async (req, res) => {
-  if (true) return res.status(404).json({ ok: false, msg: 'not found' });
+  return res.status(503).json({ ok: false, msg: 'IAP verification not yet enabled' });
 });
 
 app.get('/api/iap/entitlements', blockBlacklistedDevice, verifyDeviceToken, (req, res) => {

@@ -61,7 +61,7 @@ public final class SourcePerformanceTracker: @unchecked Sendable {
     private let maxSamples = 20      // 每源最多保留最近 20 次
 
     private init() {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { fatalError("cachesDirectory unavailable") }
         self.storeURL = caches.appendingPathComponent("wanxiang-source-stats.plist")
         loadFromDisk()
     }

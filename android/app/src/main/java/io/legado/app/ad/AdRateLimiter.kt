@@ -29,7 +29,7 @@ object AdRateLimiter {
     }
 
     // 万象书屋: 本次冷启动累计已读章节数. 内存计数, 进程重启清零.
-    @Volatile private var chaptersOpenedThisSession: Int = 0
+    private val chaptersOpenedThisSession = java.util.concurrent.atomic.AtomicInteger(0)
     private val seenChapterKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     // 万象书屋: 连续广告加载失败次数. 防止广告 SDK 配置问题 (例如 YLH 报 107030 包名错误)
@@ -52,12 +52,12 @@ object AdRateLimiter {
      */
     fun markChapterOpened(uniqueKey: String) {
         if (seenChapterKeys.add(uniqueKey)) {
-            chaptersOpenedThisSession++
+            chaptersOpenedThisSession.incrementAndGet()
         }
     }
 
     /** 当前会话累计阅读的不同章节数 */
-    fun chaptersOpenedCount(): Int = chaptersOpenedThisSession
+    fun chaptersOpenedCount(): Int = chaptersOpenedThisSession.get()
 
     /**
      * 万象书屋: 是否需要触发"付费墙" (拦截阅读, 强制看广告).
@@ -71,7 +71,7 @@ object AdRateLimiter {
      */
     fun shouldRequireUnlock(freeChapters: Int): Boolean {
         if (isInUnlockWindow()) return false
-        return chaptersOpenedThisSession > freeChapters.coerceAtLeast(0)
+        return chaptersOpenedThisSession.get() > freeChapters.coerceAtLeast(0)
     }
 
     fun isInUnlockWindow(): Boolean {
@@ -167,7 +167,7 @@ object AdRateLimiter {
     /** 注销账号 / 调试时调, 把所有计时 + 章节计数清零 */
     fun reset() {
         sp.edit().clear().apply()
-        chaptersOpenedThisSession = 0
+        chaptersOpenedThisSession.set(0)
         seenChapterKeys.clear()
         consecutiveAdFailures.set(0)
     }

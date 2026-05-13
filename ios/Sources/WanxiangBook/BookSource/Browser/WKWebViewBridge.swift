@@ -52,7 +52,7 @@ public final class WKWebViewBridge: BrowserBridge {
             "请确认您的身份", "安全验证", "反机器人",
         ]
         while Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(pollInterval))
+            try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
             let html = await dumpOuterHTML()
             lastHtml = html
             if let html, html.count > 100 {
