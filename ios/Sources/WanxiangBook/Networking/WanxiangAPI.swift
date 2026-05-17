@@ -44,7 +44,7 @@ actor WanxiangAPI {
         #if DEBUG
         return URL(string: "http://localhost:3000")!
         #else
-        return URL(string: "http://104.224.156.240")!
+        return URL(string: "https://wxsw.app")!
         #endif
     }()
 

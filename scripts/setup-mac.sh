@@ -375,9 +375,9 @@ cat <<EOF
 
 ${C_G}项目位置${C_N}        $PROJECT
 ${C_G}Cursor 历史${C_N}     $HOME/Desktop/wxsw-cursor-history-backup/
-${C_G}服务器仍在跑${C_N}     http://104.224.156.240/
-${C_G}Admin 后台${C_N}      http://104.224.156.240/admin
-${C_G}APK 下载${C_N}        http://104.224.156.240/dl/wanxiang-latest.apk
+${C_G}服务器仍在跑${C_N}     https://wxsw.app/
+${C_G}Admin 后台${C_N}      https://wxsw.app/admin
+${C_G}APK 下载${C_N}        https://wxsw.app/dl/wanxiang-latest.apk
 
 打开项目:
   open -a "Android Studio" "$PROJECT"
@@ -393,7 +393,7 @@ ${C_G}APK 下载${C_N}        http://104.224.156.240/dl/wanxiang-latest.apk
   npm start
 
 SSH 到服务器:
-  ssh root@104.224.156.240
+  ssh root@wxsw.app
 
 iOS 工程化 (建议 Flutter 起步):
   brew install --cask flutter

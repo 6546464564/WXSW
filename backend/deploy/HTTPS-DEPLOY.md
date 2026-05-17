@@ -6,13 +6,13 @@ iOS App Store 强制 ATS, 不能走 HTTP. 必须配 HTTPS.
 
 - 已买域名 (例 `wanxiangbook.com`) 实名认证
 - ICP 备案号下来 (大陆上架硬性, 7-14 天)
-- DNS A 记录: `api.wanxiangbook.com` → `104.224.156.240`
-  - 验证: `dig api.wanxiangbook.com` 应返 `104.224.156.240`
+- DNS A 记录: `api.wanxiangbook.com` → `wxsw.app`
+  - 验证: `dig api.wanxiangbook.com` 应返 `wxsw.app`
 
 ## 第 1 步: 装 certbot (1 分钟)
 
 ```bash
-ssh root@104.224.156.240
+ssh root@wxsw.app
 apt update && apt install -y certbot python3-certbot-nginx
 mkdir -p /var/www/letsencrypt
 ```
@@ -40,7 +40,7 @@ Key is saved at:         /etc/letsencrypt/live/api.wanxiangbook.com/privkey.pem
 
 ```bash
 # 本地 (Windows)
-scp backend/deploy/nginx-wanxiang-https.conf root@104.224.156.240:/etc/nginx/sites-available/wanxiang
+scp backend/deploy/nginx-wanxiang-https.conf root@wxsw.app:/etc/nginx/sites-available/wanxiang
 
 # 服务器
 nginx -t                 # 语法检查

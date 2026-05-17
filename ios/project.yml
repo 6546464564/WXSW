@@ -123,9 +123,9 @@ targets:
           # 封面/章节内容必须能拉. 上架时 App Store 审核备注会写"对接 100+ 公开第三方书源".
           NSAllowsArbitraryLoads: true
           NSExceptionDomains:
-            "104.224.156.240":
-              NSExceptionAllowsInsecureHTTPLoads: true
-              NSIncludesSubdomains: false
+            "wxsw.app":
+              NSExceptionAllowsInsecureHTTPLoads: false
+              NSIncludesSubdomains: true
             # 万象书屋: 本地开发模拟器走宿主机 :3000 (HTTP)
             "localhost":
               NSExceptionAllowsInsecureHTTPLoads: true

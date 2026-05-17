@@ -276,7 +276,7 @@ try {
 
 ## 服务器登录信息 (脚本不打包, 这里手抄)
 
-- 主机: 104.224.156.240
+- 主机: wxsw.app
 - SSH 端口: 22
 - 用户: root
 - 密码: (从你 Windows 上的笔记里拿)
@@ -527,15 +527,15 @@ PORT=3001 node server.js
 
 ### 7. 服务器仍在跑, 不用动
 
-- 主机: ``http://104.224.156.240/``
+- 主机: ``http://wxsw.app/``
 - 品牌页: 同上
-- Admin: http://104.224.156.240/admin
+- Admin: http://wxsw.app/admin
 - 部署位置: ``/opt/wanxiang/``
 - 服务: ``systemctl status wanxiang-backend.service``
 
 Mac 上 SSH 上去和 Windows 一样:
 ``````bash
-ssh root@104.224.156.240
+ssh root@wxsw.app
 ``````
 
 ---
@@ -567,11 +567,11 @@ diff <(shasum -a 256 *.tar.gz | awk '{print `$1, `$2}' | sort) \
 ## 目前状态快照
 
 - Android Release APK: 3.26.050412 (含书城顶栏修复)
-- 服务器: 104.224.156.240, Node.js + Nginx + SQLite, 运行中
+- 服务器: wxsw.app, Node.js + Nginx + SQLite, 运行中
 - 后端服务: ``wanxiang-backend.service``, autostart on
-- 公网入口: ``http://104.224.156.240/``
-- APK 下载: ``http://104.224.156.240/dl/wanxiang-latest.apk``
-- 后台管理: ``http://104.224.156.240/admin``
+- 公网入口: ``http://wxsw.app/``
+- APK 下载: ``http://wxsw.app/dl/wanxiang-latest.apk``
+- 后台管理: ``http://wxsw.app/admin``
 
 下一步路线见上一段对话: 域名 + ICP 备案 + HTTPS, 然后启动 iOS 工程.
 

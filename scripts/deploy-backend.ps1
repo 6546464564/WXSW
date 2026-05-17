@@ -26,7 +26,7 @@
   .\scripts\deploy-backend.ps1 -DryRun
 
 .PARAMETER Server
-  目标 VPS IP / 域名 (默认 104.224.156.240)
+  目标 VPS IP / 域名 (默认 wxsw.app)
 
 .PARAMETER User
   SSH 用户名 (默认 root)
@@ -39,7 +39,7 @@
 #>
 
 param(
-    [string]$Server = '104.224.156.240',
+    [string]$Server = 'wxsw.app',
     [string]$User = 'root',
     [string]$RemotePath = '/opt/wanxiang/backend',
     [string]$ServiceName = 'wanxiang-backend',

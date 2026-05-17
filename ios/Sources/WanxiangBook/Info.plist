@@ -86,12 +86,12 @@
 		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
-			<key>104.224.156.240</key>
+			<key>wxsw.app</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
 				<false/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
 			</dict>
 			<key>127.0.0.1</key>
 			<dict>

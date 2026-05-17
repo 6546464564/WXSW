@@ -28,7 +28,7 @@ Android 端 `app/src/main/java/io/legado/app/**` 是从 [legado](https://github.
 **对治策略已写进 M3**(App 名字定位 / 首启空内容 / 广告频次控制 / 后端审核期临时关广告 / 关于页展示开源).
 
 ### 0.3 后端单实例假设
-现在后端 = 单台 `104.224.156.240` + better-sqlite3 单连接同步。iOS 端上线后并发会翻倍,需要监控 `/api/sources` 的 ETag 命中率和响应时间。**M5 上架后**根据真实 QPS 决定是否上 Postgres + 连接池。
+现在后端 = 单台 `wxsw.app` + better-sqlite3 单连接同步。iOS 端上线后并发会翻倍,需要监控 `/api/sources` 的 ETag 命中率和响应时间。**M5 上架后**根据真实 QPS 决定是否上 Postgres + 连接池。
 
 ### 0.4 Bundle ID 与 IAP(即使现在不做)
 - iOS Bundle ID = `com.wanxiang.reader`(跟 Android applicationId 一致)

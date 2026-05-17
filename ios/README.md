@@ -76,7 +76,7 @@ ios/
 - **Bundle ID**: `com.wanxiang.reader`(跟 Android applicationId 一致)
 - **Deployment Target**: iOS 17.0
 - **Swift 版本**: 5.9
-- **后端**: `http://104.224.156.240`(M5 备案完成切 `https://api.wanxiangbook.com`)
+- **后端**: `http://wxsw.app`(M5 备案完成切 `https://api.wanxiangbook.com`)
 - **平台标识**: 全部请求带 `X-Platform: ios`,后端 `/api/sources` 自动按 platform 过滤(M0-B 已上线)
 
 ## 已知限制
@@ -91,7 +91,7 @@ ios/
 2. 跑模拟器,看启动日志:`[WanxiangAPI] device registered, token=xxx*** platform=ios`
 3. 服务器侧验证:
    ```bash
-   ssh root@104.224.156.240 "sqlite3 /opt/wanxiang/backend/data/wanxiang.db \
+   ssh root@wxsw.app "sqlite3 /opt/wanxiang/backend/data/wanxiang.db \
      'SELECT platform, COUNT(*) FROM device_tokens GROUP BY platform'"
    # 应该看到 ios|N
    ```

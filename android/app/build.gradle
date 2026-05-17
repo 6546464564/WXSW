@@ -28,6 +28,14 @@ def gitCommits = { ->
     }
 }.call()
 
+// 从 local.properties 加载签名配置（不提交到 Git）
+def localProps = new Properties()
+def localFile = rootProject.file('local.properties')
+if (localFile.exists()) {
+    localProps.load(localFile.newDataInputStream())
+    localProps.each { k, v -> if (!project.hasProperty(k)) ext.set(k, v) }
+}
+
 // 万象书屋后端 URL：可在 gradle.properties 设置 WANXIANG_BACKEND_URL=https://你的域名（勿尾斜杠）
 def wanxiangBackendUrl = (project.findProperty("WANXIANG_BACKEND_URL") ?: "").toString()
 def wanxiangBackendEscaped = wanxiangBackendUrl.replace("\\", "\\\\").replace("\"", "\\\"")

@@ -106,13 +106,13 @@
 
 ### 5.2 备案
 - [ ] 阿里云/腾讯云控制台 → ICP 备案 → 提交个人/企业信息
-- [ ] 准备:身份证 / 域名证书 / 服务器接入信息(我们用 104.224.156.240,需要让阿里云/腾讯云做你的 ISP)
+- [ ] 准备:身份证 / 域名证书 / 服务器接入信息(我们用 wxsw.app,需要让阿里云/腾讯云做你的 ISP)
 - [ ] **审核 7-14 工作日**
 - [ ] **必须**在 M5 提审前 2 周完成,否则 iOS App 用 IP 后端会被苹果拒(5.2.5)
 
 ### 5.3 备案完成后
 - [ ] iOS 端 `WanxiangAPI.baseURL` 改成 `https://api.wanxiangbook.com`
-- [ ] 删 `Info.plist` 的 `NSAppTransportSecurity.NSExceptionDomains.104.224.156.240` 整段
+- [ ] 删 `Info.plist` 的 `NSAppTransportSecurity.NSExceptionDomains.wxsw.app` 整段
 - [ ] 后端 nginx 配 HTTPS (用 `backend/deploy/nginx-wanxiang-https.conf` 模板)
 
 ---
