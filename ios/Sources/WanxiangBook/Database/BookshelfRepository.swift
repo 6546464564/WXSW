@@ -159,6 +159,21 @@ public actor BookshelfRepository {
         try await get(bookUrl: bookUrl) != nil
     }
 
+    /// 查找同名同作者但 URL 不同的已有书（用于加架前去重提示）
+    public func findDuplicate(name: String, author: String, excludingUrl: String) async throws -> ShelfBook? {
+        try await DB.shared.openIfNeeded()
+        return try await DB.shared.execQuery { handle in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            let sql = "SELECT * FROM books WHERE name = ? AND author = ? AND book_url != ? LIMIT 1"
+            guard sqlite3_prepare_v2(handle, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+            sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, author, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 3, excludingUrl, -1, SQLITE_TRANSIENT)
+            return sqlite3_step(stmt) == SQLITE_ROW ? readRow(stmt) : nil
+        }
+    }
+
     public func count() async throws -> Int {
         try await DB.shared.openIfNeeded()
         return try await DB.shared.execQuery { handle in

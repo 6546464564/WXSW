@@ -27,6 +27,12 @@ public final class SourcePerformanceTracker: @unchecked Sendable {
         public let ok: Bool
         public let ms: Int       // 响应耗时 (毫秒)
         public let ts: Int       // 记录时间 (秒)
+        /// 最近一次失败标签（对齐 Android "搜索失效" / "js失效" / "校验超时" 等）
+        public let failTag: String?
+
+        public init(ok: Bool, ms: Int, ts: Int, failTag: String? = nil) {
+            self.ok = ok; self.ms = ms; self.ts = ts; self.failTag = failTag
+        }
     }
 
     public struct Stats: Sendable, Codable {
@@ -53,6 +59,13 @@ public final class SourcePerformanceTracker: @unchecked Sendable {
             let p = avgSuccessMs == Int.max ? 50.0 : Double(avgSuccessMs) / 100.0
             return s - p
         }
+
+        /// 最近一次失败的标签（对齐 Android source group "搜索失效" / "js失效" 等）
+        /// 最新失败 sample 的 failTag; 如果最近一次 ok=true 则返 nil (已恢复)
+        public var lastFailTag: String? {
+            guard let last = samples.last, !last.ok else { return nil }
+            return last.failTag
+        }
     }
 
     private let lock = NSLock()
@@ -69,12 +82,13 @@ public final class SourcePerformanceTracker: @unchecked Sendable {
     // MARK: - 记录
 
     /// 一次 search 完成后调用. ok=false 时 ms 用 timeout 值.
-    public func record(sourceUrl: String, ok: Bool, durationMs: Int) {
+    /// - parameter failTag: 对齐 Android group 标签，如 "搜索失效" / "js失效" / "校验超时"
+    public func record(sourceUrl: String, ok: Bool, durationMs: Int, failTag: String? = nil) {
         lock.lock()
         defer { lock.unlock() }
         let now = Int(Date().timeIntervalSince1970)
         var s = stats[sourceUrl] ?? Stats()
-        s.samples.append(Sample(ok: ok, ms: durationMs, ts: now))
+        s.samples.append(Sample(ok: ok, ms: durationMs, ts: now, failTag: ok ? nil : failTag))
         if s.samples.count > maxSamples {
             s.samples.removeFirst(s.samples.count - maxSamples)
         }

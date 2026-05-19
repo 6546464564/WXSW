@@ -16,12 +16,20 @@ final class PromoCodeManager: ObservableObject {
 
     private init() {
         loadLocal()
+        // UI 测试时注入测试激活码
+        if CommandLine.arguments.contains("-uitest") {
+            if promoCodes.isEmpty {
+                promoCodes = [PromoCodeItem(code: "UITEST", agentName: "UITest")]
+            }
+        }
     }
 
     // MARK: - Bootstrap
 
     func bootstrap() async {
         loadLocal()
+        // UI 测试时跳过网络同步，避免覆盖注入的测试激活码
+        guard !CommandLine.arguments.contains("-uitest") else { return }
         await fetchRemoteCodes()
     }
 
@@ -127,12 +135,7 @@ final class PromoCodeManager: ObservableObject {
            let items = try? JSONDecoder().decode([PromoCodeItem].self, from: data) {
             self.promoCodes = items
         }
-
-        if promoCodes.isEmpty {
-            promoCodes = [
-                PromoCodeItem(code: "8888", agentName: "默认")
-            ]
-        }
+        // 不设本地兜底：完全以后端为准，后端设什么 code 才能解锁
 
         if let data = UserDefaults.standard.data(forKey: usageKey),
            let records = try? JSONDecoder().decode([PromoUsageRecord].self, from: data) {

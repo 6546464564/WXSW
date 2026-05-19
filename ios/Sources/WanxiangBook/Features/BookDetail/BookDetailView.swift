@@ -133,6 +133,23 @@ struct BookDetailView: View {
                 autoStartReader = true
             }
         }
+        .alert(
+            "此书已在书架",
+            isPresented: Binding(
+                get: { vm.duplicateShelfBook != nil },
+                set: { if !$0 { vm.duplicateShelfBook = nil } }
+            )
+        ) {
+            Button("仍然添加") {
+                Task { await vm.addToShelf(book: currentBook, force: true)
+                    UINotificationFeedbackGenerator().notificationOccurred(.success) }
+            }
+            Button("取消", role: .cancel) { vm.duplicateShelfBook = nil }
+        } message: {
+            if let dup = vm.duplicateShelfBook {
+                Text("《\(dup.name)》来自「\(dup.originName)」已在书架，是否再加一个来自「\(currentBook.originName)」的版本？")
+            }
+        }
         .sheet(isPresented: $tocSheet) {
             // 复用阅读器的 TocView
             NavigationStack {
@@ -600,25 +617,15 @@ struct BookDetailView: View {
     ///   2. 清掉 vm.info / vm.chapters, 走一次完整 loadDetails
     ///   3. 同步刷加架状态 (新源 bookUrl 在书架里可能不存在)
     /// 万象书屋 (UX 2026-05-11): 书城 stub 模式自动找源 (双关键词并行).
-    ///   - 候选池: SourcePerformanceTracker 排序后前 60 (原 12 — 起点原创书在通用源命中率低,
-    ///     12 个里全 miss 时用户一直看到 "查找中...", 没有兜底)
-    ///   - 两条并发 stream:
-    ///       * 流 A: key = name           (常规)
-    ///       * 流 B: key = "name 作者"    (作者非空时 — 番茄/晋江/起点系命中率显著更高)
-    ///   - 任意一条流先命中 → 取消另一条 → 切源
-    ///   - 两条都 drain 完没命中 → 报失败, 让用户走"换源"sheet 手动选
-    ///   - 命中后保留 stub 里的 cover/intro/kind (起点封面质量更好), 切到真源 + onSourceSwitched
+    ///
+    ///   优化 (2026-05-20):
+    ///   1. 缓存快速通道 — 先查 SearchVariantsCache (用户搜索页搜过的结果), 命中则 0 网络直接用.
+    ///   2. 候选池缩小到前 15 高分源 (从 60): 起点系书要么在优质源可找, 要么根本没有.
+    ///      低分源命中率极低, 缩小候选 + 6s 超时 → 最坏等待从 ~40s 压缩到 ~12s.
+    ///   3. 无需额外超时逻辑: 15 源 / 8 并发 = 2 批次 × 6s = 自然 ~12s 上限.
     private func resolveSourceIfNeeded() async {
         guard currentSource == nil else { return }
         await MainActor.run { isResolvingSource = true }
-
-        let allSources = BookSourceRegistry.shared.sources
-        let sorted = SourcePerformanceTracker.shared.sortByScore(allSources)
-        let candidates = Array(sorted.prefix(60))
-        guard !candidates.isEmpty else {
-            await MainActor.run { isResolvingSource = false }
-            return
-        }
 
         let bookName = currentBook.name
         let bookAuthor = currentBook.author.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -626,13 +633,45 @@ struct BookDetailView: View {
         let stubIntro = currentBook.intro
         let stubKind = currentBook.kind
 
+        // ── 快速通道: 查 SearchVariantsCache (搜索页搜过的书, 直接有 bookUrl + source) ──
+        let cacheVariants = SearchVariantsCache.shared.get(key: currentBook.dedupeKey)
+        if !cacheVariants.isEmpty {
+            let stats = SourcePerformanceTracker.shared.allStats()
+            let bestCached = cacheVariants
+                .filter { v in
+                    !v.origin.isEmpty && !v.bookUrl.isEmpty &&
+                    BookSourceRegistry.shared.find(origin: v.origin) != nil
+                }
+                .sorted { (stats[$0.origin]?.score ?? 50) > (stats[$1.origin]?.score ?? 50) }
+                .first
+            if let best = bestCached,
+               let src = BookSourceRegistry.shared.find(origin: best.origin) {
+                var merged = best
+                if merged.coverUrl?.isEmpty != false, let c = stubCover, !c.isEmpty { merged.coverUrl = c }
+                if merged.intro?.isEmpty != false, let i = stubIntro, !i.isEmpty { merged.intro = i }
+                if merged.kind?.isEmpty != false, let k = stubKind, !k.isEmpty { merged.kind = k }
+                await onSourceSwitched(to: merged, source: src)
+                await MainActor.run { isResolvingSource = false }
+                return
+            }
+        }
+
+        // ── 网络搜索: 只搜前 15 高分源 (方案二 + 方案一 合并实现) ──
+        // 15 源 / 8 并发 / 6s 单源超时 → 最坏 2 批 × 6s = ~12s, 无需额外超时逻辑
+        let allSources = BookSourceRegistry.shared.sources
+        let candidates = Array(SourcePerformanceTracker.shared.sortByScore(allSources).prefix(15))
+        guard !candidates.isEmpty else {
+            await MainActor.run { isResolvingSource = false; resolveFailed = true }
+            return
+        }
+
         // 万象书屋: TaskGroup 同时跑两条 search stream, 各自挑首个 name/author 匹配后回报.
         let result: (SearchBook, BookSource)? = await withTaskGroup(of: (SearchBook, BookSource)?.self) { group in
             // 流 A: 只用书名搜
             group.addTask {
                 let stream = await BookSourceEngine.shared.searchAll(
                     in: candidates, key: bookName,
-                    maxConcurrency: 10, perSourceTimeoutSec: 8
+                    maxConcurrency: 8, perSourceTimeoutSec: 6
                 )
                 for await (src, r) in stream {
                     if Task.isCancelled { return nil }
@@ -651,7 +690,7 @@ struct BookDetailView: View {
                     let combined = "\(bookName) \(bookAuthor)"
                     let stream = await BookSourceEngine.shared.searchAll(
                         in: candidates, key: combined,
-                        maxConcurrency: 10, perSourceTimeoutSec: 8
+                        maxConcurrency: 8, perSourceTimeoutSec: 6
                     )
                     for await (src, r) in stream {
                         if Task.isCancelled { return nil }
@@ -724,6 +763,8 @@ final class BookDetailViewModel: ObservableObject {
 
     @Published var isInShelf = false
     @Published var isWorking = false
+    /// 加架前检测到同名同作者的已有书（非 nil 时触发确认弹窗）
+    @Published var duplicateShelfBook: ShelfBook? = nil
 
     /// 万象书屋 (P0 fix · D-25): 真实的详情/目录数据
     @Published var info: BookInfo? = nil
@@ -931,9 +972,19 @@ final class BookDetailViewModel: ObservableObject {
         }
     }
 
-    func addToShelf(book: SearchBook) async {
+    func addToShelf(book: SearchBook, force: Bool = false) async {
         isWorking = true
         defer { isWorking = false }
+        // 非强制时先检测同名同作者重复
+        if !force {
+            if let dup = try? await BookshelfRepository.shared.findDuplicate(
+                name: book.name, author: book.author, excludingUrl: book.bookUrl
+            ) {
+                duplicateShelfBook = dup
+                return
+            }
+        }
+        duplicateShelfBook = nil
         let shelf = ShelfBook(
             bookUrl: book.bookUrl,
             name: book.name,
@@ -955,6 +1006,9 @@ final class BookDetailViewModel: ObservableObject {
             )
         }
         isInShelf = true
+        // 万象书屋: 加书后在后台自动筛最优源（按成功率+速度）并更新书架记录.
+        // fire-and-forget，不阻塞加书动作.
+        SourceHealthChecker.shared.autoSelectBestSource(for: shelf, keyword: book.name)
     }
 
     func remove(bookUrl: String) async {

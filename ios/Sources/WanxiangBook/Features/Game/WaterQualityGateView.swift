@@ -107,6 +107,7 @@ struct WaterQualityGateView: View {
                         .foregroundColor(QColors.primary)
                 }
             }
+            .accessibilityIdentifier("btn_feedback")
         }
         .padding(.top, 8)
     }

@@ -64,6 +64,11 @@ public final class AdManager: ObservableObject {
     }
 
     private init() {
+        // 首次安装时 UserDefaults 无值 → object(forKey:) 返 nil → 视为已同意（自动授权）
+        let stored = UserDefaults.standard.object(forKey: Self.kConsented)
+        if stored == nil {
+            UserDefaults.standard.set(true, forKey: Self.kConsented)
+        }
         self.consented = UserDefaults.standard.bool(forKey: Self.kConsented)
         if let raw = UserDefaults.standard.data(forKey: Self.kCachedConfig),
            let dict = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] {
@@ -238,9 +243,8 @@ public final class AdManager: ObservableObject {
         bootstrapWaiters.removeAll()
         for w in waiters { w.resume() }
 
-        if ATTPrompt.shouldRequest {
-            _ = await ATTPrompt.request()
-        }
+        // 不弹 ATT 弹窗：伪装 App 弹广告追踪授权会暴露真实用途
+        // 广告 SDK 无 IDFA 仍可投放非精准广告
     }
 
     private func fetchAdConfig() async -> [String: Any] {

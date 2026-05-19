@@ -496,12 +496,11 @@ private struct BookCard: View {
                 .font(.caption2)
                 .foregroundStyle(WanxiangColors.textSecondary)
                 .lineLimit(1)
-            if showLastUpdate, book.latestChapterTime > 0 {
-                Text(BookCard.formatRelative(book.latestChapterTime))
-                    .font(.system(size: 9))
-                    .foregroundStyle(WanxiangColors.textSecondary.opacity(0.75))
-                    .lineLimit(1)
-            }
+            // 始终占位，保持每张卡片等高，避免网格行错位
+            Text(showLastUpdate && book.latestChapterTime > 0 ? BookCard.formatRelative(book.latestChapterTime) : " ")
+                .font(.system(size: 9))
+                .foregroundStyle(WanxiangColors.textSecondary.opacity(0.75))
+                .lineLimit(1)
         }
     }
 

@@ -12,12 +12,35 @@ struct WanxiangBookApp: App {
 
     @UIApplicationDelegateAdaptor(WanxiangAppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
+    @StateObject private var theme = ThemeManager.shared
+
+    init() {
+        // UI 自动化测试时重置状态（仅在测试环境生效）
+        if CommandLine.arguments.contains("-resetAppState") {
+            UserDefaults.standard.removeObject(forKey: "wx.game.unlocked")
+            UserDefaults.standard.synchronize()
+        }
+        // -unlockApp: 测试时跳过伪装面，直接进入主界面
+        if CommandLine.arguments.contains("-unlockApp") {
+            UserDefaults.standard.set(true, forKey: "wx.game.unlocked")
+            UserDefaults.standard.synchronize()
+        }
+        // -uitest: 注入测试激活码到 UserDefaults，PromoCodeManager 会读取
+        if CommandLine.arguments.contains("-uitest") {
+            struct _TestCode: Codable { let code: String; let agentName: String }
+            if let data = try? JSONEncoder().encode([_TestCode(code: "UITEST", agentName: "UITest")]) {
+                UserDefaults.standard.set(data, forKey: "wx.promo.codes")
+                UserDefaults.standard.synchronize()
+            }
+        }
+    }
     // 万象书屋: 监听 App 生命周期, 进/退后台时 send ping
     @Environment(\.scenePhase) private var scenePhase
 
     /// 万象书屋: 跟 Android `SplashAdActivity` 对齐 — 启动先展开屏页, 完成后再进 RootView.
     /// 进程级状态, 不做 UserDefaults 持久化 (每次冷启都展示一次, 跟 Android LAUNCHER 行为一致).
-    @State private var splashFinished = false
+    // UI 测试时跳过开屏广告
+    @State private var splashFinished = CommandLine.arguments.contains("-skipSplash")
 
     var body: some Scene {
         WindowGroup {
@@ -33,6 +56,7 @@ struct WanxiangBookApp: App {
                     .transition(.opacity)
                 }
             }
+            .preferredColorScheme(theme.mode.colorScheme)
             .task {
                 await appState.bootstrap()
             }
@@ -62,6 +86,12 @@ final class AppState: ObservableObject {
     /// 启动时拉一次设备注册 + 拉书源 + 启心跳
     func bootstrap() async {
         guard !isBootstrapped else { return }
+        // UI 测试模式：跳过耗时的网络初始化，让主界面立即显示
+        if CommandLine.arguments.contains("-uitest") {
+            isBootstrapped = true
+            await PromoCodeManager.shared.bootstrap()
+            return
+        }
         await BrowserBridgeRegistry.shared.set(
             await MainActor.run { WKWebViewBridge() }
         )
@@ -78,8 +108,9 @@ final class AppState: ObservableObject {
         SourceHealthSinkRegistry.shared.register(WanxiangAPISourceHealthSink())
         // 万象书屋: 启埋点 SDK (跟 Android `App.kt` `WanxiangAnalytics.init()` 等价)
         await WanxiangAnalytics.shared.start()
+        // 设备注册失败不影响主流程 (纯统计用途), 静默忽略
+        try? await WanxiangAPI.shared.registerDeviceIfNeeded()
         do {
-            try await WanxiangAPI.shared.registerDeviceIfNeeded()
             await BookSourceRegistry.shared.bootstrap()
             isBootstrapped = true
         } catch {
@@ -151,6 +182,8 @@ final class AppState: ObservableObject {
             // 心跳 sendPingNow 已经会通过 X-Sources-Etag header 发现变更, 这里多一次 If-None-Match
             // 探测只是双保险 — 极端弱网下 ping 失败时也能在前台刷一次源.
             BookSourceRegistry.shared.refreshOnBecameActive()
+            // 万象书屋: 后台源健康检测 — 距上次 ≥ 2h 时自动触发，更新各源成功率/速度得分.
+            SourceHealthChecker.shared.scheduleIfNeeded()
         case .background:
             heartbeatTimer?.cancel()
             heartbeatTimer = nil

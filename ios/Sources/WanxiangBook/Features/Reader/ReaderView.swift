@@ -21,6 +21,7 @@ public struct ReaderView: View {
     @StateObject private var config = ReadConfig.shared
 
     @State private var menuVisible: Bool = false
+    @GestureState private var dragStartPageId: String? = nil
     @State private var styleSheet: Bool = false
     @State private var tocSheet: Bool = false
     @State private var screenSize: CGSize = .zero
@@ -200,7 +201,10 @@ public struct ReaderView: View {
                 UIApplication.shared.isIdleTimerDisabled = on
             }
             .onChange(of: engine.currentChapterIndex) { _, newIdx in
-                repaginateCurrent()
+                // 万象书屋 (跨章翻页): 如果是从 pager 滑入相邻章节触发的切章, 保持当前页不回跳首页
+                let target = crossChapterTargetPageId
+                crossChapterTargetPageId = nil
+                repaginateCurrent(targetPageId: target)
                 let key = "\(engine.book.bookUrl)|\(newIdx)"
                 PurifiedReadingState.shared.markChapterOpened(uniqueKey: key)
                 checkChapterPaywall()
@@ -525,7 +529,25 @@ public struct ReaderView: View {
                 ReaderPageView(
                     page: page,
                     config: config,
+                    bookName: engine.book.name,
+                    chapterCount: engine.chapters.count,
                     onTapMenu: { withAnimation { menuVisible.toggle() } },
+                    onTapPrev: {
+                        if let id = prevPageId() {
+                            currentPageId = id
+                            handlePageJump(to: id)
+                        } else {
+                            Task { await engine.goToChapter(max(0, engine.currentChapterIndex - 1)) }
+                        }
+                    },
+                    onTapNext: {
+                        if let id = nextPageId() {
+                            currentPageId = id
+                            handlePageJump(to: id)
+                        } else {
+                            Task { await engine.nextChapter() }
+                        }
+                    },
                     onSelectionAction: { action, text in handleSelection(action: action, text: text) }
                 )
                 .tag(page.id)
@@ -533,6 +555,24 @@ public struct ReaderView: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .ignoresSafeArea(edges: [])
+        // 章节边界滑动：仅当相邻章节未在 pages 缓冲中时才通过此 gesture 切章
+        // (若已在缓冲中, TabView 自身已能滑过章节边界, handlePageJump 会更新 engine; 无需在此重复)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 40, coordinateSpace: .local)
+                .updating($dragStartPageId) { _, state, _ in
+                    if state == nil { state = currentPageId }
+                }
+                .onEnded { value in
+                    let dx = value.translation.width
+                    let startPage = pages.first(where: { $0.id == dragStartPageId })
+                    // 只在 pages 缓冲中没有更多页时才手动切章，避免与 handlePageJump 双重触发
+                    if dx < -40, startPage?.isLastPage == true, nextPageId() == nil {
+                        Task { await engine.nextChapter() }
+                    } else if dx > 40, startPage?.isFirstPage == true, prevPageId() == nil {
+                        Task { await engine.goToChapter(max(0, engine.currentChapterIndex - 1)) }
+                    }
+                }
+        )
     }
 
     /// 仿真翻书 (UIPageViewController .pageCurl, 跟 iBooks 同款)
@@ -542,7 +582,26 @@ public struct ReaderView: View {
                 (id: p.id, view: ReaderPageView(
                     page: p,
                     config: config,
+                    bookName: engine.book.name,
+                    chapterCount: engine.chapters.count,
                     onTapMenu: { withAnimation { menuVisible.toggle() } },
+                    onTapPrev: {
+                        // 万象书屋: 仿真模式下不加 withAnimation, PVC 自己管理 curl 动画
+                        if let id = prevPageId() {
+                            currentPageId = id
+                            handlePageJump(to: id)
+                        } else {
+                            Task { await engine.goToChapter(max(0, engine.currentChapterIndex - 1)) }
+                        }
+                    },
+                    onTapNext: {
+                        if let id = nextPageId() {
+                            currentPageId = id
+                            handlePageJump(to: id)
+                        } else {
+                            Task { await engine.nextChapter() }
+                        }
+                    },
                     onSelectionAction: { action, text in handleSelection(action: action, text: text) }
                 ))
             },
@@ -552,7 +611,9 @@ public struct ReaderView: View {
                     currentPageId = newId
                     handlePageJump(to: newId)
                 }
-            )
+            ),
+            // 万象书屋: 传入阅读器背景色, UIHostingController 用此色填底, 消除白闪
+            backgroundColor: UIColor(config.theme.background)
         )
         .ignoresSafeArea()
     }
@@ -560,19 +621,27 @@ public struct ReaderView: View {
     private var scrollPager: some View {
         ScrollView {
             LazyVStack(spacing: config.paragraphSpacing) {
+                // 滚动模式：滚到顶部时加载上一章
+                if engine.currentChapterIndex > 0 {
+                    Color.clear.frame(height: 1)
+                        .onAppear {
+                            Task { await engine.previousChapter() }
+                        }
+                }
                 ForEach(pages) { page in
                     // 万象书屋 (M2.8 Gap 3): 按 ␎WX_IMG[url]␏ 标记切段, text/image 分别渲染
                     chapterPageBody(page: page)
                         .padding(.horizontal, config.paddingHorizontal)
                 }
-                // bug fix: 滚动模式下滚到底部, 自动 load 下一章 (跟 Android 对齐)
-                if let last = pages.last {
-                    Color.clear.frame(height: 1)
-                        .onAppear {
-                            // 用户已滚到末尾, 触发下一章
-                            Task { await engine.nextChapter() }
-                            _ = last
-                        }
+                // 滚动模式：滚到底部时加载下一章
+                if engine.currentChapterIndex + 1 < engine.chapters.count {
+                    if let last = pages.last {
+                        Color.clear.frame(height: 1)
+                            .onAppear {
+                                Task { await engine.nextChapter() }
+                                _ = last
+                            }
+                    }
                 }
             }
             .padding(.top, config.paddingTop)
@@ -846,6 +915,11 @@ public struct ReaderView: View {
     }
 
     private var currentPageText: String {
+        // 优先读当前页自身的 chapterTitle，保证跨章缓冲翻页时实时更新
+        if let page = pages.first(where: { $0.id == currentPageId }),
+           !page.chapterTitle.isEmpty {
+            return page.chapterTitle
+        }
         let title = engine.chapters[safe: engine.currentChapterIndex]?.title ?? ""
         return title.isEmpty ? engine.book.name : title
     }
@@ -951,33 +1025,58 @@ public struct ReaderView: View {
 
     // MARK: - 分页 / 翻页处理
 
-    private func repaginateCurrent() {
+    /// 万象书屋 (跨章翻页): 用户从 pager 滑入相邻章节时, 记录目标页 id.
+    /// onChange(of: engine.currentChapterIndex) 用它来保持显示位置, 不回跳首页.
+    @State private var crossChapterTargetPageId: String? = nil
+
+    /// - Parameter targetPageId: 若非 nil, 且在重建后的 pages 中存在, 则保持该页为 currentPageId.
+    ///   用于跨章节翻页场景 (用户滑进相邻章节), 防止章节切换时 UI 跳回首页.
+    ///   nil (默认) = 跳到当前章的第一页 (菜单跳章、进度条跳章场景).
+    private func repaginateCurrent(targetPageId: String? = nil) {
         let viewport = contentCanvasSize.width > 0 ? contentCanvasSize : screenSize
         guard viewport.width > 0 else { return }
         let idx = engine.currentChapterIndex
-        guard let body = engine.content(for: idx) else {
+        guard engine.content(for: idx) != nil else {
             pages = []
             return
         }
-        let title = engine.chapters[safe: idx]?.title ?? engine.book.name
-        // 万象书屋: 给 paginate 文字真实可用区 (减去 ReaderPageView 内的 padding + footer)
-        // ReaderPageView 页脚 + 最后一行安全缓冲。
-        // 过小会让正文压到页脚; 过大又会每页底部空白。52pt 是当前字号/行距下的平衡值。
-        let footerHeight: CGFloat = 52
+
+        // 页脚: 11pt 字体 + 8pt 顶部间距 ≈ 22pt
+        let footerHeight: CGFloat = 22
+        // 页眉: 11pt 字体 + 8pt 底部间距 ≈ 22pt
+        let headerHeight: CGFloat = 22
         let canvasSize = CGSize(
             width: max(0, viewport.width - config.paddingHorizontal * 2),
-            height: max(0, viewport.height - config.paddingTop - config.paddingBottom - footerHeight)
+            height: max(0, viewport.height - config.paddingTop - config.paddingBottom - footerHeight - headerHeight)
         )
         let snapshot = ReadConfigSnapshot.current(from: config)
-        let result = PaginationEngine.paginate(
-            text: body,
-            chapterIndex: idx,
-            chapterTitle: title,
-            canvasSize: canvasSize,
-            config: snapshot
-        )
-        self.pages = result
-        if let first = result.first { self.currentPageId = first.id }
+
+        // 万象书屋 (跨章翻页): 把当前章 ± 1 章 (如果内容已在 contentCache 中) 一起分页并合并.
+        // 这样 PageCurlContainer / TabView 的 pages 数组里包含相邻章节的页面,
+        // viewControllerAfter/Before 不会在章节边界返回 nil, 用户可以用相同手势滑过章节边界.
+        func paginateIfCached(_ i: Int) -> [ReaderPage] {
+            guard i >= 0, i < engine.chapters.count,
+                  let body = engine.content(for: i) else { return [] }
+            let title = engine.chapters[safe: i]?.title ?? engine.book.name
+            return PaginationEngine.paginate(text: body, chapterIndex: i,
+                                             chapterTitle: title, canvasSize: canvasSize, config: snapshot)
+        }
+
+        let prevPages = paginateIfCached(idx - 1)
+        let currPages = paginateIfCached(idx)
+        let nextPages = paginateIfCached(idx + 1)
+        let combined = prevPages + currPages + nextPages
+
+        self.pages = combined
+
+        // 确定 currentPageId:
+        // - 跨章翻页时保持 targetPageId (已在相邻章节的页里) 不回跳
+        // - 否则跳到当前章第一页
+        if let target = targetPageId, combined.contains(where: { $0.id == target }) {
+            self.currentPageId = target
+        } else {
+            self.currentPageId = currPages.first?.id ?? combined.first?.id
+        }
     }
 
     private func handlePageJump(to id: String) {
@@ -986,6 +1085,8 @@ public struct ReaderView: View {
         guard parts.count == 2,
               let cIdx = Int(parts[0]) else { return }
         if cIdx != engine.currentChapterIndex {
+            // 万象书屋 (跨章翻页): 记录目标页, 让 onChange(of: currentChapterIndex) 保持该页不跳回首页
+            crossChapterTargetPageId = id
             Task { await engine.goToChapter(cIdx) }
         }
     }
@@ -1094,14 +1195,31 @@ struct BrowserItem: Identifiable { let id = UUID(); let url: URL }
 private struct ReaderPageView: View {
     let page: ReaderPage
     @ObservedObject var config: ReadConfig
+    /// 书名: 章节首页页眉显示书名, 其他页显示章节标题
+    let bookName: String
+    /// 总章节数: 用于计算页脚整体进度 %
+    let chapterCount: Int
     let onTapMenu: () -> Void
+    let onTapPrev: () -> Void
+    let onTapNext: () -> Void
     let onSelectionAction: (SelectableTextView.SelectionAction, String) -> Void
 
     var body: some View {
         GeometryReader { geo in
             VStack(alignment: .leading, spacing: 0) {
-                // 万象书屋 (M2.8 Gap 3): page.text 可能含 ␎WX_IMG[url]␏ 占位标记,
-                // 切成 text/image 段分别渲染. 没有 image 时保持跟之前的纯 Text 等价.
+                // ── 页眉: 书名 (左上角, 与参考 Android 版一致) ──
+                HStack(spacing: 3) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 9, weight: .medium))
+                    Text(bookName)
+                        .font(.system(size: 11))
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .foregroundStyle(config.theme.textColor.opacity(0.4))
+                .padding(.bottom, 8)
+
+                // ── 正文 (万象书屋 M2.8 Gap 3): 含 ␎WX_IMG[url]␏ 图片占位标记 ──
                 ChapterPageBody(
                     pageText: page.text,
                     chapterTitle: page.chapterTitle,
@@ -1109,31 +1227,44 @@ private struct ReaderPageView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-                // 页脚
+                // ── 页脚: 时间 + 整体进度 % ──
                 HStack {
-                    Text(page.chapterTitle)
-                        .font(.caption2)
-                        .lineLimit(1)
+                    TimelineView(.everyMinute) { ctx in
+                        Text(
+                            ctx.date.formatted(
+                                .dateTime.hour(.twoDigits(amPM: .omitted)).minute()
+                            )
+                        )
+                        .font(.system(size: 11, design: .monospaced))
+                    }
                     Spacer()
-                    Text("\(page.pageIndex + 1) / \(page.totalPages)")
-                        .font(.caption2.monospacedDigit())
+                    let progress = chapterCount > 0
+                        ? Double(page.chapterIndex) / Double(chapterCount) * 100
+                        : 0
+                    Text(String(format: "%.1f%%", progress))
+                        .font(.system(size: 11, design: .monospaced))
                 }
-                .foregroundStyle(config.theme.textColor.opacity(0.5))
+                .foregroundStyle(config.theme.textColor.opacity(0.4))
                 .padding(.top, 8)
             }
             .padding(.horizontal, config.paddingHorizontal)
             .padding(.top, config.paddingTop)
             .padding(.bottom, config.paddingBottom)
             // 三段点击区: 左 1/3 上一页, 中 1/3 菜单, 右 1/3 下一页
-            // (TabView .page 模式下右滑/左滑天然翻页, 这里只处理 tap 中心)
             .overlay(
                 HStack(spacing: 0) {
-                    Color.clear.frame(width: geo.size.width / 3)
+                    Color.clear
+                        .frame(width: geo.size.width / 3)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onTapPrev() }
                     Color.clear
                         .frame(width: geo.size.width / 3)
                         .contentShape(Rectangle())
                         .onTapGesture { onTapMenu() }
-                    Color.clear.frame(width: geo.size.width / 3)
+                    Color.clear
+                        .frame(width: geo.size.width / 3)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onTapNext() }
                 }
             )
         }
@@ -1227,9 +1358,9 @@ struct ChapterPageBody: View {
 
     private var titleFont: Font {
         if config.fontFamily.isEmpty {
-            return .system(size: titleFontSize, weight: .semibold)
+            return .system(size: titleFontSize, weight: .bold)
         }
-        return .custom(config.fontFamily, size: titleFontSize).weight(.semibold)
+        return .custom(config.fontFamily, size: titleFontSize).weight(.bold)
     }
 
     /// 万象书屋 (排版): 第一页 page.text 以章节标题开头 (`title\n` 形式),
@@ -1258,44 +1389,29 @@ struct ChapterPageBody: View {
 
     @ViewBuilder
     private func chapterTitleHeader(_ title: String) -> some View {
-        VStack(spacing: 10) {
-            Text(title)
-                .font(titleFont)
-                .foregroundStyle(config.theme.textColor)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 4)
-            Rectangle()
-                .fill(config.theme.textColor.opacity(0.18))
-                .frame(height: 0.5)
-                .frame(maxWidth: 80)
-        }
-        .padding(.top, 6)
-        .padding(.bottom, 14)
+        Text(title)
+            .font(titleFont)
+            .foregroundStyle(config.theme.textColor)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // 不加 padding(.top): config.paddingTop 已提供顶部留白
+            // padding(.bottom, 24) 与 titlePara.paragraphSpacing = 24 对应, 确保 CoreText/SwiftUI 高度一致
+            .padding(.bottom, 24)
     }
 
     @ViewBuilder
     private func chapterBody(_ text: String) -> some View {
         let segs = parseChapterPageSegments(text)
+        let uiTextColor = UIColor(config.theme.textColor)
         if segs.count == 1, case .text(let txt, _) = segs[0] {
-            Text(txt)
-                .font(bodyFont)
-                .foregroundStyle(config.theme.textColor)
-                .lineSpacing(config.textSize * (config.lineSpacing - 1))
-                .kerning(config.letterSpacing)
-                .textSelection(.enabled)
+            BodyTextUIView(attrText: bodyNSAttributedString(txt, textColor: uiTextColor))
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(segs) { seg in
                     switch seg {
                     case .text(let txt, _):
-                        Text(txt)
-                            .font(bodyFont)
-                            .foregroundStyle(config.theme.textColor)
-                            .lineSpacing(config.textSize * (config.lineSpacing - 1))
-                            .kerning(config.letterSpacing)
-                            .textSelection(.enabled)
+                        BodyTextUIView(attrText: bodyNSAttributedString(txt, textColor: uiTextColor))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     case .image(let url, _):
                         ChapterImageBlock(imageUrl: url, textColor: config.theme.textColor)
@@ -1303,5 +1419,57 @@ struct ChapterPageBody: View {
                 }
             }
         }
+    }
+
+    /// 正文 NSAttributedString: UIKit 直接可用, 与 PaginationEngine.makeAttributedString 保持完全一致的 lineSpacing/paragraphSpacing.
+    private func bodyNSAttributedString(_ text: String, textColor: UIColor) -> NSAttributedString {
+        let uiFont: UIFont = config.fontFamily.isEmpty
+            ? UIFont.systemFont(ofSize: config.textSize)
+            : (UIFont(name: config.fontFamily, size: config.textSize)
+                ?? UIFont.systemFont(ofSize: config.textSize))
+        let lineSpacingPt = config.textSize * max(0, config.lineSpacing - 1.0)
+        let paraStyle = NSMutableParagraphStyle()
+        paraStyle.lineSpacing = lineSpacingPt
+        paraStyle.paragraphSpacing = config.paragraphSpacing
+        paraStyle.lineBreakMode = .byCharWrapping
+        let nsAttr = NSMutableAttributedString(string: text)
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        nsAttr.addAttribute(.font, value: uiFont, range: range)
+        nsAttr.addAttribute(.paragraphStyle, value: paraStyle, range: range)
+        nsAttr.addAttribute(.foregroundColor, value: textColor, range: range)
+        if config.letterSpacing != 0 {
+            nsAttr.addAttribute(.kern, value: NSNumber(value: Float(config.letterSpacing)), range: range)
+        }
+        return nsAttr
+    }
+}
+
+// MARK: - UITextView 正文渲染器 (与 CoreText 同一引擎, lineSpacing/paragraphSpacing 完全匹配分页计算)
+
+private struct BodyTextUIView: UIViewRepresentable {
+    let attrText: NSAttributedString
+
+    func makeUIView(context: Context) -> UITextView {
+        let tv = UITextView()
+        tv.isEditable = false
+        tv.isSelectable = true
+        tv.isScrollEnabled = false
+        tv.backgroundColor = .clear
+        tv.textContainerInset = .zero
+        tv.textContainer.lineFragmentPadding = 0
+        tv.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        tv.setContentHuggingPriority(.required, for: .vertical)
+        return tv
+    }
+
+    func updateUIView(_ tv: UITextView, context: Context) {
+        if tv.attributedText != attrText {
+            tv.attributedText = attrText
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0 else { return nil }
+        return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
     }
 }

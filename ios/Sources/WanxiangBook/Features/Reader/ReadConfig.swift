@@ -179,9 +179,17 @@ public final class ReadConfig: ObservableObject {
 
     private init() {
         let d = UserDefaults.standard
-        self.textSize = d.value(forKey: K.textSize) as? CGFloat ?? 18
-        self.lineSpacing = d.value(forKey: K.lineSpacing) as? CGFloat ?? 1.6
-        self.paragraphSpacing = d.value(forKey: K.paragraphSpacing) as? CGFloat ?? 14
+        self.textSize = d.value(forKey: K.textSize) as? CGFloat ?? 20
+        // 迁移: 对齐安卓默认 lineSpacingExtra=12/10=1.2, 旧默认 1.6 调整为 1.2
+        if let stored = d.value(forKey: K.lineSpacing) as? CGFloat, stored >= 1.6 {
+            d.set(Float(1.2), forKey: K.lineSpacing)
+        }
+        self.lineSpacing = d.value(forKey: K.lineSpacing) as? CGFloat ?? 1.2
+        // 迁移: 对齐参考视觉效果, 默认 6pt (约 0.25×lineHeight); 旧值 ≥8 调整为 6pt
+        if let stored = d.value(forKey: K.paragraphSpacing) as? CGFloat, stored >= 8 {
+            d.set(CGFloat(6), forKey: K.paragraphSpacing)
+        }
+        self.paragraphSpacing = d.value(forKey: K.paragraphSpacing) as? CGFloat ?? 6
         self.letterSpacing = d.value(forKey: K.letterSpacing) as? CGFloat ?? 0
         // 万象书屋 (排版): 默认上下边距加宽, 章节标题更有"打开一本书"的呼吸感, 页脚也不贴边
         self.paddingTop = d.value(forKey: K.paddingTop) as? CGFloat ?? 24

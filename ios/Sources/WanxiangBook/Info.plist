@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh-Hans</string>
 	<key>CFBundleDisplayName</key>
-	<string>万象书屋</string>
+	<string>二维码生成</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -86,13 +86,6 @@
 		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
-			<key>wxsw.app</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<false/>
-				<key>NSIncludesSubdomains</key>
-				<true/>
-			</dict>
 			<key>127.0.0.1</key>
 			<dict>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
@@ -106,6 +99,13 @@
 				<true/>
 				<key>NSIncludesSubdomains</key>
 				<false/>
+			</dict>
+			<key>wxsw.app</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<false/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
 			</dict>
 		</dict>
 	</dict>

@@ -58,11 +58,20 @@ public struct PaginationEngine {
 
         guard canvasSize.width > 50, canvasSize.height > 50 else { return [] }
 
-        // 万象书屋 (排版): 段首缩进 + 段间距用"修改原始文本 + 空行"表达 (与 SwiftUI Text 渲染一致).
-        //   - 每段开头加 indentChars 个 U+3000 全角空格 → 视觉首行缩进
-        //   - 段间额外加空行数量 = round(paragraphSpacing / lineHeight) (1-3 行)
-        //   - CoreText 分页和 SwiftUI Text 渲染看到同一份字符串, 避免分页错位
-        let processedText = applyParagraphLayout(text, config: config)
+        // 清理书源内容开头的章节标题重复行 (如 "第1章 初入 (第1/3页)")
+        var cleanedText = text
+        if !chapterTitle.isEmpty {
+            let firstLines = cleanedText.components(separatedBy: "\n")
+            if let first = firstLines.first {
+                let t = first.trimmingCharacters(in: .whitespaces)
+                let looksLikeHeader = t.contains(chapterTitle) ||
+                    (t.hasPrefix("第") && t.contains("章") && t.count < 40)
+                if looksLikeHeader {
+                    cleanedText = firstLines.dropFirst().joined(separator: "\n")
+                }
+            }
+        }
+        let processedText = applyParagraphLayout(cleanedText, config: config)
         let attrString = makeAttributedString(
             chapterTitle: chapterTitle,
             body: processedText,
@@ -128,45 +137,27 @@ public struct PaginationEngine {
         }
     }
 
-    /// 万象书屋 (排版): 章节标题字号倍率 (相对正文). 1.4× = 18pt 正文时标题 ~25pt.
-    public static let chapterTitleScale: CGFloat = 1.4
+    /// 万象书屋 (排版): 章节标题字号倍率 (相对正文). 1.5× = 18pt 正文时标题 ~27pt.
+    public static let chapterTitleScale: CGFloat = 1.5
     /// 万象书屋 (排版): 章节标题段后留白 (pt). 让标题跟正文有呼吸距.
-    public static let chapterTitleTrailingPadding: CGFloat = 18
+    public static let chapterTitleTrailingPadding: CGFloat = 24
 
-    /// 万象书屋 (排版): 按 indentChars / paragraphSpacing 把原始文本转成带"全角空格首行缩进 +
-    /// 段间空行"的字符串. CoreText 和 SwiftUI Text 都用这份字符串, 渲染视觉自然一致.
+    /// 万象书屋 (排版): 把原始文本转为"全角空格首行缩进 + 段间单个换行"格式.
+    /// 段间距由 NSAttributedString.paragraphSpacing 控制, 不插入空行以避免双倍视觉间距.
     static func applyParagraphLayout(_ raw: String, config: ReadConfigSnapshot) -> String {
-        // 1. 用单 \n 切段; 多个连续 \n 合成一个段间分隔
         let lines = raw.replacingOccurrences(of: "\r\n", with: "\n")
             .components(separatedBy: "\n")
         let indent = String(repeating: "\u{3000}", count: max(0, config.indentChars))
 
-        // 段间空行数: paragraphSpacing 折成行数 (一行高 = textSize × lineSpacing).
-        // paragraphSpacing=12, textSize=18, lineSpacing=1.5 → lineH=27 → blank≈12/27≈0.44 → 1 行
-        // paragraphSpacing=24 → blank≈0.89 → 1 行
-        // paragraphSpacing=30 → blank≈1.11 → 2 行
-        let lineH = config.textSize * max(config.lineSpacing, 1.0)
-        let extraBlanks = max(0, Int((config.paragraphSpacing / max(lineH, 1)).rounded()))
-
         var out: [String] = []
-        var prevWasBlank = true   // 首段前不需要插额外空行
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty {
-                if !prevWasBlank {
-                    out.append("")
-                    for _ in 0..<extraBlanks { out.append("") }
-                    prevWasBlank = true
-                }
-                continue
-            }
-            // 段首加全角空格 (除非段本身已经以全角空格或英文段落 indentChars 为 0 开头)
+            guard !trimmed.isEmpty else { continue }
             if indent.isEmpty || trimmed.hasPrefix("\u{3000}") {
                 out.append(trimmed)
             } else {
                 out.append(indent + trimmed)
             }
-            prevWasBlank = false
         }
         return out.joined(separator: "\n")
     }
@@ -179,28 +170,29 @@ public struct PaginationEngine {
 
         let bodyPara = NSMutableParagraphStyle()
         bodyPara.lineSpacing = config.textSize * (config.lineSpacing - 1.0)
-        bodyPara.paragraphSpacing = 0
+        // 段间距直接使用 config.paragraphSpacing (默认 14pt), 与 bodyAttributedString 保持一致
+        bodyPara.paragraphSpacing = config.paragraphSpacing
         bodyPara.firstLineHeadIndent = 0
+        // H2 fix: 改为 .natural (左对齐), 与 bodyAttributedString 默认对齐方式一致
         bodyPara.alignment = .natural
         bodyPara.lineBreakMode = .byCharWrapping
 
         let titlePara = NSMutableParagraphStyle()
         titlePara.lineSpacing = titleSize * 0.15
         titlePara.paragraphSpacing = Self.chapterTitleTrailingPadding
-        titlePara.alignment = .center
+        titlePara.alignment = .left
         titlePara.lineBreakMode = .byCharWrapping
 
         let result = NSMutableAttributedString()
         let trimmedTitle = chapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
-            result.append(NSAttributedString(string: trimmedTitle, attributes: [
+            // "\n" 内嵌在 titlePara 中, 不再额外添加 bodyFont "\n".
+            // 这样 CoreText 分配的标题块高度 = titleLineHeight + titlePara.paragraphSpacing
+            // 与 ChapterPageBody.chapterTitleHeader 的 SwiftUI 渲染高度一致, 消除空白累积.
+            result.append(NSAttributedString(string: trimmedTitle + "\n", attributes: [
                 .font: titleFont,
                 .paragraphStyle: titlePara,
                 .foregroundColor: UIColor.label,
-            ]))
-            result.append(NSAttributedString(string: "\n", attributes: [
-                .font: bodyFont,
-                .paragraphStyle: bodyPara,
             ]))
         }
         result.append(NSAttributedString(string: body, attributes: [

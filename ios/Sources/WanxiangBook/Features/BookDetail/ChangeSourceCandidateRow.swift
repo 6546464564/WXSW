@@ -26,10 +26,26 @@ struct ChangeSourceCandidateRow: View {
     /// 当前评分 (-1 / 0 / 1); 从 SourceScoreStore 取
     let score: Int
 
+    private var sourceStats: SourcePerformanceTracker.Stats? {
+        SourcePerformanceTracker.shared.stats(for: candidate.book.origin)
+    }
+    private var healthDotColor: Color {
+        switch sourceStats?.healthLevel {
+        case .good:     return .green
+        case .moderate: return .orange
+        case .poor:     return .red
+        case .unknown, .none: return .gray.opacity(0.4)
+        }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
+                    // 健康状态指示点（对齐 Android 书源失效分组标签）
+                    Circle()
+                        .fill(healthDotColor)
+                        .frame(width: 7, height: 7)
                     Text(candidate.book.originName)
                         .font(.caption2)
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -43,6 +59,14 @@ struct ChangeSourceCandidateRow: View {
                         Text("当前")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(WanxiangColors.accent)
+                    }
+                    // 失败标签（对齐 Android "搜索失效" / "js失效" 等分组标签）
+                    if let tag = sourceStats?.lastFailTag {
+                        Text(tag)
+                            .font(.caption2)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.red.opacity(0.15)))
+                            .foregroundStyle(.red)
                     }
                     Spacer(minLength: 0)
                     Text(candidate.book.author)

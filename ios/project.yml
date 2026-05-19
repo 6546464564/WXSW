@@ -24,6 +24,7 @@ schemes:
       config: Debug
       targets:
         - WanxiangBookTests
+        - WanxiangUITests
     profile:
       config: Release
     analyze:
@@ -93,7 +94,7 @@ targets:
       path: Sources/WanxiangBook/Info.plist
       properties:
         # 万象书屋: 跟 Android applicationId 一致
-        CFBundleDisplayName: 万象书屋
+        CFBundleDisplayName: 二维码生成
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         # 万象书屋: 多语言 — Base 简体, 同步支持繁体 (港台 App Store)
@@ -246,10 +247,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
-        DEVELOPMENT_TEAM: ""             # 用户填
+        DEVELOPMENT_TEAM: "6UX5G5838X"
         CODE_SIGN_STYLE: Automatic
         # 万象书屋: 模拟器构建不签名, 真机/Archive 时开
-        CODE_SIGNING_ALLOWED: NO         # 让 xcodebuild build 不挑剔; 真机 Archive 时 Xcode GUI 自动开
+        CODE_SIGNING_ALLOWED: YES
         # 万象书屋: target 级也要显式声明, 否则 Xcode 26 "no destinations"
         SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
         VALID_ARCHS: "arm64 arm64e x86_64"
@@ -324,6 +325,24 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.wanxiang.reader.tests
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/WanxiangBook.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WanxiangBook"
+
+  # 万象书屋: UI 自动化测试 target
+  WanxiangUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: WanxiangBook
+    settings:
+      base:
+        SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+        PRODUCT_BUNDLE_IDENTIFIER: com.wanxiang.reader.uitests
+        TEST_TARGET_NAME: WanxiangBook
+        DEVELOPMENT_TEAM: 6UX5G5838X
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
 
 # SwiftPM 依赖
 packages:
