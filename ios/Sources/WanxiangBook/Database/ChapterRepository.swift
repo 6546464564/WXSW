@@ -123,6 +123,7 @@ public actor ChapterRepository {
 
     // MARK: - Content (章节正文)
 
+    /// 阅读器缓存写入（不设 downloaded_at）：供 ReaderEngine 在线拉取正文后写回
     public func saveContent(bookUrl: String, chapterIndex: Int, content: String) async throws {
         try await DB.shared.openIfNeeded()
         try await DB.shared.execQuery { handle in
@@ -136,6 +137,26 @@ public actor ChapterRepository {
             sqlite3_bind_int64(stmt, 2, Int64(Date().timeIntervalSince1970 * 1000))
             sqlite3_bind_text(stmt, 3, bookUrl, -1, SQLITE_TRANSIENT)
             sqlite3_bind_int(stmt, 4, Int32(chapterIndex))
+            _ = sqlite3_step(stmt)
+        }
+    }
+
+    /// 下载器写入（同时设 downloaded_at）：表示章节已完整离线，供 cachedContentIndexes 判断跳过
+    public func saveDownloadedContent(bookUrl: String, chapterIndex: Int, content: String) async throws {
+        try await DB.shared.openIfNeeded()
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        try await DB.shared.execQuery { handle in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_prepare_v2(handle, """
+                UPDATE book_chapters SET content = ?, updated_at = ?, downloaded_at = ?
+                WHERE book_url = ? AND chapter_index = ?
+            """, -1, &stmt, nil)
+            sqlite3_bind_text(stmt, 1, content, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(stmt, 2, now)
+            sqlite3_bind_int64(stmt, 3, now)
+            sqlite3_bind_text(stmt, 4, bookUrl, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int(stmt, 5, Int32(chapterIndex))
             _ = sqlite3_step(stmt)
         }
     }
@@ -155,9 +176,10 @@ public actor ChapterRepository {
         }
     }
 
-    /// 万象书屋 (M2.8 perf): 一次拿"已下载好正文"的章节 index 集合, 替代下载启动前
-    /// "for chapter in chapters { await loadContent }" 的 N 次串行查盘.
-    /// 500 章串行查 ≈ 数秒, 一次 SELECT WHERE LENGTH(content)>0 < 50ms.
+    /// 万象书屋 (M2.8 perf → M2.9 fix): 一次拿"已完整下载"的章节 index 集合.
+    /// 只认 downloaded_at IS NOT NULL（下载器写入标记），不认阅读器临时缓存，
+    /// 避免用残缺的阅读缓存当"已下载"跳过，导致章节内容只有三分之一。
+    /// 500 章串行查 ≈ 数秒 → 一次 SELECT < 50ms.
     public func cachedContentIndexes(bookUrl: String) async throws -> Set<Int> {
         try await DB.shared.openIfNeeded()
         return try await DB.shared.execQuery { handle in
@@ -165,7 +187,7 @@ public actor ChapterRepository {
             defer { sqlite3_finalize(stmt) }
             sqlite3_prepare_v2(handle, """
                 SELECT chapter_index FROM book_chapters
-                WHERE book_url = ? AND content IS NOT NULL AND LENGTH(content) > 0
+                WHERE book_url = ? AND downloaded_at IS NOT NULL AND content IS NOT NULL AND LENGTH(content) > 0
             """, -1, &stmt, nil)
             sqlite3_bind_text(stmt, 1, bookUrl, -1, SQLITE_TRANSIENT)
             var result = Set<Int>()

@@ -292,7 +292,9 @@ public final class BookDownloader: ObservableObject {
             if Task.isCancelled { return false }
             do {
                 let cont = try await BookSourceEngine.shared.fetchContent(of: chapter, in: source)
-                try? await ChapterRepository.shared.saveContent(
+                // 下载器用 saveDownloadedContent（设 downloaded_at），
+                // 区分阅读器的临时缓存（无 downloaded_at）
+                try? await ChapterRepository.shared.saveDownloadedContent(
                     bookUrl: bookUrl, chapterIndex: chapter.chapterIndex, content: cont.content
                 )
                 // 万象书屋 (M2.8 perf): 图片下载 fire-and-forget, 不阻塞章节 worker 槽位.

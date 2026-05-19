@@ -1015,9 +1015,11 @@ public struct ReaderView: View {
         Task {
             let success = await AdManager.shared.showRewardedToUnlock(minutes: unlockMinutes)
             await MainActor.run {
-                if success || PurifiedReadingState.shared.isActive {
-                    showChapterPaywall = false
-                }
+                // 广告成功 / 宽限期生效 / 广告失败均关闭付费墙
+                // 广告失败时（模拟器/无网络/无广告填充）不卡死 UI：
+                //   失败计数已在 showRewardedToUnlock 内通过 recordAdFailureAndCheckGrace 累计，
+                //   连续 3 次失败后宽限期自动开启；本次放行让用户继续，paywall 下次触发时再拦。
+                showChapterPaywall = false
                 chapterPaywallLoading = false
             }
         }

@@ -132,6 +132,7 @@ actor DB {
             is_volume       INTEGER NOT NULL DEFAULT 0,
             is_paid         INTEGER NOT NULL DEFAULT 0,
             updated_at      INTEGER NOT NULL,
+            downloaded_at   INTEGER,
             PRIMARY KEY (book_url, chapter_index)
         );
 
@@ -215,6 +216,9 @@ actor DB {
             sqlite3_free(err)
             throw DBError.prepareFailed(status, msg)
         }
+        // 增量迁移：对已存在的旧数据库补加 downloaded_at 列（幂等，列已存在时 sqlite 返回 error 可忽略）
+        sqlite3_exec(h, "ALTER TABLE book_chapters ADD COLUMN downloaded_at INTEGER;", nil, nil, nil)
+
         migrationApplied = true
     }
 
