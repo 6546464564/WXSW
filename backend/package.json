@@ -1,6 +1,6 @@
 {
   "name": "wanxiang-backend",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "description": "万象书屋后端：书源管理 + 访问统计 + 管理面板",
   "main": "server.js",
   "scripts": {

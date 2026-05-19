@@ -95,8 +95,8 @@ targets:
       properties:
         # 万象书屋: 跟 Android applicationId 一致
         CFBundleDisplayName: 二维码生成
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "20260520"
         # 万象书屋: 多语言 — Base 简体, 同步支持繁体 (港台 App Store)
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations:
