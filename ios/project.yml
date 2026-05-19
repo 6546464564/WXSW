@@ -111,6 +111,7 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         # 万象书屋: ATT 文案 (M3 阶段细化)
@@ -138,6 +139,7 @@ targets:
         NSCameraUsageDescription: "扫描二维码导入书源"
         NSPhotoLibraryUsageDescription: "选择阅读器背景图"
         # 万象书屋 (M4): Document Types — 让 iOS 文件 App "用万象书屋打开 TXT/EPUB"
+        LSSupportsOpeningDocumentsInPlace: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: "纯文本电子书"
             CFBundleTypeRole: "Viewer"
