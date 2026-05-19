@@ -176,9 +176,9 @@ public actor ChapterRepository {
         }
     }
 
-    /// 万象书屋 (M2.8 perf → M2.9 fix): 一次拿"已完整下载"的章节 index 集合.
-    /// 只认 downloaded_at IS NOT NULL（下载器写入标记），不认阅读器临时缓存，
-    /// 避免用残缺的阅读缓存当"已下载"跳过，导致章节内容只有三分之一。
+    /// 万象书屋 (M2.8 perf): 一次拿"已有正文"的章节 index 集合，与 Android BookHelp.hasContent()
+    /// 语义一致 — 有内容就跳过，不区分来源（阅读器缓存 / 下载器写入）。
+    /// downloaded_at 字段仅作元数据记录，不用于跳过判断，避免全量重下载拖慢速度。
     /// 500 章串行查 ≈ 数秒 → 一次 SELECT < 50ms.
     public func cachedContentIndexes(bookUrl: String) async throws -> Set<Int> {
         try await DB.shared.openIfNeeded()
@@ -187,7 +187,7 @@ public actor ChapterRepository {
             defer { sqlite3_finalize(stmt) }
             sqlite3_prepare_v2(handle, """
                 SELECT chapter_index FROM book_chapters
-                WHERE book_url = ? AND downloaded_at IS NOT NULL AND content IS NOT NULL AND LENGTH(content) > 0
+                WHERE book_url = ? AND content IS NOT NULL AND LENGTH(content) > 0
             """, -1, &stmt, nil)
             sqlite3_bind_text(stmt, 1, bookUrl, -1, SQLITE_TRANSIENT)
             var result = Set<Int>()
