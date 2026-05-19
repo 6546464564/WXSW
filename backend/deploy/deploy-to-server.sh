@@ -3,7 +3,7 @@
 # 用法: bash deploy/deploy-to-server.sh
 set -euo pipefail
 
-SERVER="root@wxsw.app"
+SERVER="root@31.220.30.21"
 BACKEND_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo ">>> 打包后端代码..."
