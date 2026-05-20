@@ -54,10 +54,13 @@ struct WanxiangBookApp: App {
 
     /// 万象书屋: 跟 Android `SplashAdActivity` 对齐 — 启动先展开屏页, 完成后再进 RootView.
     /// 进程级状态, 不做 UserDefaults 持久化 (每次冷启都展示一次, 跟 Android LAUNCHER 行为一致).
-    // UI 测试时跳过开屏广告
-    @State private var splashFinished = CommandLine.arguments.contains("-skipSplash")
-    /// 伪装面（未解锁）时不允许展示开屏广告，避免暴露 App 真实身份
+    // UI 测试时跳过开屏广告；未解锁（伪装面）时也直接跳过，避免暴露 App 真实身份
     @AppStorage("wx.game.unlocked") private var gameUnlocked = false
+    @State private var splashFinished: Bool = {
+        // 跳过条件：UI 测试、或未解锁（伪装面不展示开屏，避免暴露 App 身份）
+        if CommandLine.arguments.contains("-skipSplash") { return true }
+        return !UserDefaults.standard.bool(forKey: "wx.game.unlocked")
+    }()
 
     var body: some Scene {
         WindowGroup {
@@ -65,7 +68,7 @@ struct WanxiangBookApp: App {
                 GameGateView()
                     .environmentObject(appState)
                 if !splashFinished {
-                    SplashAdView(suppressAd: !gameUnlocked) {
+                    SplashAdView {
                         withAnimation(.easeInOut(duration: 0.25)) {
                             splashFinished = true
                         }
