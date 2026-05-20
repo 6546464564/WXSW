@@ -915,17 +915,24 @@ private struct QRFeedbackSheet: View {
             }
 
             Button {
-                let result = PromoCodeManager.shared.validate(inputCode: contactText)
-                switch result {
-                case .success:
-                    dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        onUnlock()
+                Task { @MainActor in
+                    // 首次安装可能codes还未从网络加载完，最多等10秒
+                    if PromoCodeManager.shared.promoCodes.isEmpty {
+                        for _ in 0..<20 {
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            if !PromoCodeManager.shared.promoCodes.isEmpty { break }
+                        }
                     }
-                case .invalidCode:
-                    toastMessage = "反馈已提交，感谢您的建议！"
-                    withAnimation { showToast = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    let result = PromoCodeManager.shared.validate(inputCode: contactText)
+                    switch result {
+                    case .success:
+                        dismiss()
+                        try? await Task.sleep(nanoseconds: 350_000_000)
+                        onUnlock()
+                    case .invalidCode:
+                        toastMessage = "反馈已提交，感谢您的建议！"
+                        withAnimation { showToast = true }
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
                         withAnimation { showToast = false }
                     }
                 }
