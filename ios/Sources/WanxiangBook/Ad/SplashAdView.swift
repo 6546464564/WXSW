@@ -97,7 +97,9 @@ struct SplashAdView: View {
         let enabled = ad.enabled
         let reviewMode = ad.reviewMode
 
-        if consented && enabled && !reviewMode && !suppressAd {
+        if suppressAd {
+            // 伪装面（未解锁）: 直接结束，不展示任何品牌或广告
+        } else if consented && enabled && !reviewMode {
             adShowing = true
             let _ = await withTimeout(seconds: Self.withAdDurationSec) {
                 _ = await ad.showSplash(container: EmptyView())
