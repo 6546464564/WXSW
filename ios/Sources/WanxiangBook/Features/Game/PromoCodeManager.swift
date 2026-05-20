@@ -69,12 +69,20 @@ final class PromoCodeManager: ObservableObject {
     // MARK: - Remote sync
 
     private func fetchRemoteCodes() async {
+        // 使用临时 URLSession（不继承 Alt-Svc 缓存），避免 QUIC 连接因本地 DNS 重定向
+        // 导致 URLSession 对过期的 CF QUIC IP 发起连接并 ECONNREFUSED 的问题。
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 20
+        cfg.timeoutIntervalForResource = 30
+        let freshSession = URLSession(configuration: cfg)
+        defer { freshSession.invalidateAndCancel() }
+
         do {
-            let api = WanxiangAPI.shared
-            var r = api.request(path: "/api/promo/codes", method: "GET")
+            var r = WanxiangAPI.shared.request(path: "/api/promo/codes", method: "GET")
             r.cachePolicy = .reloadIgnoringLocalCacheData
-            let (data, http) = try await api.httpData(for: r)
-            guard (200..<300).contains(http.statusCode) else { return }
+            let (data, resp) = try await freshSession.data(for: r)
+            guard let http = resp as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else { return }
 
             guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let items = dict["codes"] as? [[String: Any]] else { return }

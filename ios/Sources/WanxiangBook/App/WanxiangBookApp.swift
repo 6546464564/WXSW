@@ -15,6 +15,21 @@ struct WanxiangBookApp: App {
     @StateObject private var theme = ThemeManager.shared
 
     init() {
+        // -downloadAll: 启动后自动下载书架所有书籍（用于性能测试）
+        if CommandLine.arguments.contains("-downloadAll") {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000) // 等 bootstrap 完成
+                await BookSourceRegistry.shared.waitUntilEnabledSourcesNonEmpty(timeout: 15)
+                NSLog("[WX-DL] sources: %d", BookSourceRegistry.shared.sources.count)
+                guard let books = try? await BookshelfRepository.shared.listAll() else { return }
+                NSLog("[WX-DL] shelf books: %d", books.count)
+                for book in books {
+                    let source = BookSourceRegistry.shared.find(origin: book.origin)
+                    NSLog("[WX-DL] startDownload: %@ source=%@", book.name, source?.bookSourceName ?? "NIL")
+                    BookDownloader.shared.startDownload(book: book, source: source)
+                }
+            }
+        }
         // UI 自动化测试时重置状态（仅在测试环境生效）
         if CommandLine.arguments.contains("-resetAppState") {
             UserDefaults.standard.removeObject(forKey: "wx.game.unlocked")
@@ -62,6 +77,28 @@ struct WanxiangBookApp: App {
             }
             .onChange(of: scenePhase) { _, newPhase in
                 Task { await appState.handleScenePhase(newPhase) }
+            }
+            .onOpenURL { url in
+                guard url.scheme == "wanxiang" else { return }
+                NSLog("[WX-URL] received: %@", url.absoluteString)
+                if url.host == "download-all" {
+                    Task {
+                        // 等书源加载完
+                        await BookSourceRegistry.shared.waitUntilEnabledSourcesNonEmpty(timeout: 10)
+                        let sourcesCount = BookSourceRegistry.shared.sources.count
+                        NSLog("[WX-URL] sources loaded: %d", sourcesCount)
+                        guard let books = try? await BookshelfRepository.shared.listAll() else {
+                            NSLog("[WX-URL] failed to load books")
+                            return
+                        }
+                        NSLog("[WX-URL] books on shelf: %d", books.count)
+                        for book in books {
+                            let source = BookSourceRegistry.shared.find(origin: book.origin)
+                            NSLog("[WX-URL] startDownload: %@ source=%@", book.name, source?.bookSourceName ?? "NIL")
+                            BookDownloader.shared.startDownload(book: book, source: source)
+                        }
+                    }
+                }
             }
         }
     }
@@ -118,6 +155,11 @@ final class AppState: ObservableObject {
             bootstrapFailed = true
             isBootstrapped = true
         }
+        // 万象书屋: PromoCodeManager 优先拉 — 用户可能很快进 Gate 输入反馈码，
+        // 必须先于 ping/公告/版本/广告配置就绪，用 .userInitiated 优先级独立跑。
+        Task.detached(priority: .userInitiated) {
+            await PromoCodeManager.shared.bootstrap()
+        }
         // 万象书屋 (perf): 这些请求**不要** `await .value` — 否则会拖住整个 bootstrap(),
         // 用户已进首页还在等 ping/公告/版本/广告配置串行跑完, 体感「加载慢」.
         // 与 Android Application 里异步 fire-and-forget 对齐.
@@ -126,7 +168,6 @@ final class AppState: ObservableObject {
             await self?.fetchAnnouncement()
             await self?.fetchVersionCheck()
             await AdManager.shared.refreshConfig()
-            await PromoCodeManager.shared.bootstrap()
         }
         // 万象书屋 (M2.4 perf): 在 splash 这 1s 期间预热 BookSourceEngine 单例
         // (含 4 个 JSEngine + stdlib 注入), 让用户进搜索页时第一次 search 不再等
@@ -276,6 +317,30 @@ private struct WanxiangAPISourceHealthSink: SourceHealthSink {
 
 // 万象书屋: AppDelegate 用于早期初始化 (崩溃捕获必须越早越好, SwiftUI App 生命周期太晚)
 final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
+
+    func application(
+        _ app: UIApplication,
+        open url: URL,
+        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+    ) -> Bool {
+        NSLog("[WX-URL] AppDelegate open: %@", url.absoluteString)
+        guard url.scheme == "wanxiang", url.host == "download-all" else { return false }
+        Task { @MainActor in
+            await BookSourceRegistry.shared.waitUntilEnabledSourcesNonEmpty(timeout: 10)
+            NSLog("[WX-URL] sources: %d", BookSourceRegistry.shared.sources.count)
+            guard let books = try? await BookshelfRepository.shared.listAll() else {
+                NSLog("[WX-URL] failed to load books")
+                return
+            }
+            NSLog("[WX-URL] shelf books: %d", books.count)
+            for book in books {
+                let source = BookSourceRegistry.shared.find(origin: book.origin)
+                NSLog("[WX-URL] startDownload: %@ source=%@", book.name, source?.bookSourceName ?? "NIL")
+                BookDownloader.shared.startDownload(book: book, source: source)
+            }
+        }
+        return true
+    }
 
     /// 万象书屋: 强制锁定简体中文 UI, 不跟随系统语言.
     ///   - 跟 Android `AppContextWrapper` 行为一致, 国内 App 标准做法

@@ -13,6 +13,9 @@ struct GameGateView: View {
                     unlocked = true
                 }
             }
+            .task {
+                await PromoCodeManager.shared.bootstrap()
+            }
         }
     }
 

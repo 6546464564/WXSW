@@ -41,7 +41,7 @@ actor WanxiangAPI {
            let u = URL(string: s) {
             return u
         }
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         return URL(string: "http://localhost:3000")!
         #else
         return URL(string: "https://wxsw.app")!
