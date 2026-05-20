@@ -264,12 +264,13 @@ actor WanxiangAPI {
     func fetchVersionCheck(current: String) async throws -> VersionUpdateInfo? {
         // 万象书屋: query 用 URLComponents 拼, 别走 path 模板 (避免 %3F 问题)
         var comps = URLComponents(url: Self.baseURL.appendingPathComponent("/api/version-check"),
-                                  resolvingAgainstBaseURL: false)!
+                                  resolvingAgainstBaseURL: false) ?? URLComponents()
         comps.queryItems = [
             URLQueryItem(name: "platform", value: "ios"),
             URLQueryItem(name: "version", value: current),
         ]
-        var r = URLRequest(url: comps.url!)
+        guard let compsUrl = comps.url else { return nil }
+        var r = URLRequest(url: compsUrl)
         r.setValue(Self.platform, forHTTPHeaderField: "X-Platform")
         r.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
         let (data, http) = try await httpData(for: r)
@@ -367,9 +368,10 @@ actor WanxiangAPI {
 
     private func sendFeedRequest(channel: String) async throws -> (Data, HTTPURLResponse) {
         var comps = URLComponents(url: Self.baseURL.appendingPathComponent("/api/bookstore/feed"),
-                                  resolvingAgainstBaseURL: false)!
+                                  resolvingAgainstBaseURL: false) ?? URLComponents()
         comps.queryItems = [URLQueryItem(name: "channel", value: channel)]
-        var r = URLRequest(url: comps.url!)
+        guard let compsUrl = comps.url else { throw APIError.invalidResponse }
+        var r = URLRequest(url: compsUrl)
         r.httpMethod = "GET"
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.setValue(Self.platform, forHTTPHeaderField: "X-Platform")

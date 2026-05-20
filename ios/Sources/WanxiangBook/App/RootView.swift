@@ -111,6 +111,20 @@ struct RootView: View {
         }
         .task {
             let args = ProcessInfo.processInfo.arguments
+            // 万象书屋: 冷启恢复 — 若上次退出时正在阅读某本书, 直接弹回阅读器.
+            // 优先级低于 debug deep-link (--OpenBook 等); UI 测试时跳过 (-skipStateRestore).
+            let isDebugRun = args.contains("--OpenBook") || args.contains("-OpenBook")
+                          || args.contains("--OpenTts") || args.contains("-OpenTts")
+                          || args.contains("--Search") || args.contains("-Search")
+                          || args.contains("-uitest") || args.contains("-skipStateRestore")
+            if !isDebugRun,
+               let savedUrl = UserDefaults.standard.string(forKey: "wx.lastOpenedBookUrl") {
+                // 稍微等一下，让 splash 转场和 RootView 首帧渲染完
+                try? await Task.sleep(nanoseconds: 400_000_000)  // 0.4s
+                if let book = try? await BookshelfRepository.shared.get(bookUrl: savedUrl) {
+                    await MainActor.run { deepLinkBook = book }
+                }
+            }
             // --OpenBook <bookUrl>: 进 reader
             for key in ["--OpenBook", "-OpenBook"] {
                 if let i = args.firstIndex(of: key), i + 1 < args.count {

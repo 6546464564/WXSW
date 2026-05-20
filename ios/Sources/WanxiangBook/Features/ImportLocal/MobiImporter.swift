@@ -59,13 +59,16 @@ enum MobiImporter {
             throw NSError(domain: "MOBI", code: 3, userInfo: [NSLocalizedDescriptionKey: "无 record 0"])
         }
         let rec0 = data[recordOffsets[0]..<recordOffsets[1]]
+        guard rec0.count >= 10 else {
+            throw NSError(domain: "MOBI", code: 4, userInfo: [NSLocalizedDescriptionKey: "record 0 太小，无法读 PalmDoc header"])
+        }
         // PalmDoc header (16 bytes)
         let compression = Int(UInt16(bigEndian: rec0[0..<2].withUnsafeBytes { $0.load(as: UInt16.self) }))
         let textRecordCount = Int(UInt16(bigEndian: rec0[8..<10].withUnsafeBytes { $0.load(as: UInt16.self) }))
 
         // MOBI header at offset 16
         var bookTitle = pdbName
-        var bookAuthor = "本地"
+        let bookAuthor = "本地"
         if rec0.count >= 24, let ident = String(data: rec0[16..<20], encoding: .ascii), ident == "MOBI" {
             // 万象书屋: Title 在 EXTH 后面, fullNameOffset 在 MOBI header 偏移 84 (即 rec0[16+84..])
             if rec0.count >= 16 + 92 {
@@ -81,7 +84,11 @@ enum MobiImporter {
 
         // 4. 解压 text records (1..textRecordCount)
         var rawHtml = Data()
-        for i in 1...min(textRecordCount, recordOffsets.count - 2) {
+        let maxTextRecord = min(textRecordCount, recordOffsets.count - 2)
+        guard maxTextRecord >= 1 else {
+            throw NSError(domain: "MOBI", code: 5, userInfo: [NSLocalizedDescriptionKey: "无文本 record"])
+        }
+        for i in 1...maxTextRecord {
             let segment = data[recordOffsets[i]..<recordOffsets[i + 1]]
             switch compression {
             case 1:    // 不压缩
@@ -174,7 +181,7 @@ enum MobiImporter {
         var out: [(String, String)] = []
         var currentTitle = "正文"
         var currentBuf = ""
-        for child in (try? doc.body()?.children().array()) ?? [] {
+        for child in doc.body()?.children().array() ?? [] {
             let tag = child.tagName().lowercased()
             if ["h1", "h2", "h3"].contains(tag) {
                 let t = (try? child.text()) ?? ""

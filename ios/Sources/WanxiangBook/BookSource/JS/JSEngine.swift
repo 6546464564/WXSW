@@ -52,7 +52,12 @@ public actor JSEngine {
 
     public init() {
         // JavaScriptCore JSContext 不是 thread-safe, 全 actor 串行化
-        let ctx = JSContext()!
+        // JSContext() 在极端内存压力下可能返回 nil，使用 JSVirtualMachine 兜底
+        let ctx = JSContext() ?? JSContext(virtualMachine: JSVirtualMachine()) ?? JSContext()
+        guard let ctx else {
+            // 理论上不可能到达这里 (JSContext 创建需要系统完全 OOM)
+            preconditionFailure("[JSEngine] JSContext init failed - system out of memory")
+        }
         ctx.exceptionHandler = { _, e in
             if let e {
                 print("[JSEngine] uncaught: \(e.toString() ?? "?")")
@@ -115,6 +120,9 @@ public actor JSEngine {
             let preview = String(describing: result ?? "nil").prefix(120)
             print("[JS.eval] result=\(preview)")
         }
+        // 万象书屋: 每次 evaluate 完成后清理 JsoupShim 节点缓存，防止全局字典无限增长
+        // JS 执行完毕后 JS 端的 jsoup wrapper 对象也随之失效，native 节点无需保留
+        JsoupShim.clearNodes()
         return result
     }
 
@@ -428,7 +436,7 @@ public actor JSEngine {
     ///   - cache.get(key)                      持久取
     ///   - cache.delete(key)                   删
     private func injectCacheGlobal() {
-        let cache = JSValue(newObjectIn: ctx)!
+        guard let cache = JSValue(newObjectIn: ctx) else { return }
         let putMem: @convention(block) (String, Any?) -> Void = { key, value in
             JSEngineCache.shared.putMemory(key: key, value: value)
         }
@@ -472,7 +480,7 @@ public actor JSEngine {
         let snapshot = SourceVariableSnapshot(sourceUrl: sourceUrl)
 
         // 1. source 全局对象
-        let sourceObj = JSValue(newObjectIn: ctx)!
+        guard let sourceObj = JSValue(newObjectIn: ctx) else { return }
 
         // 万象书屋: 用 box 让闭包能修改 snapshot.variable; 后面 evaluate 完写回 store
         // 简化: 直接读 UserDefaults, 写也直接写 UserDefaults (一次评估调用次数有限)
@@ -554,7 +562,7 @@ public actor JSEngine {
         ctx.setObject(sourceObj, forKeyedSubscript: "source" as NSString)
 
         // 2. cookie 全局
-        let cookieObj = JSValue(newObjectIn: ctx)!
+        guard let cookieObj = JSValue(newObjectIn: ctx) else { return }
         let getCookie: @convention(block) (String) -> String = { url in
             CookieJarStore.getCookie(url: url)
         }
@@ -687,7 +695,7 @@ public actor JSEngine {
         }
         ctx.setObject(btoa, forKeyedSubscript: "btoa" as NSString)
 
-        let java = JSValue(newObjectIn: ctx)!
+        guard let java = JSValue(newObjectIn: ctx) else { return }
 
         // java.put / get / cache (KV)
         // 万象书屋: legado Android `java.put(k,v)` 返回 v 本身 (Rhino 行为), 这样可以
@@ -1532,8 +1540,8 @@ public actor JSEngine {
         //   - replaceFont 返原 text 不替换
         //
         // 后续若用户报"某源乱码", 再做完整 TTF 解析.
-        let queryTTF: @convention(block) (Any?, Any?) -> JSValue = { [weakCtx] _, _ in
-            let obj = JSValue(newObjectIn: weakCtx)!
+        let queryTTF: @convention(block) (Any?, Any?) -> JSValue? = { [weakCtx] _, _ in
+            guard let obj = JSValue(newObjectIn: weakCtx) else { return nil }
             // 跟 Android QueryTTF 接口对齐 — 返 null 或 false 让 JS 走 fallback
             let getNameByCode: @convention(block) (Any?) -> Any? = { _ in NSNull() }
             let getCodeByName: @convention(block) (Any?) -> Any? = { _ in NSNull() }
@@ -1700,7 +1708,9 @@ public actor JSEngine {
     /// 万象书屋: 把 SyncHTTPResponse 包成 JS 对象, 暴露 .header(name) / .body() / .code() / .headers() 方法
     /// 这是 legado Connection.Response 的最小可用 shim
     private nonisolated static func makeResponseValue(_ r: SyncHTTPResponse, in ctx: JSContext) -> JSValue {
-        let obj = JSValue(newObjectIn: ctx)!
+        guard let obj = JSValue(newObjectIn: ctx) else {
+            return JSValue(nullIn: ctx)
+        }
         obj.setObject(r.body, forKeyedSubscript: "_body" as NSString)
         obj.setObject(r.statusCode, forKeyedSubscript: "_code" as NSString)
         obj.setObject(r.headers, forKeyedSubscript: "_headers" as NSString)

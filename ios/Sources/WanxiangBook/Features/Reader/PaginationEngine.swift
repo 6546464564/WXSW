@@ -34,9 +34,21 @@ public struct ReaderPage: Identifiable, Hashable, Sendable {
     public let totalPages: Int
     public let text: String
     public let chapterTitle: String
+    /// 本页在 attrString (含标题) 中的起始字符位置
+    /// 对应 Android ReadBook.durChapterPos — 字体/屏幕变化后重新分页仍能精确还原到同段落
+    public let charOffset: Int
+    /// 本页包含的字符数
+    public let charLength: Int
 
     public var isFirstPage: Bool { pageIndex == 0 }
     public var isLastPage: Bool { pageIndex == totalPages - 1 }
+
+    /// 判断 durChapterPos 是否落在本页 (对应 Android TextPage.containPos)
+    public func containsPos(_ pos: Int) -> Bool {
+        charLength > 0
+            ? (pos >= charOffset && pos < charOffset + charLength)
+            : pos >= charOffset
+    }
 }
 
 public struct PaginationEngine {
@@ -80,12 +92,14 @@ public struct PaginationEngine {
         let totalLength = attrString.length
         if totalLength == 0 {
             return [ReaderPage(id: "\(chapterIndex)-0", chapterIndex: chapterIndex,
-                               pageIndex: 0, totalPages: 1, text: "", chapterTitle: chapterTitle)]
+                               pageIndex: 0, totalPages: 1, text: "", chapterTitle: chapterTitle,
+                               charOffset: 0, charLength: 0)]
         }
 
         // 2. CTFramesetter 反向算页面能装多少字符
         let framesetter = CTFramesetterCreateWithAttributedString(attrString)
-        var slices: [String] = []
+        // 每页: (文字切片, 在 attrString 中的起始字符偏移量)
+        var slices: [(text: String, charOffset: Int)] = []
         var startIdx: CFIndex = 0
         var safety = 0  // 防御性死循环计数
 
@@ -109,7 +123,7 @@ public struct PaginationEngine {
             }
             let pageRange = NSRange(location: visibleRange.location, length: visibleRange.length)
             let pageText = (attrString.string as NSString).substring(with: pageRange)
-            slices.append(pageText)
+            slices.append((text: pageText, charOffset: Int(startIdx)))
             startIdx += visibleRange.length
         }
         // bug #10 fix: safety 触底是异常, 加日志方便用户上报
@@ -121,18 +135,21 @@ public struct PaginationEngine {
             // 容错: paginate 完没切到任何 slice (canvas 太小或全空 text), 把 attrString 整体作 1 页
             return [ReaderPage(id: "\(chapterIndex)-0", chapterIndex: chapterIndex,
                                pageIndex: 0, totalPages: 1, text: attrString.string,
-                               chapterTitle: chapterTitle)]
+                               chapterTitle: chapterTitle, charOffset: 0, charLength: totalLength)]
         }
 
         let total = slices.count
         return slices.enumerated().map { i, s in
-            ReaderPage(
+            let nextOffset = i + 1 < total ? slices[i + 1].charOffset : totalLength
+            return ReaderPage(
                 id: "\(chapterIndex)-\(i)",
                 chapterIndex: chapterIndex,
                 pageIndex: i,
                 totalPages: total,
-                text: s,
-                chapterTitle: chapterTitle
+                text: s.text,
+                chapterTitle: chapterTitle,
+                charOffset: s.charOffset,
+                charLength: nextOffset - s.charOffset
             )
         }
     }

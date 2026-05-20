@@ -39,7 +39,8 @@ public final class CloudflareCookieStore: @unchecked Sendable {
     private let storeURL: URL
 
     private init() {
-        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { fatalError("cachesDirectory unavailable") }
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
         self.storeURL = caches.appendingPathComponent("wanxiang-cf-cookies.plist")
     }
 

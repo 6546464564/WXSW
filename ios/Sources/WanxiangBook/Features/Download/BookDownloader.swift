@@ -54,9 +54,17 @@ public final class BookDownloader: ObservableObject {
     }
 
     private var tasks: [String: Task<Void, Never>] = [:]
-    /// 万象书屋 (M2.8 perf): 并发 6 → 8, 跟 Android `MAX_THREAD=9` 持平. URLSession 每个 host
-    /// 默认 6 connection, 多个不同 host 总共 8 个 task 并跑没问题.
-    public let concurrency: Int = 8
+    /// 万象书屋 (perf 优化): 全局并发上限 (对齐 Android MAX_THREAD=9).
+    /// 实际每本书的并发 = max(1, globalConcurrency / 同时下载书数),
+    /// 保证多书并下时总 HTTP 连接数恒定 ≤ globalConcurrency, 不因书数翻倍.
+    /// 参考 Android: CacheBookService 共享 FixedThreadPool(min(16,9)=9).
+    public let globalConcurrency: Int = 8
+    /// 供外部读取的 concurrency (向后兼容)
+    public var concurrency: Int { effectiveConcurrency }
+    /// 当前每本书实际可用的并发 slot = globalConcurrency / max(1, 活跃下载书数)
+    private var effectiveConcurrency: Int {
+        max(1, globalConcurrency / max(1, tasks.count))
+    }
 
     /// 万象书屋 (M2.8 C 档): UIApplication backgroundTask, 让 App 切后台后再多跑 ~30 秒.
     /// 比 BGTaskScheduler 简单且更可靠 — BGTaskScheduler 是"系统决定何时运行", 续不上点;
@@ -245,15 +253,17 @@ public final class BookDownloader: ObservableObject {
 
     private func downloadConcurrent(book: ShelfBook, source: BookSource,
                                      pending: [BookChapter], baseJob: inout Job) async {
-        // 万象书屋 (M2.8 perf): 用 TaskGroup + concurrency 控并发. 之前每章 schedule 后 sleep
-        // 200ms (100 章 = 20s schedule 时间), 改成无延迟 schedule — 反爬节流靠的是
-        // 服务端响应慢, URLSession 每 host 6 connection 自然限流, 不需要客户端再加 sleep.
+        // 万象书屋 (perf 优化): 动态 per-book 并发 = globalConcurrency / 同时下载书数.
+        // 若只下 1 本 → 8 slot; 下 2 本 → 各 4 slot (共 8); 下 3 本 → 各 2~3 slot (共 6~9).
+        // 对齐 Android CacheBookService 共享 FixedThreadPool(min(threadCount,9)) 的行为.
+        // 原来固定 8/book: 2 本同时下 = 16 并发, URLSession/host 限制 6 → 10 个连接排队浪费.
+        let localConcurrency = effectiveConcurrency
         await withTaskGroup(of: Bool.self) { group in
             var inflight = 0
             var iterator = pending.makeIterator()
             while let chapter = iterator.next() {
                 if Task.isCancelled { break }
-                while inflight >= concurrency {
+                while inflight >= localConcurrency {
                     if let ok = await group.next() {
                         await self.recordResult(bookUrl: book.bookUrl, ok: ok)
                         inflight -= 1
@@ -353,7 +363,8 @@ public final class ChapterImageCache: @unchecked Sendable {
         "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
     private init() {
-        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { fatalError("cachesDirectory unavailable") }
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
         self.dir = caches.appendingPathComponent("wanxiang-chapter-images", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let cfg = URLSessionConfiguration.default
@@ -431,11 +442,11 @@ public final class ChapterImageCache: @unchecked Sendable {
     private func filePath(for url: String) -> URL {
         // SHA1 hash + 原始扩展名 (.jpg/.png/.webp 通常)
         let ext: String = {
-            if let dotIdx = url.lastIndex(of: "."), let qIdx = url.firstIndex(of: "?") ?? url.endIndex as Optional {
-                let slice = url[dotIdx..<qIdx]
-                let raw = String(slice).lowercased()
-                if raw.count <= 6 { return raw }  // .jpeg / .webp
-                return ".bin"
+            // 只在 ? 之前的路径部分里找最后一个 "."，避免查询字符串中的 "." 干扰
+            let pathPart = url.firstIndex(of: "?").map { String(url[..<$0]) } ?? url
+            if let dotIdx = pathPart.lastIndex(of: ".") {
+                let raw = String(pathPart[dotIdx...]).lowercased()
+                if raw.count <= 6 { return raw }  // .jpg / .jpeg / .webp 等
             }
             return ".bin"
         }()
@@ -510,3 +521,4 @@ public final class ChapterImageCache: @unchecked Sendable {
         for u in all { try? fm.removeItem(at: u) }
     }
 }
+

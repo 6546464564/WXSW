@@ -16,8 +16,9 @@ public enum JsLibCache {
 
     private static let memCache = NSCache<NSString, NSString>()
     private static let cacheDir: URL = {
-        let urls = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
-        let dir = urls[0].appendingPathComponent("wx_jslib", isDirectory: true)
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("wx_jslib", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
@@ -50,7 +51,7 @@ public enum JsLibCache {
         cfg.timeoutIntervalForResource = 12
         let session = URLSession(configuration: cfg)
         var req = URLRequest(url: u)
-        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 万象书屋",
+        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
                      forHTTPHeaderField: "User-Agent")
         let task = session.dataTask(with: req) { data, _, _ in
             defer { sema.signal() }

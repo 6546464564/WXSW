@@ -130,6 +130,8 @@ public struct ReaderView: View {
                 startReadingTimer()
                 UIApplication.shared.isIdleTimerDisabled = config.keepScreenOn
                 applyBrightness()
+                // 万象书屋: 记录「正在阅读」状态 — App 完全退出后重新打开能恢复到此书
+                UserDefaults.standard.set(engine.book.bookUrl, forKey: "wx.lastOpenedBookUrl")
                 // 万象书屋 (debug arg): 自动化测试入口
                 let args = ProcessInfo.processInfo.arguments
                 if args.contains("--ReaderShowMenu") || args.contains("-ReaderShowMenu") {
@@ -190,6 +192,13 @@ public struct ReaderView: View {
                 stopReadingTimer()
                 UIApplication.shared.isIdleTimerDisabled = false
                 NotificationCenter.default.post(name: .wanxiangTabBarHiddenChanged, object: false)
+                // 万象书屋 (P0 fix): 阅读器退出时恢复 interactivePopGestureRecognizer,
+                // 让书架/详情页的返回手势恢复正常.
+                UIApplication.shared.connectedScenes
+                    .compactMap { $0 as? UIWindowScene }
+                    .first?.windows.first
+                    .flatMap { findNavigationController(in: $0.rootViewController) }?
+                    .interactivePopGestureRecognizer?.isEnabled = true
             }
             .onChange(of: config.brightness) { _, _ in applyBrightness() }
             .onChange(of: config.autoBrightness) { _, _ in applyBrightness() }
@@ -199,6 +208,10 @@ public struct ReaderView: View {
             }
             .onChange(of: config.keepScreenOn) { _, on in
                 UIApplication.shared.isIdleTimerDisabled = on
+            }
+            // 万象书屋: 翻页时实时持久化页内位置 (精确到章节内第几页)
+            .onChange(of: currentPageId) { _, newId in
+                if let id = newId { saveReadingPosition(pageId: id) }
             }
             .onChange(of: engine.currentChapterIndex) { _, newIdx in
                 // 万象书屋 (跨章翻页): 如果是从 pager 滑入相邻章节触发的切章, 保持当前页不回跳首页
@@ -231,6 +244,11 @@ public struct ReaderView: View {
         .toolbar(.hidden, for: .navigationBar)
         // 万象书屋 (P0 fix): TabView 默认 push 时不隐藏底部 tabBar, 阅读器必须沉浸全屏
         .toolbar(.hidden, for: .tabBar)
+        // 万象书屋 (P0 fix crash): 隐藏导航栏后 iOS 的 interactivePopGestureRecognizer 仍激活,
+        // 用户左边缘横划会意外退出阅读器. 在 body 上叠一个透明 UIView 并在 appear/disappear
+        // 中切换 isEnabled, 阻断这个系统手势; 不影响阅读器内的翻页/上滑手势.
+        .background(SwipeBackBlocker())
+        .navigationBarBackButtonHidden(true)
         // 万象书屋: 阅读器 PV (跟 Android `ReadBookActivity` 自动 trackPageName 等价)
         .trackPageView("page_reader")
         .statusBarHidden(!menuVisible)
@@ -1030,6 +1048,8 @@ public struct ReaderView: View {
     /// 万象书屋 (跨章翻页): 用户从 pager 滑入相邻章节时, 记录目标页 id.
     /// onChange(of: engine.currentChapterIndex) 用它来保持显示位置, 不回跳首页.
     @State private var crossChapterTargetPageId: String? = nil
+    /// 万象书屋: 首次分页后是否已经恢复了页内进度 (每个 ReaderView 实例只恢复一次)
+    @State private var hasRestoredPagePosition = false
 
     /// - Parameter targetPageId: 若非 nil, 且在重建后的 pages 中存在, 则保持该页为 currentPageId.
     ///   用于跨章节翻页场景 (用户滑进相邻章节), 防止章节切换时 UI 跳回首页.
@@ -1073,11 +1093,49 @@ public struct ReaderView: View {
 
         // 确定 currentPageId:
         // - 跨章翻页时保持 targetPageId (已在相邻章节的页里) 不回跳
-        // - 否则跳到当前章第一页
+        // - 首次分页 (冷启恢复): 跳到上次读到的具体页
+        // - 普通跳章: 跳到当前章第一页
         if let target = targetPageId, combined.contains(where: { $0.id == target }) {
             self.currentPageId = target
+        } else if !hasRestoredPagePosition {
+            let savedChapter = UserDefaults.standard.object(forKey: "wx.lastReadingChapterIndex") as? Int
+            let savedPos   = UserDefaults.standard.object(forKey: "wx.lastReadingCharOffset") as? Int
+            if let sc = savedChapter, sc == idx, let sp = savedPos {
+                hasRestoredPagePosition = true
+                let restoredPage = currPages.first(where: { $0.containsPos(sp) }) ?? currPages.first
+                self.currentPageId = restoredPage?.id ?? combined.first?.id
+            } else if savedChapter == nil || savedPos == nil {
+                hasRestoredPagePosition = true
+                self.currentPageId = currPages.first?.id ?? combined.first?.id
+            } else {
+                self.currentPageId = currPages.first?.id ?? combined.first?.id
+            }
         } else {
-            self.currentPageId = currPages.first?.id ?? combined.first?.id
+            // 保持当前页 (字体/屏幕尺寸变化触发重新分页时不回跳首页),
+            // 仅当当前页已不在新的分页结果里时才退到首页
+            if let cur = currentPageId, combined.contains(where: { $0.id == cur }) {
+                self.currentPageId = cur
+            } else {
+                self.currentPageId = currPages.first?.id ?? combined.first?.id
+            }
+        }
+    }
+
+    /// 翻页/章节切换时持久化页内字符偏移量 (对齐 Android durChapterPos)
+    private func saveReadingPosition(pageId: String) {
+        guard let page = pages.first(where: { $0.id == pageId }) else { return }
+        UserDefaults.standard.set(page.chapterIndex, forKey: "wx.lastReadingChapterIndex")
+        UserDefaults.standard.set(page.charOffset, forKey: "wx.lastReadingCharOffset")
+        // 同步写入 DB durChapterPos (与 Android book.durChapterPos 对齐)
+        Task.detached(priority: .utility) { [bookUrl = engine.book.bookUrl,
+                                             chapterIndex = page.chapterIndex,
+                                             chapterPos = page.charOffset] in
+            try? await BookshelfRepository.shared.updateProgress(
+                bookUrl: bookUrl,
+                chapterIndex: chapterIndex,
+                chapterTitle: nil,
+                chapterPos: chapterPos
+            )
         }
     }
 
@@ -1443,6 +1501,43 @@ struct ChapterPageBody: View {
             nsAttr.addAttribute(.kern, value: NSNumber(value: Float(config.letterSpacing)), range: range)
         }
         return nsAttr
+    }
+}
+
+// MARK: - 阻断 NavigationStack 侧滑返回 (P0 fix: 看小说意外退出)
+
+/// 递归在 VC 层级里找 UINavigationController
+private func findNavigationController(in vc: UIViewController?) -> UINavigationController? {
+    guard let vc else { return nil }
+    if let nav = vc as? UINavigationController { return nav }
+    for child in vc.children {
+        if let found = findNavigationController(in: child) { return found }
+    }
+    return findNavigationController(in: vc.presentedViewController)
+}
+
+// UIViewRepresentable 透明占位视图, appear 时关闭 interactivePopGestureRecognizer,
+// onDisappear 时恢复, 不影响阅读器自身的翻页/上滑手势.
+private struct SwipeBackBlocker: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView { UIView() }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            if let nav = uiView.responderNavigationController() {
+                nav.interactivePopGestureRecognizer?.isEnabled = false
+            }
+        }
+    }
+}
+
+private extension UIView {
+    /// 沿 responder chain 向上找最近的 UINavigationController
+    func responderNavigationController() -> UINavigationController? {
+        var r: UIResponder? = self
+        while let cur = r {
+            if let nav = cur as? UINavigationController { return nav }
+            r = cur.next
+        }
+        return nil
     }
 }
 

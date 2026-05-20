@@ -193,6 +193,10 @@ public final class AdManager: ObservableObject {
         if !enabled || reviewMode {
             providers = ["stub": StubAdProvider()]
             bootstrapped = true
+            bootstrapping = false
+            let earlyWaiters = bootstrapWaiters
+            bootstrapWaiters.removeAll()
+            for w in earlyWaiters { w.resume() }
             return
         }
 
