@@ -24,6 +24,8 @@ struct SplashAdView: View {
 
     /// Splash 完成后回调; 调用方应该在这里把 splash 隐藏并展示 RootView
     let onFinish: () -> Void
+    /// 伪装面（未解锁）时传入 true，强制跳过广告只做品牌停留，避免暴露 App 真实身份
+    var suppressAd: Bool = false
 
     /// 最长停留时长. 跟 Android `splash.timeoutMs` (通常 5000ms) 同款.
     /// 万象书屋 (M2.4 perf): 没 AD 时从 1.0s 缩到 0.4s — 系统 LaunchScreen 已经覆盖
@@ -95,7 +97,7 @@ struct SplashAdView: View {
         let enabled = ad.enabled
         let reviewMode = ad.reviewMode
 
-        if consented && enabled && !reviewMode {
+        if consented && enabled && !reviewMode && !suppressAd {
             adShowing = true
             let _ = await withTimeout(seconds: Self.withAdDurationSec) {
                 _ = await ad.showSplash(container: EmptyView())
