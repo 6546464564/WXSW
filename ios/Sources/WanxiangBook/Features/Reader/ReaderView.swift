@@ -17,8 +17,11 @@ import SwiftUI
 public struct ReaderView: View {
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var readerScenePhase
     @StateObject private var engine: ReaderEngine
     @StateObject private var config = ReadConfig.shared
+    /// 进入阅读器前的系统亮度快照 — 退出时还原，防止自定义亮度泄漏到全局导致黑屏
+    @State private var savedSystemBrightness: CGFloat = -1
 
     @State private var menuVisible: Bool = false
     @GestureState private var dragStartPageId: String? = nil
@@ -125,10 +128,10 @@ public struct ReaderView: View {
             }
             .onAppear {
                 screenSize = geo.size
-                NotificationCenter.default.post(name: .wanxiangTabBarHiddenChanged, object: true)
                 Task { await engine.bootstrap() }
                 startReadingTimer()
                 UIApplication.shared.isIdleTimerDisabled = config.keepScreenOn
+                savedSystemBrightness = UIScreen.main.brightness
                 applyBrightness()
                 // 万象书屋: 记录「正在阅读」状态 — App 完全退出后重新打开能恢复到此书
                 UserDefaults.standard.set(engine.book.bookUrl, forKey: "wx.lastOpenedBookUrl")
@@ -191,7 +194,6 @@ public struct ReaderView: View {
             .onDisappear {
                 stopReadingTimer()
                 UIApplication.shared.isIdleTimerDisabled = false
-                NotificationCenter.default.post(name: .wanxiangTabBarHiddenChanged, object: false)
                 // 万象书屋 (P0 fix): 阅读器退出时恢复 interactivePopGestureRecognizer,
                 // 让书架/详情页的返回手势恢复正常.
                 UIApplication.shared.connectedScenes
@@ -199,6 +201,24 @@ public struct ReaderView: View {
                     .first?.windows.first
                     .flatMap { findNavigationController(in: $0.rootViewController) }?
                     .interactivePopGestureRecognizer?.isEnabled = true
+                // 退出阅读器时还原系统亮度，防止自定义低亮度泄漏到全局导致黑屏
+                if savedSystemBrightness >= 0 {
+                    UIScreen.main.brightness = savedSystemBrightness
+                }
+            }
+            .onChange(of: readerScenePhase) { _, phase in
+                switch phase {
+                case .inactive, .background:
+                    // 进入后台/非活跃时还原系统亮度，避免 App Switcher 截图呈现全黑
+                    if savedSystemBrightness >= 0 {
+                        UIScreen.main.brightness = savedSystemBrightness
+                    }
+                case .active:
+                    // 回到前台时重新应用阅读器自定义亮度
+                    applyBrightness()
+                @unknown default:
+                    break
+                }
             }
             .onChange(of: config.brightness) { _, _ in applyBrightness() }
             .onChange(of: config.autoBrightness) { _, _ in applyBrightness() }

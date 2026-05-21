@@ -65,6 +65,8 @@ struct WanxiangBookApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
+                // 万象书屋: 底层保底背景色 — 防止暗模式下 WindowGroup 黑色在视图切换瞬间漏出导致黑屏
+                Color(.systemBackground).ignoresSafeArea()
                 GameGateView()
                     .environmentObject(appState)
                 if !splashFinished {

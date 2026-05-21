@@ -21,6 +21,11 @@ struct InAppBrowserView: UIViewRepresentable {
         cfg.allowsInlineMediaPlayback = true
         let web = WKWebView(frame: .zero, configuration: cfg)
         web.allowsBackForwardNavigationGestures = true
+        // 万象书屋: 暗模式下 WKWebView 默认用黑色背景填底，页面加载前显示为黑屏。
+        // 设为透明让父视图白色背景透出，消除"黑闪"。
+        web.isOpaque = false
+        web.backgroundColor = .clear
+        web.scrollView.backgroundColor = .clear
         return web
     }
 
@@ -46,6 +51,7 @@ struct InAppBrowserScreen: View {
     var body: some View {
         NavigationStack {
             InAppBrowserView(url: url)
+                .background(Color(.systemBackground))  // WKWebView 透明时的保底背景色
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle(title ?? url.host ?? "浏览器")
                 .navigationBarTitleDisplayMode(.inline)

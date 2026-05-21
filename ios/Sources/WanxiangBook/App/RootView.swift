@@ -71,6 +71,8 @@ struct RootView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // 万象书屋: 显式背景色 — 防止暗模式下 Tab 切换间隙漏出黑色 WindowGroup 背景
+        .background(Color(.systemBackground).ignoresSafeArea())
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .wanxiangThemed(theme)
         .overlay(alignment: .top) {
