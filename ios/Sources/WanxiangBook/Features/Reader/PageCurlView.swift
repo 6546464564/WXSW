@@ -169,10 +169,14 @@ struct PageCurlContainer<Page: View>: UIViewControllerRepresentable {
             return vc
         }
 
-        /// 当 pages 数组刷新时, 失效的缓存条目需要重建 (新章节加载后旧 view 已过期)
+        /// 当 pages 数组刷新时, 失效的缓存条目需要重建 (新章节加载后旧 view 已过期).
+        /// 保留 PVC 正在显示的 VC 以避免 UIPageViewController 持有被释放的 VC 导致崩溃.
         func evictStaleEntries() {
             let validIds = Set(parent.pages.map(\.id))
-            cache.removeAll(where: { !validIds.contains($0.id) })
+            let currentlyDisplayedId = parent.currentId
+            cache.removeAll(where: {
+                !validIds.contains($0.id) && $0.id != currentlyDisplayedId
+            })
         }
     }
 }

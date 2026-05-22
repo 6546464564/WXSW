@@ -138,14 +138,14 @@ public final class BookSourceEngine: @unchecked Sendable {
                           maxConcurrency: Int = 9,
                           perSourceTimeoutSec: TimeInterval = 30) -> AsyncStream<(BookSource, Result<[SearchBook], Error>)> {
         AsyncStream { continuation in
-            Task {
+            let innerTask = Task {
                 await withTaskGroup(of: (BookSource, Result<[SearchBook], Error>).self) { group in
                     var iter = sources.makeIterator()
                     let cap = max(1, min(maxConcurrency, sources.count))
 
                     @discardableResult
                     func addNext() -> Bool {
-                        guard let s = iter.next() else { return false }
+                        guard !Task.isCancelled, let s = iter.next() else { return false }
                         group.addTask { [weak self] in
                             guard let self else { return (s, .success([])) }
                             return await Self.searchWithTimeout(
@@ -156,17 +156,18 @@ public final class BookSourceEngine: @unchecked Sendable {
                         return true
                     }
 
-                    // 先填满 cap 个 (例: 32 源 + cap=9 → 起跑 9 个)
                     for _ in 0..<cap { _ = addNext() }
 
-                    // 一个完成立即放行下一个, 滚动窗口式始终 ≤ cap 个 in-flight
                     while let r = await group.next() {
+                        if Task.isCancelled { break }
                         continuation.yield(r)
                         addNext()
                     }
+                    group.cancelAll()
                     continuation.finish()
                 }
             }
+            continuation.onTermination = { _ in innerTask.cancel() }
         }
     }
 

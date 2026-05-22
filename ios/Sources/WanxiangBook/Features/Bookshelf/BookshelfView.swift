@@ -46,6 +46,11 @@ struct BookshelfView: View {
     @State private var renamingGroup: BookGroup?
     @State private var renameInput = ""
 
+    #if DEBUG
+    @State private var _autoNavBook: ShelfBook? = nil
+    @State private var _autoNavActive = false
+    #endif
+
     // 万象书屋: 持久化 — 跟 Android AppConfig.bookshelfLayout / bookshelfSort / 各 show* 对齐
     @AppStorage("wanxiang.shelf.style") private var styleRaw: Int = 1       // 0=列表 1=网格 (默认网格)
     @AppStorage("wanxiang.shelf.cols") private var cols: Int = 3
@@ -77,8 +82,25 @@ struct BookshelfView: View {
             .task(id: sortRaw) {
                 await vm.loadGroups()
                 await vm.refresh(sort: sort, groupId: selectedGroupId)
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--AutoOpenFirstBook"),
+                   let first = vm.books.first {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    await MainActor.run {
+                        _autoNavBook = first
+                        _autoNavActive = true
+                    }
+                }
+                #endif
             }
             .refreshable { await vm.refresh(sort: sort) }
+            #if DEBUG
+            .navigationDestination(isPresented: $_autoNavActive) {
+                if let book = _autoNavBook {
+                    ReaderView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
+                }
+            }
+            #endif
             // 万象书屋 (UX): 搜索改成 NavigationStack push 的全屏单独页, 不再用 sheet 弹框.
             .navigationDestination(isPresented: $searchPresented) {
                 SearchView(embedded: true)

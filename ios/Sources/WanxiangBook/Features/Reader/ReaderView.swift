@@ -52,6 +52,9 @@ public struct ReaderView: View {
     /// 对齐 Android checkChapterPaywall — 章节付费墙锁屏
     @State private var showChapterPaywall = false
     @State private var chapterPaywallLoading = false
+    /// 精确阅读位置（字符偏移量），用于 canvas 尺寸变化后 reflow 时保持准确位置。
+    /// 初始值来自 book.durChapterPos，翻页时同步更新。
+    @State private var preciseCharPos: Int = -1
 
     public init(book: ShelfBook, source: BookSource? = nil) {
         _engine = StateObject(wrappedValue: ReaderEngine(book: book, source: source))
@@ -84,11 +87,11 @@ public struct ReaderView: View {
                                     Color.clear
                                         .onAppear {
                                             contentCanvasSize = contentGeo.size
-                                            repaginateCurrent()
+                                            debouncedRepaginate()
                                         }
                                         .onChange(of: contentGeo.size) { _, newSize in
                                             contentCanvasSize = newSize
-                                            repaginateCurrent()
+                                            debouncedRepaginate()
                                         }
                                 }
                             )
@@ -128,6 +131,7 @@ public struct ReaderView: View {
             }
             .onAppear {
                 screenSize = geo.size
+                viewAppearDate = Date()
                 Task { await engine.bootstrap() }
                 startReadingTimer()
                 UIApplication.shared.isIdleTimerDisabled = config.keepScreenOn
@@ -224,7 +228,7 @@ public struct ReaderView: View {
             .onChange(of: config.autoBrightness) { _, _ in applyBrightness() }
             .onChange(of: geo.size) { _, newSize in
                 screenSize = newSize
-                repaginateCurrent()
+                debouncedRepaginate()
             }
             .onChange(of: config.keepScreenOn) { _, on in
                 UIApplication.shared.isIdleTimerDisabled = on
@@ -243,7 +247,7 @@ public struct ReaderView: View {
                 checkChapterPaywall()
             }
             .onChange(of: engine.loadingChapter) { _, _ in
-                repaginateCurrent()
+                debouncedRepaginate()
             }
             .onChange(of: engine.chapterContentRevision) { _, _ in
                 repaginateCurrent()
@@ -664,16 +668,19 @@ public struct ReaderView: View {
                 if engine.currentChapterIndex > 0 {
                     Color.clear.frame(height: 1)
                         .onAppear {
-                            guard !scrollPagerPrevLoading else { return }
+                            guard !scrollPagerPrevLoading,
+                                  Date().timeIntervalSince(lastScrollChapterSwitchDate) > 0.8 else { return }
                             scrollPagerPrevLoading = true
+                            lastScrollChapterSwitchDate = Date()
                             Task {
                                 await engine.previousChapter()
+                                // 延迟重置防抖标记，给 LazyVStack 足够时间稳定布局
+                                try? await Task.sleep(nanoseconds: 500_000_000)
                                 scrollPagerPrevLoading = false
                             }
                         }
                 }
                 ForEach(pages) { page in
-                    // 万象书屋 (M2.8 Gap 3): 按 ␎WX_IMG[url]␏ 标记切段, text/image 分别渲染
                     chapterPageBody(page: page)
                         .padding(.horizontal, config.paddingHorizontal)
                 }
@@ -682,11 +689,14 @@ public struct ReaderView: View {
                     if let last = pages.last {
                         Color.clear.frame(height: 1)
                             .onAppear {
-                                guard !scrollPagerNextLoading else { return }
+                                guard !scrollPagerNextLoading,
+                                      Date().timeIntervalSince(lastScrollChapterSwitchDate) > 0.8 else { return }
                                 scrollPagerNextLoading = true
+                                lastScrollChapterSwitchDate = Date()
                                 _ = last
                                 Task {
                                     await engine.nextChapter()
+                                    try? await Task.sleep(nanoseconds: 500_000_000)
                                     scrollPagerNextLoading = false
                                 }
                             }
@@ -1086,6 +1096,31 @@ public struct ReaderView: View {
     /// 万象书屋: 滚动模式上/下章节加载防抖标记 — 防止 onAppear 在重渲染时连续触发多次切章
     @State private var scrollPagerPrevLoading = false
     @State private var scrollPagerNextLoading = false
+    /// 万象书屋: 滚动模式最近一次切章时间戳 — 防止 onAppear 连锁触发 (章节内容短时哨兵立刻重新出现)
+    @State private var lastScrollChapterSwitchDate: Date = .distantPast
+    /// push 动画期间 canvas size 会连续变化 (tab bar / nav bar 逐渐隐藏).
+    /// 记录首帧时间, 在动画完成前将 size 变化产生的 repaginate 用 debounce 合并为 1 次,
+    /// 避免先分出"底部大片空白"的页面再闪烁修正.
+    @State private var viewAppearDate: Date = .distantFuture
+    @State private var sizeDebounceTask: Task<Void, Never>? = nil
+
+    /// push 动画期间 (~0.7s), canvas size 连续变化 (tab bar 隐藏 + nav bar 隐藏).
+    /// 在动画窗口内用 debounce 合并所有 repaginate 请求, 确保只在 viewport 稳定后
+    /// 执行一次分页, 避免先显示错误 viewport 的页面再跳转到正确页面.
+    /// 动画结束后的后续请求立即执行, 不引入感知延迟.
+    private func debouncedRepaginate(targetPageId: String? = nil) {
+        let elapsed = Date().timeIntervalSince(viewAppearDate)
+        if elapsed > 1.0 {
+            repaginateCurrent(targetPageId: targetPageId)
+            return
+        }
+        sizeDebounceTask?.cancel()
+        sizeDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard !Task.isCancelled else { return }
+            repaginateCurrent(targetPageId: targetPageId)
+        }
+    }
 
     /// - Parameter targetPageId: 若非 nil, 且在重建后的 pages 中存在, 则保持该页为 currentPageId.
     ///   用于跨章节翻页场景 (用户滑进相邻章节), 防止章节切换时 UI 跳回首页.
@@ -1098,6 +1133,13 @@ public struct ReaderView: View {
             pages = []
             return
         }
+
+        #if DEBUG
+        let ts = String(format: "%.3f", Date().timeIntervalSince(viewAppearDate))
+        print("[REPAG] t=\(ts)s viewport=\(viewport) hasRestored=\(hasRestoredPagePosition) " +
+              "idx=\(idx) durIdx=\(engine.book.durChapterIndex) durPos=\(engine.book.durChapterPos) " +
+              "curPageId=\(currentPageId ?? "nil") targetPageId=\(targetPageId ?? "nil")")
+        #endif
 
         // 页脚: 11pt 字体 + 8pt 顶部间距 ≈ 22pt
         let footerHeight: CGFloat = 22
@@ -1125,34 +1167,59 @@ public struct ReaderView: View {
         let nextPages = paginateIfCached(idx + 1)
         let combined = prevPages + currPages + nextPages
 
+        let oldPages = self.pages
         self.pages = combined
 
         // 确定 currentPageId:
         // - 跨章翻页时保持 targetPageId (已在相邻章节的页里) 不回跳
-        // - 首次分页 (冷启恢复): 跳到上次读到的具体页
+        // - 首次分页 (冷启恢复): 用 book.durChapterPos 精确恢复到上次读到的页
+        // - 重新分页 (canvas 尺寸变化): 按字符偏移量定位, 而非 page ID (因为同一 ID 在
+        //   不同 canvas 下对应不同文本)
         // - 普通跳章: 跳到当前章第一页
         if let target = targetPageId, combined.contains(where: { $0.id == target }) {
             self.currentPageId = target
+            if let p = combined.first(where: { $0.id == target }) { preciseCharPos = p.charOffset }
+            #if DEBUG
+            print("[REPAG] -> targetPageId=\(target)")
+            #endif
         } else if !hasRestoredPagePosition {
-            let savedChapter = UserDefaults.standard.object(forKey: "wx.lastReadingChapterIndex") as? Int
-            let savedPos   = UserDefaults.standard.object(forKey: "wx.lastReadingCharOffset") as? Int
-            if let sc = savedChapter, sc == idx, let sp = savedPos {
-                hasRestoredPagePosition = true
-                let restoredPage = currPages.first(where: { $0.containsPos(sp) }) ?? currPages.first
+            hasRestoredPagePosition = true
+            let savedPos = engine.book.durChapterPos
+            if savedPos > 0, idx == engine.book.durChapterIndex {
+                preciseCharPos = savedPos
+                let restoredPage = currPages.first(where: { $0.containsPos(savedPos) }) ?? currPages.first
                 self.currentPageId = restoredPage?.id ?? combined.first?.id
-            } else if savedChapter == nil || savedPos == nil {
-                hasRestoredPagePosition = true
-                self.currentPageId = currPages.first?.id ?? combined.first?.id
+                #if DEBUG
+                print("[REPAG] -> RESTORE savedPos=\(savedPos) -> page=\(restoredPage?.id ?? "nil") offset=\(restoredPage?.charOffset ?? -1)")
+                #endif
             } else {
                 self.currentPageId = currPages.first?.id ?? combined.first?.id
+                #if DEBUG
+                print("[REPAG] -> FIRST PAGE (no match: savedPos=\(savedPos) durIdx=\(engine.book.durChapterIndex) idx=\(idx))")
+                #endif
             }
         } else {
-            // 保持当前页 (字体/屏幕尺寸变化触发重新分页时不回跳首页),
-            // 仅当当前页已不在新的分页结果里时才退到首页
-            if let cur = currentPageId, combined.contains(where: { $0.id == cur }) {
-                self.currentPageId = cur
+            let posToRestore = preciseCharPos >= 0 ? preciseCharPos : {
+                if let cur = currentPageId,
+                   let oldPage = oldPages.first(where: { $0.id == cur }) {
+                    return oldPage.charOffset
+                }
+                return -1
+            }()
+            if posToRestore >= 0 {
+                let chapterIdx = oldPages.first(where: { $0.id == currentPageId })?.chapterIndex ?? idx
+                let restored = combined.first(where: {
+                    $0.chapterIndex == chapterIdx && $0.containsPos(posToRestore)
+                })
+                self.currentPageId = restored?.id ?? currPages.first?.id ?? combined.first?.id
+                #if DEBUG
+                print("[REPAG] -> REFLOW precisePos=\(posToRestore) -> newPage=\(restored?.id ?? "fallback") newOffset=\(restored?.charOffset ?? -1)")
+                #endif
             } else {
                 self.currentPageId = currPages.first?.id ?? combined.first?.id
+                #if DEBUG
+                print("[REPAG] -> REFLOW FALLBACK (oldPage not found in oldPages)")
+                #endif
             }
         }
     }
@@ -1176,6 +1243,9 @@ public struct ReaderView: View {
     }
 
     private func handlePageJump(to id: String) {
+        if let page = pages.first(where: { $0.id == id }) {
+            preciseCharPos = page.charOffset
+        }
         // id 形如 "chapterIdx-pageIdx", 当前章内翻页不需要切章; 跨章也通过这处理
         let parts = id.split(separator: "-")
         guard parts.count == 2,

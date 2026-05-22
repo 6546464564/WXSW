@@ -32,6 +32,10 @@ public final class ReaderEngine: ObservableObject {
 
     /// 章节正文内存缓存 (key=chapterIndex, val=正文)
     private var contentCache: [Int: String] = [:]
+    /// LRU 访问顺序 (末尾 = 最近访问), 配合 contentCache 控制内存
+    private var cacheAccessOrder: [Int] = []
+    /// 内存中最多保留 N 章正文, 超出时淘汰最久未访问的 (SQLite 仍有, 翻回时重新读)
+    private static let maxCachedChapters = 30
     /// 进行中的拉取任务, 防止重复
     private var inflight: [Int: Task<String, Error>] = [:]
 
@@ -78,14 +82,16 @@ public final class ReaderEngine: ObservableObject {
         loadingIndices.insert(currentChapterIndex)
         updateLoadingState()
 
-        // 万象书屋 (M2.6 perf): bookshelf.add 后台跑, 不让 30ms SQLite write 拦在用户路径上.
-        // idempotent: 多次调用安全, 后续 updateProgress 时也会顺便 ensure.
+        // 隐式加架: 无论后续 TOC 是否成功, 必须保证书在 books 表 (idempotent).
+        // 用 detached 后台写, 不阻塞首屏; 但必须在任何 early-return 之前发起.
         let bookCopy = book
         Task.detached(priority: .utility) {
             try? await BookshelfRepository.shared.add(bookCopy)
         }
 
         // Step 1: 加载目录 (cache-first, 不能后台跑 — 后续 loadChapter 依赖 chapters).
+        // 万象书屋 (perf): updateTotalChapters 等后台 DB 写延到
+        // loadChapter 之后, 避免它们抢占 DB actor 串行队列拖慢首屏关键路径.
         do {
             let cachedToc = try await ChapterRepository.shared.loadToc(bookUrl: book.bookUrl)
             if !cachedToc.isEmpty {
@@ -171,25 +177,29 @@ public final class ReaderEngine: ObservableObject {
             )
         }
 
-        // Step 2: 回写 totalChapterNum / latestChapterTitle (后台, 不阻塞).
+        // Step 2: 同步更新内存中的 totalChapterNum (不发 DB 写, 延后).
+        var refreshed = book
+        refreshed.totalChapterNum = chapters.count
+        refreshed.latestChapterTitle = chapters.last?.title
+        self.book = refreshed
+
+        // Step 3: 首章优先 — await 当前章后再批量 prefetch (目录页进阅读器 / 换源重启).
+        // 注意: 不在此处 remove loadingIndices — loadChapter 内部的 defer 会统一处理.
+        // 这样 loadingChapter 从 bootstrap 开始到 content 就绪之间保持 true, 避免中间
+        // false→true→false 的状态抖动导致 3 次空 repaginateCurrent.
+        let curr = currentChapterIndex
+        await loadChapter(index: curr)
+
+        // Step 4: 后台回写 totalChapterNum / latestChapterTitle (add 已在方法开头发起).
+        let bookUrl = book.bookUrl
         let latestTitle = chapters.last?.title
         let total = chapters.count
-        let bookUrl = book.bookUrl
         Task.detached(priority: .utility) {
             try? await BookshelfRepository.shared.updateTotalChapters(
                 bookUrl: bookUrl, total: total, latestTitle: latestTitle
             )
         }
-        var refreshed = book
-        refreshed.totalChapterNum = total
-        refreshed.latestChapterTitle = latestTitle
-        self.book = refreshed
-        loadingIndices.remove(currentChapterIndex)
-        updateLoadingState()
 
-        // Step 3: 首章优先 — await 当前章后再批量 prefetch (目录页进阅读器 / 换源重启).
-        let curr = currentChapterIndex
-        await loadChapter(index: curr)
         prefetchAround(curr)
     }
 
@@ -219,7 +229,9 @@ public final class ReaderEngine: ObservableObject {
 
     /// 获取章节正文 (同步从 cache, 没就异步拉)
     public func content(for index: Int) -> String? {
-        contentCache[index]
+        guard let val = contentCache[index] else { return nil }
+        touchCacheAccess(index)
+        return val
     }
 
     /// 强制重拉 (用户点"重试")
@@ -237,6 +249,7 @@ public final class ReaderEngine: ObservableObject {
         inflight[idx]?.cancel()
         inflight.removeValue(forKey: idx)
         contentCache[idx] = content
+        touchCacheAccess(idx)
         lastError = nil
         try? await ChapterRepository.shared.saveContent(
             bookUrl: book.bookUrl,
@@ -284,7 +297,11 @@ public final class ReaderEngine: ObservableObject {
     ///   避免后台预拉前后章失败把用户当前正在读的章节屏幕替换成 errorState.
     private func loadChapter(index: Int, silent: Bool = false) async {
         guard index >= 0 else { return }
-        if contentCache[index] != nil { return }
+        if contentCache[index] != nil {
+            loadingIndices.remove(index)
+            updateLoadingState()
+            return
+        }
         // 万象书屋 (bug 2 fix): 已被 cancel 的 task 不复用, 直接清掉新建
         if let task = inflight[index] {
             if task.isCancelled {
@@ -329,6 +346,8 @@ public final class ReaderEngine: ObservableObject {
             defer { inflight.removeValue(forKey: index) }
             let body = try await task.value
             contentCache[index] = body
+            touchCacheAccess(index)
+            evictOldCacheIfNeeded()
             self.lastError = nil
         } catch is CancellationError {
             // 用户切走了, 忽略 (defer 已清 inflight)
@@ -453,6 +472,28 @@ public final class ReaderEngine: ObservableObject {
                 continue
             }
             Task(priority: .utility) { await loadChapter(index: target, silent: true) }
+        }
+    }
+    // MARK: - 内存缓存 LRU 淘汰
+
+    private func touchCacheAccess(_ index: Int) {
+        cacheAccessOrder.removeAll(where: { $0 == index })
+        cacheAccessOrder.append(index)
+    }
+
+    /// 淘汰最久未访问的章节正文, 但保留当前章 ±1 (跨章翻页需要)
+    private func evictOldCacheIfNeeded() {
+        guard contentCache.count > Self.maxCachedChapters else { return }
+        let curr = currentChapterIndex
+        let keep: Set<Int> = [curr - 1, curr, curr + 1]
+        while contentCache.count > Self.maxCachedChapters, !cacheAccessOrder.isEmpty {
+            let oldest = cacheAccessOrder.removeFirst()
+            if keep.contains(oldest) {
+                cacheAccessOrder.append(oldest)
+                if cacheAccessOrder.count <= keep.count { break }
+                continue
+            }
+            contentCache.removeValue(forKey: oldest)
         }
     }
 }

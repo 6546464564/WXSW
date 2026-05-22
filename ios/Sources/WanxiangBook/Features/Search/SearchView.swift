@@ -223,7 +223,7 @@ struct SearchView: View {
             if !keyword.isEmpty {
                 Button {
                     keyword = ""
-                    vm.results = []
+                    vm.cancelAndClear()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(WanxiangColors.textSecondary)
@@ -411,7 +411,7 @@ struct SearchView: View {
     private func debounce(_ text: String) {
         debounceTask?.cancel()
         guard !text.isEmpty else {
-            vm.results = []
+            vm.cancelAndClear()
             return
         }
         let prec = precisionSearch
@@ -709,6 +709,22 @@ final class SearchViewModel: ObservableObject {
         loadHistory()
     }
 
+    /// 安全清空搜索结果并取消正在运行的搜索任务。
+    /// View 层清空关键词时必须调用此方法，而非直接赋值 `results = []`。
+    func cancelAndClear() {
+        currentTask?.cancel()
+        currentTask = nil
+        enrichmentTask?.cancel()
+        enrichmentTask = nil
+        searchGeneration += 1
+        results = []
+        errors = []
+        dedupeRowIndex.removeAll()
+        rowVariants.removeAll()
+        enrichedKeys.removeAll()
+        isSearching = false
+    }
+
     /// 检查源是否被拉黑 (M2.4.7)
     private func isBlocked(_ url: String) -> Bool {
         guard let entry = sourceFailures[url], let until = entry.1 else { return false }
@@ -772,8 +788,8 @@ final class SearchViewModel: ObservableObject {
         }
 
         currentTask = Task {
-            // BookSourceEngine.searchAll 是 AsyncStream, 边出边渲染
             let stream = await BookSourceEngine.shared.searchAll(in: sources, key: key)
+            var hitSourceCount = 0
             for await (source, result) in stream {
                 if Task.isCancelled || generation != self.searchGeneration { break }
                 // 万象书屋 (M2.8): 记录单源 search 表现给 SourcePerformanceTracker.
@@ -817,7 +833,7 @@ final class SearchViewModel: ObservableObject {
                         // 万象书屋 (2026-05-11): 同时落进程级 cache, 让 BookDetailView 在 TOC fallback
                         // 时能拿到每个备用源**自己的 bookUrl**, 而不是用主 row 的 bookUrl 跨源乱用.
                         SearchVariantsCache.shared.set(key: dk, variants: self.rowVariants[dk] ?? [])
-                        if let idx = self.dedupeRowIndex[dk] {
+                        if let idx = self.dedupeRowIndex[dk], idx < self.results.count {
                             var row = self.results[idx]
                             var seen = Set<String>([row.origin])
                             seen.formUnion(row.mergedSourceURLs)
@@ -862,6 +878,12 @@ final class SearchViewModel: ObservableObject {
                     // iOS 之前按 AsyncStream 完成顺序追加, 导致同一关键词下与安卓列表顺序差很多
                     // (用户体感「搜青山两边不一样」).
                     self.applyLegadoStyleOrdering()
+                    if !books.isEmpty { hitSourceCount += 1 }
+                    // 快源 (SourcePerformanceTracker 排序) 先返, 累积足够结果后提前结束,
+                    // 避免为剩余慢源/死源持续占 CPU 2-3 分钟.
+                    if hitSourceCount >= 25, self.results.count >= 30 {
+                        break
+                    }
                 case .failure(let err):
                     if generation != self.searchGeneration { break }
                     self.recordFailure(source.bookSourceUrl)

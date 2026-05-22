@@ -103,8 +103,11 @@ public final class TtsEngine: NSObject, ObservableObject {
     /// 开始朗读 (从当前章 0 句开始)
     public func play() async {
         guard !chapters.isEmpty, let book = currentBook else { return }
+        guard currentChapterIndex >= 0, currentChapterIndex < chapters.count else {
+            state = .idle
+            return
+        }
         state = .loading
-        // 拉章节正文 → 拆句
         let chapter = chapters[currentChapterIndex]
         do {
             let content = try await loadChapterContent(book: book, chapter: chapter)

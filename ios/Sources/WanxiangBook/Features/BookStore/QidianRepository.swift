@@ -194,6 +194,7 @@ actor QidianRepository {
         let name = obj.trimmedString(forKey: "name")
         guard !name.isEmpty else { return nil }
         let bid = obj.stringNumber(forKey: "bid")
+        guard !bid.isEmpty else { return nil }
         let cover = obj.trimmedString(forKey: "coverUrl").nonEmpty
             ?? (bid.isEmpty ? "" : String(format: coverTemplate, bid))
         return QidianBook(
