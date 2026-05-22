@@ -89,6 +89,7 @@ enum CrashHandler {
     static func _formatExceptionAndPersist(_ exception: NSException) {
         let dump = formatException(exception)
         persist(dump)
+        CrashlyticsBootstrap.log("CrashHandler caught: \(exception.name.rawValue)")
     }
 
     // MARK: - 延后上报

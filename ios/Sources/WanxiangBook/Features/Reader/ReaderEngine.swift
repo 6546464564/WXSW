@@ -83,11 +83,9 @@ public final class ReaderEngine: ObservableObject {
         updateLoadingState()
 
         // 隐式加架: 无论后续 TOC 是否成功, 必须保证书在 books 表 (idempotent).
-        // 用 detached 后台写, 不阻塞首屏; 但必须在任何 early-return 之前发起.
-        let bookCopy = book
-        Task.detached(priority: .utility) {
-            try? await BookshelfRepository.shared.add(bookCopy)
-        }
+        // await 而非 detached — 30ms DB write 相对于后续网络 IO 可忽略,
+        // 且保证 bootstrap 返回时书一定已入库 (ASan 等慢速环境不会竞态).
+        try? await BookshelfRepository.shared.add(book)
 
         // Step 1: 加载目录 (cache-first, 不能后台跑 — 后续 loadChapter 依赖 chapters).
         // 万象书屋 (perf): updateTotalChapters 等后台 DB 写延到

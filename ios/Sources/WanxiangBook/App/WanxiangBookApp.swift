@@ -367,6 +367,10 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         // M2.1.7: 全局崩溃捕获 (在第一行业务代码之前安装)
         CrashHandler.install()
+        // Firebase Crashlytics (仅当 GoogleService-Info.plist 存在时初始化)
+        CrashlyticsBootstrap.configure()
+        // MetricKit 系统级诊断收集
+        MetricKitSubscriber.shared.start()
         return true
     }
 }
