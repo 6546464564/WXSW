@@ -45,14 +45,6 @@ final class MetricKitSubscriber: NSObject, MXMetricManagerSubscriber {
                 }
             }
 
-            if CrashlyticsBootstrap.isActive {
-                CrashlyticsBootstrap.record(
-                    error: NSError(domain: "MetricKit", code: -1, userInfo: [
-                        NSLocalizedDescriptionKey: summary
-                    ]),
-                    context: ["source": "MetricKit"]
-                )
-            }
         }
     }
 

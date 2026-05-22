@@ -68,7 +68,6 @@
 		5C436CFF1A54203E3CEFD8F6 /* BookCover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AF56AF621CA05560E6D452A /* BookCover.swift */; };
 		5C4B031B9B8E0DB9B504E4EE /* ChapterRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB2BB763F4E75D06B7EC2DE8 /* ChapterRepository.swift */; };
 		5C8B6CF2A81728DF1FA4CFD9 /* CrashHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2CBACD33F8FF232AE9B305 /* CrashHandler.swift */; };
-		FBCA000100010001FBCA0001 /* CrashlyticsBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBCA000100010001FBCA0002 /* CrashlyticsBootstrap.swift */; };
 		FBCA000100010001FBCA0003 /* MetricKitSubscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBCA000100010001FBCA0004 /* MetricKitSubscriber.swift */; };
 		5CAD786C68D4FC363462F140 /* AdServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5E5D024E76766B81CC4EB468 /* AdServices.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		5EB6331086B7ED2BCFD25F95 /* QrCodeScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C2CEFED83A02B532BBFF60 /* QrCodeScanner.swift */; };
@@ -235,7 +234,6 @@
 		1C85EC37809F8A96EF346F3A /* AutoReadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoReadController.swift; sourceTree = "<group>"; };
 		1D74D7E0AFA8B0C8C02E6CA8 /* ChangeSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSourceView.swift; sourceTree = "<group>"; };
 		1E2CBACD33F8FF232AE9B305 /* CrashHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashHandler.swift; sourceTree = "<group>"; };
-		FBCA000100010001FBCA0002 /* CrashlyticsBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashlyticsBootstrap.swift; sourceTree = "<group>"; };
 		FBCA000100010001FBCA0004 /* MetricKitSubscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricKitSubscriber.swift; sourceTree = "<group>"; };
 		1F175D2AFF6477148D8717B8 /* CoreMotion.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMotion.framework; path = System/Library/Frameworks/CoreMotion.framework; sourceTree = SDKROOT; };
 		2167D285604662CF7070F4DD /* JsLibCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsLibCache.swift; sourceTree = "<group>"; };
@@ -832,7 +830,6 @@
 				8EA678B33A428AE0DE29981B /* ATTPrompt.swift */,
 				F89DC180C0DF6E20D18337E6 /* BookSourceRegistry.swift */,
 				1E2CBACD33F8FF232AE9B305 /* CrashHandler.swift */,
-				FBCA000100010001FBCA0002 /* CrashlyticsBootstrap.swift */,
 				FBCA000100010001FBCA0004 /* MetricKitSubscriber.swift */,
 				DA08E294CC9C432AF13E1253 /* ReadingSettings.swift */,
 				8CCF4353E5A4CB18AECB2869 /* RootView.swift */,
@@ -1030,8 +1027,6 @@
 			packageProductDependencies = (
 				0A25805F3871BE0F273E44E8 /* SwiftSoup */,
 				8367F8EC6A768A23C7677D4E /* ZIPFoundation */,
-				A1B2C3D4E5F60001FBCA0001 /* FirebaseCrashlytics */,
-				A1B2C3D4E5F60001FBCA0002 /* FirebaseAnalyticsWithoutAdIdSupport */,
 			);
 			productName = WanxiangBook;
 			productReference = 0759EBC0555A4B61C14E482B /* WanxiangBook.app */;
@@ -1085,7 +1080,6 @@
 			packageReferences = (
 				6C5349A68174FC888C1667DF /* XCRemoteSwiftPackageReference "SwiftSoup" */,
 				3F8BFF75781509F455CBBD95 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
-				A1B2C3D4E5F60001FBCA0003 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			projectDirPath = "";
 			projectRoot = "";
@@ -1183,7 +1177,6 @@
 				16B3F2E11B6FE6C6159F32EA /* ContentParser.swift in Sources */,
 				C3BF13F54313B10FE52EF798 /* CookieJarStore.swift in Sources */,
 				5C8B6CF2A81728DF1FA4CFD9 /* CrashHandler.swift in Sources */,
-				FBCA000100010001FBCA0001 /* CrashlyticsBootstrap.swift in Sources */,
 				FBCA000100010001FBCA0003 /* MetricKitSubscriber.swift in Sources */,
 				5689CB8FB3B10FB549F121E3 /* CsjAdProvider.swift in Sources */,
 				70A22AAB8409CE6CE5C91A59 /* DB.swift in Sources */,
@@ -1612,14 +1605,6 @@
 				minimumVersion = 2.7.5;
 			};
 		};
-		A1B2C3D4E5F60001FBCA0003 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 11.0.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1632,16 +1617,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 3F8BFF75781509F455CBBD95 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
 			productName = ZIPFoundation;
-		};
-		A1B2C3D4E5F60001FBCA0001 /* FirebaseCrashlytics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A1B2C3D4E5F60001FBCA0003 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseCrashlytics;
-		};
-		A1B2C3D4E5F60001FBCA0002 /* FirebaseAnalyticsWithoutAdIdSupport */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A1B2C3D4E5F60001FBCA0003 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAnalyticsWithoutAdIdSupport;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
