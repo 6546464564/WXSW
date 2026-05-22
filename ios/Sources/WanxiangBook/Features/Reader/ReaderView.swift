@@ -250,7 +250,7 @@ public struct ReaderView: View {
                 debouncedRepaginate()
             }
             .onChange(of: engine.chapterContentRevision) { _, _ in
-                repaginateCurrent()
+                debouncedRepaginate()
             }
             // 任何排版字段变化都要重新分页
             .onReceive(config.$textSize.combineLatest(
