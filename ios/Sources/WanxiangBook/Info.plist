@@ -79,7 +79,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>20260520.3</string>
+	<string>20260521.1</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -410,17 +410,6 @@
 		<dict>
 			<key>SKAdNetworkIdentifier</key>
 			<string>u679fj5vs4.skadnetwork</string>
-		</dict>
-	</array>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>wanxiang</string>
-			</array>
-			<key>CFBundleURLName</key>
-			<string>com.wanxiang.reader</string>
 		</dict>
 	</array>
 	<key>UIApplicationSceneManifest</key>

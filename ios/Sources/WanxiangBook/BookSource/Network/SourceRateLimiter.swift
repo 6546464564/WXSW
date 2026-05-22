@@ -56,47 +56,50 @@ public actor SourceRateLimiter {
     // MARK: - 单值: 最小间隔
 
     private func acquireInterval(key: String, intervalMs: Int) async {
-        let now = nowMs()
-        var rec = records[key] ?? Record()
-        let earliest = rec.lastFireMs + Int64(intervalMs)
-        if earliest > now {
-            let waitMs = earliest - now
-            // 万象书屋: 释放 actor 等待 (sleep 期间其它源可继续 acquire 自己的 record)
-            //   - sleep 完后必须重新 read records[key], 期间可能被别人改过
-            records[key] = rec   // 写回当前 read (避免 sleep 后下面 mutate 时覆盖别人的写)
-            try? await Task.sleep(nanoseconds: UInt64(waitMs) * 1_000_000)
-            rec = records[key] ?? Record()
+        // 万象书屋 (bug fix): actor 在 Task.sleep 期间挂起, 多个并发任务可能同时等待同一 key.
+        // 唤醒后必须重新读取 records[key] 并循环校验 — 否则多个任务会在同一时刻通过限速器,
+        // 实际打出 N×1 并发请求, 触发反爬封 IP.
+        while true {
+            let now = nowMs()
+            var rec = records[key] ?? Record()
+            let earliest = rec.lastFireMs + Int64(intervalMs)
+            guard earliest > now else {
+                // 时间窗已过, 可以放行
+                rec.lastFireMs = now
+                records[key] = rec
+                return
+            }
+            // 需要等待: 先写回当前 snapshot 再 sleep (让其他 key 的并发任务不被我的 sleep 阻塞)
+            records[key] = rec
+            try? await Task.sleep(nanoseconds: UInt64(earliest - now) * 1_000_000)
+            // 唤醒后循环重新检查 (期间可能有其他任务已更新 lastFireMs)
         }
-        rec.lastFireMs = nowMs()
-        records[key] = rec
     }
 
     // MARK: - X/Y 窗口: capacity 次每 periodMs
 
     private func acquireWindow(key: String, capacity: Int, periodMs: Int) async {
         guard capacity > 0 else { return }
-        var rec = records[key] ?? Record()
-        if rec.ring.capacity < capacity { rec.ring.reserveCapacity(capacity) }
-        let now = nowMs()
-        // 清掉窗口外的旧 timestamp
-        let cutoff = now - Int64(periodMs)
-        rec.ring.removeAll(where: { $0 < cutoff })
+        // 万象书屋 (bug fix): 同 acquireInterval — 唤醒后必须循环重新检查窗口状态
+        while true {
+            var rec = records[key] ?? Record()
+            if rec.ring.capacity < capacity { rec.ring.reserveCapacity(capacity) }
+            let now = nowMs()
+            let cutoff = now - Int64(periodMs)
+            rec.ring.removeAll(where: { $0 < cutoff })
 
-        if rec.ring.count >= capacity {
-            // 窗口已满: 等到最早一个 timestamp 出窗口
+            if rec.ring.count < capacity {
+                // 窗口未满, 放行
+                rec.ring.append(nowMs())
+                records[key] = rec
+                return
+            }
+            // 窗口已满: 等到最早一个 timestamp 出窗口后再循环重新检查
             let oldest = rec.ring.first ?? now
-            let waitMs = max(0, oldest + Int64(periodMs) - now)
+            let waitMs = max(1, oldest + Int64(periodMs) - now)
             records[key] = rec
             try? await Task.sleep(nanoseconds: UInt64(waitMs) * 1_000_000)
-            rec = records[key] ?? Record()
-            // sleep 后再清一次窗口
-            let now2 = nowMs()
-            let cutoff2 = now2 - Int64(periodMs)
-            rec.ring.removeAll(where: { $0 < cutoff2 })
         }
-
-        rec.ring.append(nowMs())
-        records[key] = rec
     }
 
     // MARK: - 解析 concurrentRate 字符串

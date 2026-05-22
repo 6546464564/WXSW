@@ -660,10 +660,16 @@ public struct ReaderView: View {
         ScrollView {
             LazyVStack(spacing: config.paragraphSpacing) {
                 // 滚动模式：滚到顶部时加载上一章
+                // 防抖: scrollPagerPrevLoading 避免 LazyVStack 重渲染时 onAppear 连续触发多次切章
                 if engine.currentChapterIndex > 0 {
                     Color.clear.frame(height: 1)
                         .onAppear {
-                            Task { await engine.previousChapter() }
+                            guard !scrollPagerPrevLoading else { return }
+                            scrollPagerPrevLoading = true
+                            Task {
+                                await engine.previousChapter()
+                                scrollPagerPrevLoading = false
+                            }
                         }
                 }
                 ForEach(pages) { page in
@@ -676,8 +682,13 @@ public struct ReaderView: View {
                     if let last = pages.last {
                         Color.clear.frame(height: 1)
                             .onAppear {
-                                Task { await engine.nextChapter() }
+                                guard !scrollPagerNextLoading else { return }
+                                scrollPagerNextLoading = true
                                 _ = last
+                                Task {
+                                    await engine.nextChapter()
+                                    scrollPagerNextLoading = false
+                                }
                             }
                     }
                 }
@@ -1070,6 +1081,11 @@ public struct ReaderView: View {
     @State private var crossChapterTargetPageId: String? = nil
     /// 万象书屋: 首次分页后是否已经恢复了页内进度 (每个 ReaderView 实例只恢复一次)
     @State private var hasRestoredPagePosition = false
+    /// 万象书屋: 阅读计时开始时间 — 用于 stopReadingTimer 准确计算本次 session 剩余不足 60s 的秒数
+    @State private var readTimerStartDate: Date? = nil
+    /// 万象书屋: 滚动模式上/下章节加载防抖标记 — 防止 onAppear 在重渲染时连续触发多次切章
+    @State private var scrollPagerPrevLoading = false
+    @State private var scrollPagerNextLoading = false
 
     /// - Parameter targetPageId: 若非 nil, 且在重建后的 pages 中存在, 则保持该页为 currentPageId.
     ///   用于跨章节翻页场景 (用户滑进相邻章节), 防止章节切换时 UI 跳回首页.
@@ -1175,6 +1191,7 @@ public struct ReaderView: View {
 
     private func startReadingTimer() {
         readingSecondsAccrued = 0
+        readTimerStartDate = Date()
         readTimer?.invalidate()
         readTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             Task { @MainActor in
@@ -1188,10 +1205,20 @@ public struct ReaderView: View {
     private func stopReadingTimer() {
         readTimer?.invalidate()
         readTimer = nil
-        // 退出时把不足 1 分钟的零头也算上 (取整 30 秒以上算 1 分钟)
+        // 退出时把已计时但还没满 60s 的零头一并写入
+        // 例: 阅读 5m45s → 定时器已累计 5×60=300s, 剩余 45s 这里补记
+        let totalElapsed = readTimerStartDate.map { Int(Date().timeIntervalSince($0)) } ?? 0
+        readTimerStartDate = nil
+        let remaining = max(0, totalElapsed - readingSecondsAccrued)
         if readingSecondsAccrued == 0 {
+            // 读了不到 1 分钟就退出 — 至少记 30 秒, 避免极短阅读完全丢失
+            let toAdd = max(30, remaining)
             Task {
-                try? await ReadRecordRepository.shared.addSeconds(bookUrl: engine.book.bookUrl, seconds: 30)
+                try? await ReadRecordRepository.shared.addSeconds(bookUrl: engine.book.bookUrl, seconds: toAdd)
+            }
+        } else if remaining >= 10 {
+            Task {
+                try? await ReadRecordRepository.shared.addSeconds(bookUrl: engine.book.bookUrl, seconds: remaining)
             }
         }
     }

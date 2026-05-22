@@ -232,6 +232,7 @@ public final class TtsEngine: NSObject, ObservableObject {
         u.pitchMultiplier = clamp(pitch, 0.5, 2.0)
         u.volume = clamp(volume, 0.0, 1.0)
         if let voice = pickVoice() { u.voice = voice }
+        activateAudioSession()
         synth.speak(u)
         state = .speaking
     }
@@ -324,13 +325,22 @@ public final class TtsEngine: NSObject, ObservableObject {
 
     // MARK: - AVAudioSession
 
+    /// 仅配置 category，不激活 session（不打断后台音乐）
     private func setupAudioSession() {
         do {
             try AVAudioSession.sharedInstance()
                 .setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        } catch {
+            print("[TtsEngine] AVAudioSession setCategory failed: \(error)")
+        }
+    }
+
+    /// 真正开始朗读前激活 session（此时才应该打断/duck 其他音频）
+    private func activateAudioSession() {
+        do {
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            print("[TtsEngine] AVAudioSession failed: \(error)")
+            print("[TtsEngine] AVAudioSession setActive failed: \(error)")
         }
     }
 

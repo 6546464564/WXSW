@@ -155,11 +155,23 @@ struct AccountDeleteView: View {
 
         // 5. UserDefaults 关键键清空 (保留主题偏好)
         let defaults = UserDefaults.standard
+        // 静态 key 直接删除
         for key in [
             "wanxiang.search.history",
             "wanxiang.pending_crash",
             "wanxiang.purified.unlock_until",
+            "wanxiang.ad.consented_v1",         // 广告同意状态
+            "wanxiang.ad.config_v1",             // 广告配置缓存
         ] {
+            defaults.removeObject(forKey: key)
+        }
+        // 动态 key: TTS 听书断点 (wx.tts.resume.<bookUrl>)
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("wx.tts.resume.") {
+            defaults.removeObject(forKey: key)
+        }
+        // 动态 key: 书源 JS KV (wx.sourceVariable.*) 和书源登录态 (wx.sourceLogin.*)
+        for key in defaults.dictionaryRepresentation().keys
+            where key.hasPrefix("wx.sourceVariable.") || key.hasPrefix("wx.sourceLogin.") {
             defaults.removeObject(forKey: key)
         }
 

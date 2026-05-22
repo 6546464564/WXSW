@@ -234,11 +234,22 @@ actor DB {
     }
 
     /// 万象书屋: 注销账号时清空全部表 (PIPL 必须)
+    /// 包含所有含用户个人数据的表: books / chapters / bookmarks / search history / progress 等
     func wipeAll() async throws {
         try await openIfNeeded()
         guard let h = handle else { return }
-        let tables = ["books", "book_chapters", "book_sources",
-                      "search_keywords", "read_progress"]
+        let tables = [
+            "books",
+            "book_chapters",
+            "book_sources",
+            "search_keywords",
+            "read_progress",
+            "bookmarks",          // 含用户笔记 (note 字段) — 个人数据
+            "replace_rules",      // 用户自定义替换规则
+            "dict_rules",         // 用户自定义词典规则
+            "txt_toc_rules",      // 用户自定义 TXT 目录规则
+            "book_groups",        // 用户自定义书架分组
+        ]
         for t in tables {
             sqlite3_exec(h, "DELETE FROM \(t);", nil, nil, nil)
         }

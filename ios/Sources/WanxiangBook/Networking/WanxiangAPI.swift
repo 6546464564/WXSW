@@ -438,8 +438,14 @@ actor WanxiangAPI {
 
     private nonisolated func currentIDFV() -> String? {
         #if canImport(UIKit)
-        // 万象书屋: identifierForVendor 在初次 launch 可能为 nil, 兜底 UUID
-        return UIDevice.current.identifierForVendor?.uuidString
+        // UIDevice.current 是 MainActor 隔离的属性; 这里在任意线程均能安全读取:
+        // 若已在主线程直接访问, 否则通过 DispatchQueue.main.sync 调度到主线程.
+        // 注意: 不可在主线程内再 sync 主队列, 否则死锁 — Thread.isMainThread 防护.
+        if Thread.isMainThread {
+            return UIDevice.current.identifierForVendor?.uuidString
+        } else {
+            return DispatchQueue.main.sync { UIDevice.current.identifierForVendor?.uuidString }
+        }
         #else
         return nil
         #endif

@@ -154,14 +154,8 @@ final class AppState: ObservableObject {
         await WanxiangAnalytics.shared.start()
         // 设备注册失败不影响主流程 (纯统计用途), 静默忽略
         try? await WanxiangAPI.shared.registerDeviceIfNeeded()
-        do {
-            await BookSourceRegistry.shared.bootstrap()
-            isBootstrapped = true
-        } catch {
-            lastError = "\(error)"
-            bootstrapFailed = true
-            isBootstrapped = true
-        }
+        await BookSourceRegistry.shared.bootstrap()
+        isBootstrapped = true
         // 万象书屋: PromoCodeManager 优先拉 — 用户可能很快进 Gate 输入反馈码，
         // 必须先于 ping/公告/版本/广告配置就绪，用 .userInitiated 优先级独立跑。
         Task.detached(priority: .userInitiated) {
