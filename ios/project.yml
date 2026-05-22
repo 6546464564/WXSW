@@ -93,6 +93,8 @@ targets:
     info:
       path: Sources/WanxiangBook/Info.plist
       properties:
+        # 出口合规: 仅使用标准 HTTPS/TLS，属苹果豁免范围，自动跳过出口合规弹窗
+        ITSAppUsesNonExemptEncryption: false
         # 万象书屋: 跟 Android applicationId 一致
         CFBundleDisplayName: 二维码生成
         CFBundleShortVersionString: "1.0.0"
