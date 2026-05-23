@@ -36,10 +36,21 @@ actor BookstoreMirror {
     private var cachedAt: Date = .distantPast
     private var cachedEtag: String?
 
+    private static let diskURL: URL = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = base.appendingPathComponent("com.wanxiang.reader", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("bookstore_mirror.json")
+    }()
+    private static let etagDefaultsKey = "bookstore_mirror_etag"
+
     /// 拉 mirror payload (JSON object).
     /// - parameter forceRefresh: true 时跳过内存 cache 强制发请求 (下拉刷新)
     /// - returns: 后端 cache JSON; nil = 后端不可用 / cache 全空 / 网络失败 — 调用方应降级直抓 m.qidian
     func fetch(forceRefresh: Bool = false) async -> [String: Any]? {
+        if cachedPayload == nil {
+            loadDiskCacheIfNeeded()
+        }
         if !forceRefresh,
            let mem = cachedPayload,
            Date().timeIntervalSince(cachedAt) < memCacheTtl {
@@ -98,6 +109,7 @@ actor BookstoreMirror {
             }
             switch http.statusCode {
             case 304:
+                loadDiskCacheIfNeeded()
                 cachedAt = Date()
                 if let mem = cachedPayload {
                     return .ok(mem)
@@ -117,6 +129,7 @@ actor BookstoreMirror {
                 cachedPayload = obj
                 cachedAt = Date()
                 cachedEtag = http.value(forHTTPHeaderField: "ETag")
+                persistDisk(payload: obj, etag: cachedEtag)
                 return .ok(obj)
             case 503:
                 return .definitive("503 mirror not ready, fallback")
@@ -133,5 +146,28 @@ actor BookstoreMirror {
         cachedPayload = nil
         cachedAt = .distantPast
         cachedEtag = nil
+        try? FileManager.default.removeItem(at: Self.diskURL)
+        UserDefaults.standard.removeObject(forKey: Self.etagDefaultsKey)
+    }
+
+    private func loadDiskCacheIfNeeded() {
+        guard cachedPayload == nil else { return }
+        guard let data = try? Data(contentsOf: Self.diskURL),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            cachedEtag = UserDefaults.standard.string(forKey: Self.etagDefaultsKey)
+            return
+        }
+        cachedPayload = obj
+        cachedAt = Date()
+        cachedEtag = UserDefaults.standard.string(forKey: Self.etagDefaultsKey)
+    }
+
+    private func persistDisk(payload: [String: Any], etag: String?) {
+        if let data = try? JSONSerialization.data(withJSONObject: payload) {
+            try? data.write(to: Self.diskURL, options: .atomic)
+        }
+        if let etag, !etag.isEmpty {
+            UserDefaults.standard.set(etag, forKey: Self.etagDefaultsKey)
+        }
     }
 }

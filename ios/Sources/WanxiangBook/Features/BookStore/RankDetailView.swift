@@ -9,7 +9,7 @@
 //   - mode = .finish: 走 m.qidian.com/finish/, 把 4 完结榜合并展示
 //
 //  列表样式: 大封面 (左) + 书名 / 作者 / 分类 chip / 字数 / 简介 (右), 1-3 红徽章, 4+ 灰数字
-//  点击书目: 跳 SearchView 用书名搜本地书源
+//  点击书目: 跳 BookDetailView (stub 找源, 与书城首页一致)
 //
 
 import SwiftUI
@@ -30,14 +30,17 @@ struct RankDetailView: View {
 
     let mode: Mode
     let titleOverride: String?
+    let channel: QidianChannel
 
     @StateObject private var vm = RankDetailViewModel()
-    @State private var searchKeyword: StoreSearchSeed?
+    @State private var detailTarget: BookDetailTarget?
+    @State private var shelfDedupeKeys: Set<String> = []
     @Environment(\.dismiss) private var dismiss
 
-    init(mode: Mode, title: String? = nil) {
+    init(mode: Mode, title: String? = nil, channel: QidianChannel = .male) {
         self.mode = mode
         self.titleOverride = title
+        self.channel = channel
     }
 
     var body: some View {
@@ -51,9 +54,9 @@ struct RankDetailView: View {
                 } else {
                     ForEach(Array(vm.books.enumerated()), id: \.offset) { idx, book in
                         Button {
-                            searchKeyword = StoreSearchSeed(keyword: book.name)
+                            detailTarget = BookDetailTarget(book: book.toSearchStub(), source: nil)
                         } label: {
-                            RankDetailRow(rank: idx + 1, book: book)
+                            RankDetailRow(rank: idx + 1, book: book, onShelf: isOnShelf(book))
                         }
                         .buttonStyle(.plain)
                         .padding(.horizontal, 12)
@@ -66,15 +69,20 @@ struct RankDetailView: View {
         .background(WanxiangColors.background)
         .navigationTitle(titleOverride ?? mode.title)
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await vm.load(mode: mode, force: true) }
-        .task {
-            if vm.books.isEmpty {
-                await vm.load(mode: mode, force: false)
-            }
+        .refreshable { await vm.load(mode: mode, channel: channel, force: true) }
+        .task(id: "\(channel.rawValue)-\(String(describing: mode))") {
+            await vm.load(mode: mode, channel: channel, force: false)
+            await refreshShelfKeys()
         }
-        // 万象书屋 (UX): 搜索改成 NavigationStack push 的全屏单独页, 不再用 sheet 弹框.
-        .navigationDestination(item: $searchKeyword) { seed in
-            SearchView(initialKeyword: seed.keyword, embedded: true)
+        .onReceive(NotificationCenter.default.publisher(for: .wanxiangBookshelfChanged)) { _ in
+            Task { await refreshShelfKeys() }
+        }
+        .onChange(of: detailTarget) { _, new in
+            if new == nil { Task { await refreshShelfKeys() } }
+        }
+        // 万象书屋 (UX): 与书城首页一致 — push BookDetailView, 内部 resolveSourceIfNeeded 找源.
+        .navigationDestination(item: $detailTarget) { t in
+            BookDetailView(book: t.book, source: t.source)
         }
     }
 
@@ -87,6 +95,17 @@ struct RankDetailView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 240)
     }
+
+    private func isOnShelf(_ book: QidianBook) -> Bool {
+        shelfDedupeKeys.contains(book.toSearchStub().dedupeKey)
+    }
+
+    private func refreshShelfKeys() async {
+        let list = (try? await BookshelfRepository.shared.listAll()) ?? []
+        shelfDedupeKeys = Set(list.map {
+            SearchBook(origin: "", originName: "", name: $0.name, author: $0.author, bookUrl: "").dedupeKey
+        })
+    }
 }
 
 // MARK: - Row
@@ -94,6 +113,7 @@ struct RankDetailView: View {
 private struct RankDetailRow: View {
     let rank: Int
     let book: QidianBook
+    var onShelf: Bool = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -106,6 +126,15 @@ private struct RankDetailRow: View {
                     .padding(.vertical, 2)
                     .background(rankBadgeColor.clipShape(Capsule()))
                     .padding(4)
+                if onShelf {
+                    Text("已在书架")
+                        .font(.system(size: 8, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.black.opacity(0.55).clipShape(Capsule()))
+                        .padding(4)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                }
             }
             VStack(alignment: .leading, spacing: 5) {
                 Text(book.name)
@@ -179,23 +208,21 @@ final class RankDetailViewModel: ObservableObject {
     private static let cacheTtl: TimeInterval = 5 * 60
 
     private enum CacheKey: Hashable {
-        case rank(QidianRankType)
+        case rank(QidianChannel, QidianRankType)
         case finish
 
-        init(_ mode: RankDetailView.Mode) {
+        init(_ mode: RankDetailView.Mode, channel: QidianChannel) {
             switch mode {
-            case .rank(let t): self = .rank(t)
+            case .rank(let t): self = .rank(channel, t)
             case .finish: self = .finish
             }
         }
     }
 
-    func load(mode: RankDetailView.Mode, force: Bool) async {
-        if !force && !books.isEmpty { return }
-
-        // 命中进程级 cache: 同步填充, 完全跳过 isLoading
+    func load(mode: RankDetailView.Mode, channel: QidianChannel, force: Bool) async {
+        let cacheKey = CacheKey(mode, channel: channel)
         if !force,
-           let hit = Self.cache[CacheKey(mode)],
+           let hit = Self.cache[cacheKey],
            Date().timeIntervalSince(hit.at) < Self.cacheTtl,
            !hit.books.isEmpty {
             books = hit.books
@@ -205,12 +232,15 @@ final class RankDetailViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
+        let gender: QidianChannel = channel == .publish ? .male : channel
         switch mode {
         case .rank(let type):
-            let result = await QidianRepository.shared.fetchRankPages(type: type, target: targetCount)
+            let result = await QidianRepository.shared.fetchRankPages(
+                type: type, target: targetCount, gender: gender
+            )
             books = result
             if !result.isEmpty {
-                Self.cache[.rank(type)] = (result, Date())
+                Self.cache[cacheKey] = (result, Date())
             }
         case .finish:
             let result = await loadFinishLibrary()
@@ -233,7 +263,7 @@ final class RankDetailViewModel: ObservableObject {
             await MainActor.run {
                 let now = Date()
                 if !yp.isEmpty {
-                    RankDetailViewModel.cache[.rank(.yuepiao)] = (yp, now)
+                    RankDetailViewModel.cache[.rank(.male, .yuepiao)] = (yp, now)
                 }
                 if !fl.isEmpty {
                     RankDetailViewModel.cache[.finish] = (fl, now)

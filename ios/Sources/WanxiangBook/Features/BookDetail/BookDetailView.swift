@@ -704,6 +704,25 @@ struct BookDetailView: View {
                     return nil
                 }
             }
+            // 流 C: 起点 bookId (书城 stub kind 含 qd:123456) — 缩小搜索歧义
+            if let qid = QidianBook.extractQidianId(from: stubKind) {
+                group.addTask {
+                    let stream = await BookSourceEngine.shared.searchAll(
+                        in: candidates, key: "\(bookName) \(qid)",
+                        maxConcurrency: 8, perSourceTimeoutSec: 6
+                    )
+                    for await (src, r) in stream {
+                        if Task.isCancelled { return nil }
+                        guard case .success(let books) = r else { continue }
+                        if let match = books.first(where: {
+                            $0.name == bookName && (bookAuthor.isEmpty || $0.author == bookAuthor)
+                        }) {
+                            return (match, src)
+                        }
+                    }
+                    return nil
+                }
+            }
             // 任一流先返非 nil → 拿到; 取消所有其他流
             for await r in group {
                 if let r = r {

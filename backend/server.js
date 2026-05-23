@@ -890,6 +890,34 @@ app.post('/api/admin/bookstore-mirror/refresh', requireAdmin, requireRole(['supe
   try { const result = await qidianMirror.fetchAndCache(db); logger.info('mirror manual refresh ok', result); res.json({ ok: true, ...result }); }
   catch (e) { qidianMirror.recordFailure(db, e); logger.warn('mirror manual refresh failed', { msg: e.message }); res.status(500).json({ ok: false, msg: e.message }); }
 });
+/** 万象书屋: 从可信 admin 客户端上传完整 mirror JSON (含 ranksFemale). SSH 不可达时的备用发布路径. */
+app.post('/api/admin/bookstore-mirror/publish', requireAdmin, requireRole(['super', 'operator']), largeJson, (req, res) => {
+  const payload = req.body;
+  if (!payload || typeof payload !== 'object' || !payload.ranks) {
+    return res.status(400).json({ ok: false, msg: 'body must be mirror payload with ranks' });
+  }
+  const payloadStr = JSON.stringify(payload);
+  const etag = crypto.createHash('md5').update(payloadStr).digest('hex');
+  const totalBooks = Object.values(payload.ranks).reduce((s, l) => s + (l?.length || 0), 0)
+    + (payload.yuepiaoTop50?.length || 0)
+    + Object.values(payload.finish || {}).reduce((s, l) => s + (l?.length || 0), 0)
+    + (payload.ranksFemale
+      ? Object.values(payload.ranksFemale).reduce((s, l) => s + (l?.length || 0), 0)
+      : 0)
+    + (payload.yuepiaoTop50Female?.length || 0);
+  db.insertBookstoreMirror({
+    version: payload.version || Date.now(),
+    payload: payloadStr,
+    etag,
+    fetched_at: Date.now(),
+    source: payload.source || 'admin-publish',
+    ok: 1,
+    err_msg: null,
+  });
+  db.cleanupOldBookstoreMirror(24);
+  logger.info('mirror admin publish ok', { totalBooks, etag, hasFemale: !!payload.ranksFemale });
+  res.json({ ok: true, totalBooks, etag, version: payload.version || Date.now(), hasFemale: !!payload.ranksFemale });
+});
 app.get('/api/admin/bookstore-mirror/preview', requireAdmin, (req, res) => {
   const row = db.getLatestBookstoreMirror();
   res.set('Content-Type', 'application/json; charset=utf-8'); res.send(row?.payload || '{}');

@@ -84,9 +84,9 @@ async function httpGet(url, extraHeaders = {}) {
   return resp;
 }
 
-/** 万象书屋: GET m.qidian.com/rank/?gender=male → 9 榜 × 5 本 */
-async function fetchRanksAggregate() {
-  const resp = await httpGet(`${BASE}/rank/?gender=male`);
+/** 万象书屋: GET m.qidian.com/rank/?gender=<male|female> → 9 榜 × 5 本 */
+async function fetchRanksAggregate(gender = 'male') {
+  const resp = await httpGet(`${BASE}/rank/?gender=${gender}`);
   const html = await resp.text();
   const pd = extractPageData(html);
   const out = {};
@@ -114,9 +114,9 @@ async function fetchFinishRanks() {
  * 月票榜分页. 起点 m 站只暴露 yuepiao 这一个榜的 majax 分页接口.
  * 必须先 GET SSR 页拿 _csrfToken cookie, 然后带 cookie + query 调 majax.
  */
-async function fetchYuepiao50() {
+async function fetchYuepiao50(gender = 'male') {
   // 第 1 步: GET SSR 页拿 csrf
-  const ssrResp = await httpGet(`${BASE}/rank/yuepiao?gender=male`);
+  const ssrResp = await httpGet(`${BASE}/rank/yuepiao?gender=${gender}`);
   const ssrHtml = await ssrResp.text();
   const setCookies = ssrResp.headers.getSetCookie?.() || [];
   const csrfLine = setCookies.find(c => c.startsWith('_csrfToken='));
@@ -129,9 +129,9 @@ async function fetchYuepiao50() {
 
   // 第 2、3 页通过 majax ajax 拿 (需 Cookie + Referer)
   const cookieHeader = `_csrfToken=${csrf}`;
-  const refererPage = `${BASE}/rank/yuepiao?gender=male`;
+  const refererPage = `${BASE}/rank/yuepiao?gender=${gender}`;
   const fetchPage = async (pageNum) => {
-    const url = `${BASE}/majax/rank/yuepiaolist?_csrfToken=${csrf}&gender=male&pageNum=${pageNum}`;
+    const url = `${BASE}/majax/rank/yuepiaolist?_csrfToken=${csrf}&gender=${gender}&pageNum=${pageNum}`;
     const r = await fetch(url, {
       headers: {
         'User-Agent': UA,
@@ -165,18 +165,32 @@ async function fetchYuepiao50() {
  * 任一子任务失败 → 抛异常, 整次 cron 标记 ok=0, 但 DB 旧 cache 仍可用.
  */
 async function fetchMirrorPayload() {
-  // 三个数据源并发抓, 任一失败抛异常
   const [ranks, yuepiaoTop50, finish] = await Promise.all([
-    fetchRanksAggregate(),
-    fetchYuepiao50(),
+    fetchRanksAggregate('male'),
+    fetchYuepiao50('male'),
     fetchFinishRanks(),
   ]);
+
+  // 女频单独抓; 失败不拖垮整包 mirror (男生/出版仍可用)
+  let ranksFemale = null;
+  let yuepiaoTop50Female = null;
+  try {
+    [ranksFemale, yuepiaoTop50Female] = await Promise.all([
+      fetchRanksAggregate('female'),
+      fetchYuepiao50('female'),
+    ]);
+  } catch (e) {
+    console.warn('[qidianMirror] female fetch failed:', e.message);
+  }
+
   return {
     version: Date.now(),
     fetchedAt: new Date().toISOString(),
     source: 'm.qidian.com',
     ranks,
+    ranksFemale,
     yuepiaoTop50,
+    yuepiaoTop50Female,
     finish,
   };
 }
@@ -193,7 +207,11 @@ async function fetchAndCache(db) {
   // 万象书屋: 统计书目数量给监控展示用
   const totalBooks = Object.values(payload.ranks).reduce((s, l) => s + l.length, 0)
     + payload.yuepiaoTop50.length
-    + Object.values(payload.finish).reduce((s, l) => s + l.length, 0);
+    + Object.values(payload.finish).reduce((s, l) => s + l.length, 0)
+    + (payload.ranksFemale
+      ? Object.values(payload.ranksFemale).reduce((s, l) => s + l.length, 0)
+      : 0)
+    + (payload.yuepiaoTop50Female?.length || 0);
 
   db.insertBookstoreMirror({
     version: payload.version,

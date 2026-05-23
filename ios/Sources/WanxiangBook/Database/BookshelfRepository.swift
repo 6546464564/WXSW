@@ -233,6 +233,7 @@ public actor BookshelfRepository {
                 throw DBError.stepFailed(sqlite3_errcode(handle), String(cString: sqlite3_errmsg(handle)))
             }
         }
+        NotificationCenter.default.post(name: .wanxiangBookshelfChanged, object: nil)
     }
 
     /// 删一本书
@@ -249,6 +250,7 @@ public actor BookshelfRepository {
             // 同步删该书的章节缓存
             sqlite3_exec(handle, "DELETE FROM book_chapters WHERE book_url = '\(escape(bookUrl))'", nil, nil, nil)
         }
+        NotificationCenter.default.post(name: .wanxiangBookshelfChanged, object: nil)
     }
 
     /// 置顶 (orderIdx 设为最小值 - 1)

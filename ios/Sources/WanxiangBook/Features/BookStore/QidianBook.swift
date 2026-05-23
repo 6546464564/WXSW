@@ -67,7 +67,7 @@ struct QidianBook: Hashable, Identifiable {
 
 /// 万象书屋·书城频道 (跟 Android `QidianRepository.Channel` 对齐)
 ///
-/// D-22.1: 起点 m 站对 ?gender=female 反爬挡 + fallback male, 客户端在 RankType 映射上做差异化.
+/// D-22.1: 起点 m 站女频走 mirror.ranksFemale + gender=female 直抓; 不再复用男频数据.
 /// Publish 走独立 endpoint /finish/ (m.qidian 真完结频道, 4 完结榜).
 enum QidianChannel: String, CaseIterable, Identifiable {
     case male, female, publish
@@ -135,5 +135,98 @@ enum QidianRankType: String, CaseIterable {
         case .finishBestSell: return "完本畅销"
         case .finishDs: return "电视剧改编"
         }
+    }
+
+    /// 是否属于 /finish/ 完结频道 4 榜
+    var isFinishRank: Bool {
+        switch self {
+        case .finishClassic, .finishMovie, .finishBestSell, .finishDs: return true
+        default: return false
+        }
+    }
+
+    /// mirror finish JSON 内的 key
+    var finishMirrorKey: String {
+        switch self {
+        case .finishClassic: return "classic"
+        case .finishMovie: return "movie"
+        case .finishBestSell: return "bestSell"
+        case .finishDs: return "ds"
+        default: return ssrKey
+        }
+    }
+
+    /// /finish/<path> 单榜详情 path
+    var finishDetailPath: String? {
+        switch self {
+        case .finishClassic: return "classic"
+        case .finishMovie: return "movie"
+        case .finishBestSell: return "bestSell"
+        case .finishDs: return "ds"
+        default: return nil
+        }
+    }
+}
+
+// MARK: - Search stub / feed mapping
+
+/// 后端 feed 条目 + 可选直达书源 (有 target_url + source_origin 时跳过找源).
+struct BookstoreFeedPick: Identifiable, Hashable {
+    let book: QidianBook
+    let targetURL: String
+    let sourceOrigin: String
+
+    var id: String { book.id }
+}
+
+extension QidianBook {
+    /// 书城 → 详情页找源用的 SearchBook 占位 (bookUrl 空, 详情页 resolveSourceIfNeeded 补源).
+    func toSearchStub() -> SearchBook {
+        let tags = [category, subCategory].filter { !$0.isEmpty }
+        var kindStr = tags.joined(separator: " · ")
+        if !bookId.isEmpty {
+            let marker = "qd:\(bookId)"
+            kindStr = kindStr.isEmpty ? marker : "\(kindStr) · \(marker)"
+        }
+        return SearchBook(
+            origin: "",
+            originName: "起点书城",
+            name: name,
+            author: author,
+            bookUrl: "",
+            coverUrl: coverUrl.isEmpty ? nil : coverUrl,
+            intro: intro.isEmpty ? nil : intro,
+            kind: kindStr.isEmpty ? nil : kindStr,
+            wordCount: wordCount.isEmpty ? nil : wordCount
+        )
+    }
+
+    /// 后端 `/bookstore/feed` 条目 → BookstoreFeedPick (编辑精选等).
+    static func feedPick(from item: [String: Any]) -> BookstoreFeedPick? {
+        guard let name = item["name"] as? String, !name.isEmpty else { return nil }
+        let book = QidianBook(
+            name: name,
+            coverUrl: item["cover_url"] as? String ?? "",
+            author: item["author"] as? String ?? "",
+            category: item["kind"] as? String ?? "",
+            intro: item["intro"] as? String ?? ""
+        )
+        return BookstoreFeedPick(
+            book: book,
+            targetURL: item["target_url"] as? String ?? "",
+            sourceOrigin: item["source_origin"] as? String ?? ""
+        )
+    }
+
+    /// 从 kind 字段解析起点 bookId (格式 `qd:123456`).
+    static func extractQidianId(from kind: String?) -> String? {
+        guard let kind, !kind.isEmpty else { return nil }
+        for part in kind.split(separator: "·").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+            if part.hasPrefix("qd:") {
+                let id = String(part.dropFirst(3))
+                if !id.isEmpty { return id }
+            }
+        }
+        return nil
     }
 }

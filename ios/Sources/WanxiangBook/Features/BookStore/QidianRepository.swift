@@ -71,8 +71,9 @@ actor QidianRepository {
     /// 阅文集团 CDN 封面模板; bookId 替换占位即得最终 URL
     private let coverTemplate = "https://bookcover.yuewen.com/qdbimg/349573/%@/180"
 
-    /// 万象书屋 D-22.3: csrf token 内存缓存. 一次拿到后整个 App 进程都复用.
-    private var cachedCsrfToken: String?
+    /// 万象书屋 D-22.3: csrf token 内存缓存 (男女频分开, majax 校验 cookie 与 gender 一致).
+    private var cachedCsrfTokenMale: String?
+    private var cachedCsrfTokenFemale: String?
 
     /// 万象书屋: URLSession 默认开 cookieAcceptPolicy=onlyFromMainDocumentDomain,
     /// Set-Cookie 自动写到 HTTPCookieStorage.shared, 跳过 Set-Cookie header 合并坑.
@@ -92,15 +93,23 @@ actor QidianRepository {
     // MARK: - Public
 
     /// 抓书城 9 榜单数据.
+    /// - parameter gender: male / female; 女频优先 mirror.ranksFemale, 不偷用男频 cache
     /// - returns: 9 个 RankType → [QidianBook] (每榜 ~5 本); 找不到 SSR JSON 时抛异常.
-    func fetchAllRanks() async throws -> [QidianRankType: [QidianBook]] {
-        if let mirror = await BookstoreMirror.shared.fetch(),
-           let ranksObj = mirror["ranks"] as? [String: Any], !ranksObj.isEmpty {
-            log.debug("ranks from mirror version=\(String(describing: mirror["version"] ?? "?"))")
-            return parseMirrorRanks(ranksObj)
+    func fetchAllRanks(gender: QidianChannel = .male) async throws -> [QidianRankType: [QidianBook]] {
+        if let mirror = await BookstoreMirror.shared.fetch() {
+            let mirrorKey = gender == .female ? "ranksFemale" : "ranks"
+            if let ranksObj = mirror[mirrorKey] as? [String: Any], !ranksObj.isEmpty {
+                log.debug("\(mirrorKey) from mirror version=\(String(describing: mirror["version"] ?? "?"))")
+                return parseMirrorRanks(ranksObj)
+            }
+            // 女频 mirror 尚未就绪时不偷用男频 cache, 继续直抓 female
+            if gender == .male {
+                log.debug("mirror ranks empty, fallback direct")
+            }
         }
-        log.debug("ranks fallback to direct fetch")
-        let url = "\(base)/rank/?gender=male"
+        let genderParam = gender == .female ? "female" : "male"
+        log.debug("ranks fallback to direct fetch gender=\(genderParam)")
+        let url = "\(base)/rank/?gender=\(genderParam)"
         let pageData = try await fetchPageWithSSR(url: url)
         return try parseRanksFromPageData(pageData)
     }
@@ -119,21 +128,28 @@ actor QidianRepository {
     }
 
     /// 万象书屋 D-22.3: 拉多页凑够 [target] 本; 失败的页跳过, 已拿到的不浪费.
-    func fetchRankPages(type: QidianRankType, target: Int = 50) async -> [QidianBook] {
-        // D-23: Yuepiao 优先 mirror.yuepiaoTop50 (50 本现成的)
-        if type == .yuepiao,
-           let mirror = await BookstoreMirror.shared.fetch(),
-           let arr = mirror["yuepiaoTop50"] as? [[String: Any]], !arr.isEmpty {
-            log.debug("yuepiao 50 from mirror size=\(arr.count)")
-            return Array(arr.compactMap { mirrorBookToQidian($0, rankType: .yuepiao) }.prefix(target))
+    func fetchRankPages(type: QidianRankType, target: Int = 50, gender: QidianChannel = .male) async -> [QidianBook] {
+        let genderParam = gender == .female ? "female" : "male"
+        // D-23: Yuepiao 优先 mirror.yuepiaoTop50 / yuepiaoTop50Female
+        if type == .yuepiao {
+            let topKey = gender == .female ? "yuepiaoTop50Female" : "yuepiaoTop50"
+            if let mirror = await BookstoreMirror.shared.fetch(),
+               let arr = mirror[topKey] as? [[String: Any]], !arr.isEmpty {
+                log.debug("\(topKey) from mirror size=\(arr.count)")
+                return Array(arr.compactMap { mirrorBookToQidian($0, rankType: .yuepiao) }.prefix(target))
+            }
         }
 
-        if type != .yuepiao {
-            let all = (try? await fetchAllRanks()) ?? [:]
+        if type.isFinishRank {
+            return await fetchFinishRankPages(type: type, target: target)
+        }
+
+        guard rankDetailPath(type: type) != nil else {
+            let all = (try? await fetchAllRanks(gender: gender)) ?? [:]
             return Array((all[type] ?? []).prefix(target))
         }
 
-        log.debug("yuepiao 50 fallback to direct fetch (SSR + majax)")
+        log.debug("rank pages paginated type=\(type.rawValue) gender=\(genderParam) target=\(target)")
         var out: [QidianBook] = []
         var seen = Set<String>()
         var page = 1
@@ -141,19 +157,50 @@ actor QidianRepository {
             let books: [QidianBook]
             do {
                 books = page == 1
-                    ? try await fetchRankSSR(type: type)
-                    : try await fetchRankAjax(type: type, pageNum: page)
+                    ? try await fetchRankSSR(type: type, gender: gender)
+                    : try await fetchRankAjax(type: type, pageNum: page, gender: gender)
             } catch {
                 log.debug("page=\(page) failed: \(error.localizedDescription)")
                 break
             }
-            log.debug("page=\(page) got=\(books.count) total=\(out.count + books.count)")
             if books.isEmpty { break }
             for b in books where seen.insert(b.bookId).inserted {
                 out.append(b)
             }
             page += 1
         }
+        return Array(out.prefix(target))
+    }
+
+    /// 完结频道单榜扩展到 target 本 (mirror → /finish/<path> SSR records → 合并 4 完结榜兜底).
+    private func fetchFinishRankPages(type: QidianRankType, target: Int) async -> [QidianBook] {
+        var out: [QidianBook] = []
+        var seen = Set<String>()
+
+        if let mirror = await BookstoreMirror.shared.fetch(),
+           let finishObj = mirror["finish"] as? [String: Any],
+           let arr = finishObj[type.finishMirrorKey] as? [[String: Any]] {
+            for b in arr.compactMap({ mirrorBookToQidian($0, rankType: type) }) where seen.insert(b.bookId).inserted {
+                out.append(b)
+            }
+        }
+
+        if out.count < target, let path = type.finishDetailPath {
+            let url = "\(base)/finish/\(path)"
+            if let pageData = try? await fetchPageWithSSR(url: url),
+               let records = pageData["records"] as? [[String: Any]] {
+                for b in records.compactMap({ parseBook($0, rankType: type) }) where seen.insert(b.bookId).inserted {
+                    out.append(b)
+                }
+            }
+        }
+
+        if out.count < target, let ranks = try? await fetchFinishRanks() {
+            for b in ranks[type] ?? [] where seen.insert(b.bookId).inserted {
+                out.append(b)
+            }
+        }
+
         return Array(out.prefix(target))
     }
 
@@ -256,11 +303,12 @@ actor QidianRepository {
     }
 
     /// 万象书屋: SSR 拉单榜第一页 (无需 csrf, 永远稳定)
-    private func fetchRankSSR(type: QidianRankType) async throws -> [QidianBook] {
+    private func fetchRankSSR(type: QidianRankType, gender: QidianChannel = .male) async throws -> [QidianBook] {
         guard let path = rankDetailPath(type: type) else {
             throw QidianRepositoryError.parseFailed("RankType \(type) 无单榜分页 path")
         }
-        let url = "\(base)/rank/\(path)?gender=male"
+        let genderParam = gender == .female ? "female" : "male"
+        let url = "\(base)/rank/\(path)?gender=\(genderParam)"
         log.debug("fetch detail SSR \(url)")
         let pageData = try await fetchPageWithSSR(url: url)
         guard let records = pageData["records"] as? [[String: Any]] else { return [] }
@@ -268,14 +316,15 @@ actor QidianRepository {
     }
 
     /// D-22.3: ajax 拉第 N 页 (N>=2). 需要 _csrfToken.
-    private func fetchRankAjax(type: QidianRankType, pageNum: Int) async throws -> [QidianBook] {
+    private func fetchRankAjax(type: QidianRankType, pageNum: Int, gender: QidianChannel = .male) async throws -> [QidianBook] {
         guard let path = rankAjaxPath(type: type) else {
             throw QidianRepositoryError.parseFailed("RankType \(type) 无 majax path")
         }
-        let csrf = try await ensureCsrfToken()
-        let url = "\(base)/majax/rank/\(path)?_csrfToken=\(csrf)&gender=male&pageNum=\(pageNum)"
+        let genderParam = gender == .female ? "female" : "male"
+        let csrf = try await ensureCsrfToken(gender: gender)
+        let url = "\(base)/majax/rank/\(path)?_csrfToken=\(csrf)&gender=\(genderParam)&pageNum=\(pageNum)"
         log.debug("fetch detail ajax \(url)")
-        let referer = "\(base)/rank/\(rankDetailPath(type: type) ?? "")?gender=male"
+        let referer = "\(base)/rank/\(rankDetailPath(type: type) ?? "")?gender=\(genderParam)"
         let raw = try await fetchString(
             url: url,
             extraHeaders: [
@@ -308,21 +357,26 @@ actor QidianRepository {
     ///   * 用 HTTPCookieStorage.shared.cookies(for:) 拿 cookie, 不再用 value(forHTTPHeaderField:)
     ///     (后者多个 Set-Cookie 合并 + 日期里逗号 → 解析挂掉)
     ///   * URLSession.httpShouldSetCookies = true (默认), Set-Cookie 自动入存储
-    private func ensureCsrfToken() async throws -> String {
-        if let cached = cachedCsrfToken { return cached }
-        let urlStr = "\(base)/rank/yuepiao?gender=male"
+    private func ensureCsrfToken(gender: QidianChannel = .male) async throws -> String {
+        if gender == .female, let cached = cachedCsrfTokenFemale { return cached }
+        if gender != .female, let cached = cachedCsrfTokenMale { return cached }
+        let genderParam = gender == .female ? "female" : "male"
+        let urlStr = "\(base)/rank/yuepiao?gender=\(genderParam)"
         guard let url = URL(string: urlStr) else {
             throw QidianRepositoryError.parseFailed("csrf base URL 非法: \(urlStr)")
         }
         _ = try await fetchString(url: urlStr, extraHeaders: ["Accept": "text/html"])
 
-        // URLSession 把 Set-Cookie 自动塞进 HTTPCookieStorage.shared, 这里直接读取
         let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
         guard let token = cookies.first(where: { $0.name == "_csrfToken" })?.value, !token.isEmpty else {
             throw QidianRepositoryError.parseFailed("响应未带 _csrfToken Set-Cookie (起点改了协议?)")
         }
-        cachedCsrfToken = token
-        log.debug("csrf token cached")
+        if gender == .female {
+            cachedCsrfTokenFemale = token
+        } else {
+            cachedCsrfTokenMale = token
+        }
+        log.debug("csrf token cached gender=\(genderParam)")
         return token
     }
 
