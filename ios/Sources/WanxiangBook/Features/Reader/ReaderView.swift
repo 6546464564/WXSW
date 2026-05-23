@@ -278,11 +278,7 @@ public struct ReaderView: View {
         .statusBarHidden(!menuVisible)
         .preferredColorScheme(config.theme.isDark ? .dark : .light)
         .sheet(isPresented: $styleSheet) {
-            NavigationStack {
-                ReadStyleSheet()
-            }
-            .presentationDetents([.height(280)])
-            .presentationDragIndicator(.visible)
+            ReadStyleSheet().presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $tocSheet) {
             TocView(
