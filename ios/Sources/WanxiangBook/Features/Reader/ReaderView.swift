@@ -19,7 +19,7 @@ public struct ReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var readerScenePhase
     @StateObject private var engine: ReaderEngine
-    @StateObject private var config = ReadConfig.shared
+    @ObservedObject private var config = ReadConfig.shared
     /// 进入阅读器前的系统亮度快照 — 退出时还原，防止自定义亮度泄漏到全局导致黑屏
     @State private var savedSystemBrightness: CGFloat = -1
 
@@ -80,7 +80,7 @@ public struct ReaderView: View {
         .statusBarHidden(!menuVisible)
         .preferredColorScheme(config.theme.isDark ? .dark : .light)
         .sheet(isPresented: $styleSheet) {
-            ReadStyleSheet(config: config).presentationDetents([.medium, .large])
+            ReadStyleSheet().presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $tocSheet) {
             TocView(

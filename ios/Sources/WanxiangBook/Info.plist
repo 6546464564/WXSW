@@ -414,6 +414,12 @@
 			<string>u679fj5vs4.skadnetwork</string>
 		</dict>
 	</array>
+	<key>UIAppFonts</key>
+	<array>
+		<string>NotoSansSC-Regular.otf</string>
+		<string>NotoSerifSC-Regular.otf</string>
+		<string>LXGWWenKai-Regular.ttf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

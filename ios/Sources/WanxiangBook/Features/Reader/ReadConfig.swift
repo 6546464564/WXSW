@@ -20,6 +20,7 @@
 import SwiftUI
 import UIKit
 import Combine
+import CoreText
 
 // MARK: - 翻页方式 (5 种, 跟 Android arrays.xml page_anim 对齐)
 
@@ -158,24 +159,123 @@ public final class ReadConfig: ObservableObject {
         static let fontFamily = "wanxiang.read.fontFamily"
     }
 
-    /// 万象书屋: 中文系统字体白名单 — iOS 内置可用的中文字体, 覆盖大部分用户偏好.
+    /// 万象书屋: 中文阅读字体候选（去重 + 中文显示名）.
     public struct FontOption: Identifiable, Hashable {
-        public let id = UUID()
+        public var id: String { familyName }
         public let displayName: String
         public let familyName: String   // 空字符串 = 系统默认
     }
-    public static let chineseFonts: [FontOption] = [
-        FontOption(displayName: "系统默认",       familyName: ""),
-        FontOption(displayName: "苹方",          familyName: "PingFang SC"),
-        FontOption(displayName: "宋体",          familyName: "Songti SC"),
-        FontOption(displayName: "黑体",          familyName: "Heiti SC"),
-        FontOption(displayName: "楷体",          familyName: "Kaiti SC"),
-        FontOption(displayName: "STSong",       familyName: "STSong"),
-        FontOption(displayName: "STKaiti",      familyName: "STKaiti"),
-        FontOption(displayName: "STFangsong",   familyName: "STFangsong"),
-        FontOption(displayName: "STHeiti",      familyName: "STHeiti"),
-        FontOption(displayName: "Hiragino Sans GB", familyName: "Hiragino Sans GB"),
+
+    private static let chineseFontCandidates: [FontOption] = [
+        FontOption(displayName: "系统默认", familyName: ""),
+        FontOption(displayName: "黑体", familyName: "NotoSansSC-Regular"),
+        FontOption(displayName: "宋体", familyName: "NotoSerifSC-Regular"),
+        FontOption(displayName: "楷体", familyName: "LXGWWenKai-Regular"),
     ]
+
+    private static let bundledFontResources: [(name: String, ext: String)] = [
+        ("NotoSansSC-Regular", "otf"),
+        ("NotoSerifSC-Regular", "otf"),
+        ("LXGWWenKai-Regular", "ttf"),
+    ]
+
+    private static var bundledFontsRegistered = false
+
+    /// 显式注册内置字体（UIAppFonts 之外再保障一次）.
+    private static func ensureBundledFontsRegistered() {
+        guard !bundledFontsRegistered else { return }
+        bundledFontsRegistered = true
+        for res in bundledFontResources {
+            guard let url = Bundle.main.url(forResource: res.name, withExtension: res.ext) else {
+                #if DEBUG
+                NSLog("[WX-Font] bundled font missing: %@.%@", res.name, res.ext)
+                #endif
+                continue
+            }
+            var err: Unmanaged<CFError>?
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, &err)
+        }
+    }
+
+    /// 旧版 / 已移除字体 → 当前 canonical 值.
+    private static let fontFamilyAliases: [String: String] = [
+        "PingFang SC": "",
+        "Heiti SC": "NotoSansSC-Regular",
+        "STHeiti": "NotoSansSC-Regular",
+        "Hiragino Sans GB": "NotoSansSC-Regular",
+        "Hiragino Sans": "NotoSansSC-Regular",
+        "Songti SC": "NotoSerifSC-Regular",
+        "STSong": "NotoSerifSC-Regular",
+        "Kaiti SC": "LXGWWenKai-Regular",
+        "STKaiti": "LXGWWenKai-Regular",
+        "STFangsong": "NotoSerifSC-Regular",
+        "Yuanti SC": "NotoSansSC-Regular",
+        "__system_serif__": "NotoSerifSC-Regular",
+        "__system_rounded__": "NotoSansSC-Regular",
+        "Hiragino Mincho ProN": "NotoSerifSC-Regular",
+        "Hiragino Maru Gothic ProN": "NotoSansSC-Regular",
+    ]
+
+    /// 当前设备可用且不重复的阅读字体.
+    public static var availableChineseFonts: [FontOption] {
+        ensureBundledFontsRegistered()
+        var seenPostScript = Set<String>()
+        var result: [FontOption] = []
+        for opt in chineseFontCandidates {
+            guard isFontAvailable(opt.familyName) else { continue }
+            let ps = resolveUIFont(family: opt.familyName, size: 12).fontName
+            guard seenPostScript.insert(ps).inserted else { continue }
+            result.append(opt)
+        }
+        return result
+    }
+
+    /// 启动时打印设备字体诊断（Debug 构建）.
+    public static func logFontDiagnostics() {
+        #if DEBUG
+        for opt in chineseFontCandidates {
+            let ok = isFontAvailable(opt.familyName)
+            let font = resolveUIFont(family: opt.familyName, size: 12)
+            let inList = availableChineseFonts.contains { $0.familyName == opt.familyName }
+            NSLog("[WX-Font] %@ family=%@ ok=%@ listed=%@ resolved=%@",
+                  opt.displayName, opt.familyName, ok ? "YES" : "NO", inList ? "YES" : "NO", font.fontName)
+        }
+        #endif
+    }
+
+    private static func isFontAvailable(_ family: String) -> Bool {
+        if family.isEmpty { return true }
+        ensureBundledFontsRegistered()
+        return UIFont(name: family, size: 12) != nil
+    }
+
+    /// 按字体族名解析 UIFont（iOS 需通过 fontNames(forFamilyName:) 取具体 face）.
+    nonisolated public static func resolveUIFont(family: String, size: CGFloat, bold: Bool = false) -> UIFont {
+        if family.isEmpty {
+            return bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size)
+        }
+        let base: UIFont?
+        if let named = UIFont(name: family, size: size) {
+            base = named
+        } else if let face = UIFont.fontNames(forFamilyName: family).first,
+                  let font = UIFont(name: face, size: size) {
+            base = font
+        } else {
+            base = nil
+        }
+        guard let base else {
+            return bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size)
+        }
+        if !bold { return base }
+        let desc = base.fontDescriptor.withSymbolicTraits(.traitBold) ?? base.fontDescriptor
+        return UIFont(descriptor: desc, size: size)
+    }
+
+    private static func normalizeFontFamily(_ raw: String) -> String {
+        let aliased = fontFamilyAliases[raw] ?? raw
+        guard !aliased.isEmpty else { return "" }
+        return isFontAvailable(aliased) ? aliased : ""
+    }
 
     private init() {
         let d = UserDefaults.standard
@@ -201,20 +301,16 @@ public final class ReadConfig: ObservableObject {
         self.brightness = (d.value(forKey: K.brightness) as? Int) ?? -1
         self.autoBrightness = d.bool(forKey: K.autoBrightness)
         self.keepScreenOn = (d.value(forKey: K.keepScreenOn) as? Bool) ?? true
-        self.fontFamily = d.string(forKey: K.fontFamily) ?? ""
+        let rawFontFamily = d.string(forKey: K.fontFamily) ?? ""
+        self.fontFamily = Self.normalizeFontFamily(rawFontFamily)
+        if self.fontFamily != rawFontFamily {
+            d.set(self.fontFamily, forKey: K.fontFamily)
+        }
     }
 
     /// 万象书屋: 给 PaginationEngine / SwiftUI Text 用的 UIFont.
     /// fontFamily 空 → 系统默认 (.preferredFont)
     public func uiFont(size: CGFloat? = nil) -> UIFont {
-        let s = size ?? textSize
-        if fontFamily.isEmpty {
-            return UIFont.systemFont(ofSize: s)
-        }
-        // family 取一个具体 face
-        if let descriptor = UIFontDescriptor(name: fontFamily, size: s) as UIFontDescriptor? {
-            return UIFont(descriptor: descriptor, size: s)
-        }
-        return UIFont.systemFont(ofSize: s)
+        Self.resolveUIFont(family: fontFamily, size: size ?? textSize)
     }
 }

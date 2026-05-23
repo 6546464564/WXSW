@@ -70,6 +70,7 @@ targets:
           - "Resources/Assets.xcassets/**"
           - "Resources/*.lproj/**"
           - "Resources/defaultData/**"
+          - "Resources/Fonts/**"
           - "Info.plist"
       - path: Sources/WanxiangBook/Resources/legal
         buildPhase: resources
@@ -88,6 +89,8 @@ targets:
       - path: Sources/WanxiangBook/Resources/defaultData
         buildPhase: resources
         type: folder
+      - path: Sources/WanxiangBook/Resources/Fonts
+        buildPhase: resources
       - path: Frameworks/CSJAdSDK.bundle
         buildPhase: resources
     info:
@@ -105,6 +108,10 @@ targets:
           - zh-Hans
           - zh-Hant
           - en   # 占位; 暂不维护英文翻译, 系统 fallback Base
+        UIAppFonts:
+          - NotoSansSC-Regular.otf
+          - NotoSerifSC-Regular.otf
+          - LXGWWenKai-Regular.ttf
         UILaunchScreen:
           UIImageName: "LaunchLogo"
           UIColorName: "LaunchBackground"

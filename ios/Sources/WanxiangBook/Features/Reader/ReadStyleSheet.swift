@@ -15,7 +15,7 @@ import SwiftUI
 
 struct ReadStyleSheet: View {
 
-    @StateObject private var config = ReadConfig.shared
+    @ObservedObject private var config = ReadConfig.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -45,7 +45,7 @@ struct ReadStyleSheet: View {
                                 .background(Color(.systemGray5))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderless)
 
                         Text("\(Int(config.textSize))")
                             .font(.system(size: 18, weight: .semibold, design: .monospaced))
@@ -60,17 +60,13 @@ struct ReadStyleSheet: View {
                                 .background(Color(.systemGray5))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderless)
+                    }
 
-                        Spacer()
-
-                        Picker("", selection: $config.fontFamily) {
-                            ForEach(ReadConfig.chineseFonts, id: \.familyName) { f in
-                                Text(f.displayName).tag(f.familyName)
-                            }
+                    Picker("字体", selection: $config.fontFamily) {
+                        ForEach(ReadConfig.availableChineseFonts) { f in
+                            Text(f.displayName).tag(f.familyName)
                         }
-                        .labelsHidden()
-                        .fixedSize()
                     }
                 }
 
@@ -82,12 +78,6 @@ struct ReadStyleSheet: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                }
-
-                // 5. 屏幕
-                Section("屏幕") {
-                    Toggle("保持常亮", isOn: $config.keepScreenOn)
-                    Toggle("自动亮度", isOn: $config.autoBrightness)
                 }
             }
             .navigationTitle("阅读样式")
@@ -104,26 +94,28 @@ struct ReadStyleSheet: View {
     // MARK: - 子组件
 
     private func themeCircle(_ t: ReaderThemeKind) -> some View {
-        VStack(spacing: 4) {
-            Circle()
-                .fill(t.background)
-                .frame(width: 36, height: 36)
-                .overlay(
-                    Circle()
-                        .stroke(WanxiangColors.primary, lineWidth: t == config.theme ? 2.5 : 0)
-                )
-                .overlay(
-                    Text("阅")
-                        .font(.caption2)
-                        .foregroundStyle(t.textColor)
-                )
-            Text(t.displayName)
-                .font(.caption2)
-                .foregroundStyle(WanxiangColors.textSecondary)
-        }
-        .onTapGesture {
+        Button {
             config.theme = t
+        } label: {
+            VStack(spacing: 4) {
+                Circle()
+                    .fill(t.background)
+                    .frame(width: 36, height: 36)
+                    .overlay(
+                        Circle()
+                            .stroke(WanxiangColors.primary, lineWidth: t == config.theme ? 2.5 : 0)
+                    )
+                    .overlay(
+                        Text("阅")
+                            .font(.caption2)
+                            .foregroundStyle(t.textColor)
+                    )
+                Text(t.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(WanxiangColors.textSecondary)
+            }
         }
+        .buttonStyle(.borderless)
     }
 
     private func sliderRow<V: BinaryFloatingPoint>(

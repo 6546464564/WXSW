@@ -266,13 +266,7 @@ public struct PaginationEngine {
     }
 
     private static func resolveFont(family: String, size: CGFloat, bold: Bool) -> UIFont {
-        if family.isEmpty {
-            return bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size)
-        }
-        let base = UIFont(name: family, size: size) ?? UIFont(descriptor: UIFontDescriptor(name: family, size: size), size: size)
-        if !bold { return base }
-        let desc = base.fontDescriptor.withSymbolicTraits(.traitBold) ?? base.fontDescriptor
-        return UIFont(descriptor: desc, size: size)
+        ReadConfig.resolveUIFont(family: family, size: size, bold: bold)
     }
 }
 

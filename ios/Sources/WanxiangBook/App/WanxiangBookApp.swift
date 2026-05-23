@@ -15,6 +15,10 @@ struct WanxiangBookApp: App {
     @StateObject private var theme = ThemeManager.shared
 
     init() {
+        ReadConfig.logFontDiagnostics()
+        // #region agent log
+        _runPaginationDiagnostic()
+        // #endregion
         // -downloadAll: 启动后自动下载书架所有书籍（用于性能测试）
         if CommandLine.arguments.contains("-downloadAll") {
             Task { @MainActor in
@@ -380,3 +384,115 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
         NotificationCenter.default.post(name: .wanxiangMemoryWarning, object: nil)
     }
 }
+
+// #region agent log
+import CoreText
+
+private func _runPaginationDiagnostic() {
+    let testText = (1...40).map { "　　这是第\($0)段正文内容，用于测试分页引擎在不同字号下的表现。万象书屋阅读器需要确保每一页的内容都能完整填充可用区域，减少底部空白。" }.joined(separator: "\n")
+    let title = "测试章节标题"
+    let viewportW: CGFloat = 430  // iPhone 17 Pro Max width
+    let viewportH: CGFloat = 885  // approx content area height
+    let padH: CGFloat = 20
+    let padTop: CGFloat = 24
+    let padBot: CGFloat = 18
+    let headerH: CGFloat = 22
+    let footerH: CGFloat = 22
+    let canvasW = viewportW - padH * 2
+    let canvasH = viewportH - padTop - padBot - headerH - footerH
+
+    for textSize in [14, 16, 18, 20, 22, 24, 28] as [CGFloat] {
+        let config = ReadConfigSnapshot(
+            textSize: textSize, lineSpacing: 1.2, paragraphSpacing: 6,
+            letterSpacing: 0, indentChars: 2, fontFamily: ""
+        )
+        let pages = PaginationEngine.paginate(
+            text: testText, chapterIndex: 0, chapterTitle: title,
+            canvasSize: CGSize(width: canvasW, height: canvasH), config: config
+        )
+        _dbg63Log("DIAG textSize=\(textSize) canvasW=\(canvasW) canvasH=\(canvasH) pageCount=\(pages.count)")
+
+        let attrStr = _diagMakeAttr(title: title, body: testText, config: config)
+        let framesetter = CTFramesetterCreateWithAttributedString(attrStr)
+        var startIdx: CFIndex = 0
+        for (pi, page) in pages.enumerated() {
+            let path = CGPath(rect: CGRect(origin: .zero, size: CGSize(width: canvasW, height: canvasH)), transform: nil)
+            let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(startIdx, 0), path, nil)
+            let vis = CTFrameGetVisibleStringRange(frame)
+            let ctLines = CTFrameGetLines(frame) as! [CTLine]
+            var lastY: CGFloat = 0
+            if !ctLines.isEmpty {
+                var origins = [CGPoint](repeating: .zero, count: ctLines.count)
+                CTFrameGetLineOrigins(frame, CFRangeMake(0, ctLines.count), &origins)
+                lastY = origins[ctLines.count - 1].y
+            }
+            var lastAsc: CGFloat = 0, lastDesc: CGFloat = 0, lastLead: CGFloat = 0
+            if let last = ctLines.last { CTLineGetTypographicBounds(last, &lastAsc, &lastDesc, &lastLead) }
+            let usedH = canvasH - lastY + lastDesc
+            let wasteH = lastY - lastDesc
+
+            // Now measure what UITextView.sizeThatFits would return for this page's body text
+            let bodyText: String
+            let titleH: CGFloat
+            let (strippedTitle, rest) = _diagStripTitle(page.text, chapterTitle: title)
+            if strippedTitle != nil {
+                let titleFont = UIFont.boldSystemFont(ofSize: (textSize * 1.5).rounded())
+                let titleAttr = NSAttributedString(string: strippedTitle!, attributes: [.font: titleFont])
+                let titleSz = titleAttr.boundingRect(with: CGSize(width: canvasW, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin], context: nil)
+                titleH = ceil(titleSz.height) + 24
+                bodyText = rest
+            } else {
+                titleH = 0
+                bodyText = page.text
+            }
+
+            let uiFont = UIFont.systemFont(ofSize: textSize)
+            let paraStyle = NSMutableParagraphStyle()
+            paraStyle.lineSpacing = textSize * (1.2 - 1.0)
+            paraStyle.paragraphSpacing = 0
+            paraStyle.paragraphSpacingBefore = 6
+            paraStyle.lineBreakMode = .byCharWrapping
+            let bodyAttr = NSAttributedString(string: bodyText, attributes: [
+                .font: uiFont, .paragraphStyle: paraStyle
+            ])
+            let bodyRect = bodyAttr.boundingRect(with: CGSize(width: canvasW, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            let bodyH = ceil(bodyRect.height)
+            let totalRenderedH = titleH + bodyH
+            let gap = canvasH - totalRenderedH
+
+            _dbg63Log("DIAG page\(pi) sz=\(textSize) lines=\(ctLines.count) visLen=\(vis.length) ctUsedH=\(String(format: "%.1f", usedH)) ctWasteH=\(String(format: "%.1f", wasteH)) titleH=\(String(format: "%.1f", titleH)) bodyH=\(String(format: "%.1f", bodyH)) totalH=\(String(format: "%.1f", totalRenderedH)) gap=\(String(format: "%.1f", gap)) canvasH=\(String(format: "%.1f", canvasH))")
+
+            startIdx += vis.length
+            if pi >= 4 { break }
+        }
+    }
+}
+
+private func _diagMakeAttr(title: String, body: String, config: ReadConfigSnapshot) -> NSAttributedString {
+    let bodyFont = UIFont.systemFont(ofSize: config.textSize)
+    let titleSize = (config.textSize * 1.5).rounded()
+    let titleFont = UIFont.boldSystemFont(ofSize: titleSize)
+    let bodyPara = NSMutableParagraphStyle()
+    bodyPara.lineSpacing = config.textSize * (config.lineSpacing - 1.0)
+    bodyPara.paragraphSpacing = 0
+    bodyPara.paragraphSpacingBefore = config.paragraphSpacing
+    bodyPara.lineBreakMode = .byCharWrapping
+    let titlePara = NSMutableParagraphStyle()
+    titlePara.lineSpacing = titleSize * 0.15
+    titlePara.paragraphSpacing = 24
+    titlePara.lineBreakMode = .byCharWrapping
+    let result = NSMutableAttributedString()
+    result.append(NSAttributedString(string: title + "\n", attributes: [.font: titleFont, .paragraphStyle: titlePara]))
+    let processedBody = PaginationEngine.applyParagraphLayout(body, config: config)
+    result.append(NSAttributedString(string: processedBody, attributes: [.font: bodyFont, .paragraphStyle: bodyPara]))
+    return result
+}
+
+private func _diagStripTitle(_ text: String, chapterTitle: String) -> (String?, String) {
+    let t = chapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty, text.hasPrefix(t) else { return (nil, text) }
+    let rest = text.dropFirst(t.count)
+    if rest.hasPrefix("\n") { return (t, String(rest.dropFirst())) }
+    return (t, String(rest))
+}
+// #endregion
