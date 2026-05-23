@@ -33,7 +33,6 @@ struct ReadStyleSheet: View {
 
                 // 2. 排版
                 Section("排版") {
-                    // 万象书屋 (M2.8): 字体选择 — 系统中文字体 10 种
                     Picker("字体", selection: $config.fontFamily) {
                         ForEach(ReadConfig.chineseFonts, id: \.familyName) { f in
                             Text(f.displayName)
@@ -44,22 +43,6 @@ struct ReadStyleSheet: View {
                         }
                     }
                     sliderRow("字号", value: $config.textSize, range: 12...32, step: 1, format: { "\(Int($0))" })
-                    sliderRow("行距", value: $config.lineSpacing, range: 0.8...2.5, step: 0.05, format: { String(format: "%.2f", $0) })
-                    sliderRow("段距", value: $config.paragraphSpacing, range: 0...30, step: 1, format: { "\(Int($0))" })
-                    sliderRow("字间距", value: $config.letterSpacing, range: 0...3, step: 0.1, format: { String(format: "%.1f", $0) })
-                    Picker("首行缩进", selection: $config.indentChars) {
-                        Text("不缩进").tag(0)
-                        Text("1 字").tag(1)
-                        Text("2 字").tag(2)
-                        Text("3 字").tag(3)
-                        Text("4 字").tag(4)
-                    }
-                }
-
-                // 3. 边距
-                Section("边距") {
-                    sliderRow("上下", value: $config.paddingTop, range: 8...60, step: 1, format: { "\(Int($0))" })
-                    sliderRow("左右", value: $config.paddingHorizontal, range: 8...60, step: 1, format: { "\(Int($0))" })
                 }
 
                 // 4. 翻页
