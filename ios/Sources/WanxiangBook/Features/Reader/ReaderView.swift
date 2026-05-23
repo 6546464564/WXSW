@@ -26,10 +26,13 @@ public struct ReaderView: View {
     @State private var menuVisible: Bool = false
     @GestureState private var dragStartPageId: String? = nil
     @State private var styleSheet: Bool = false
+    /// 字号/字体重排中：禁止 TabView/PVC 的 selection 回调触发 handlePageJump（否则像翻页）
+    @State private var isApplyingStyleChange: Bool = false
     @State private var tocSheet: Bool = false
     @State private var screenSize: CGSize = .zero
     @State private var contentCanvasSize: CGSize = .zero
     @State private var pages: [ReaderPage] = []
+    @State private var chapterAttrCache: [Int: NSAttributedString] = [:]
     @State private var currentPageId: String? = nil
     @State private var readTimer: Timer? = nil
     @State private var readingSecondsAccrued: Int = 0
@@ -62,208 +65,7 @@ public struct ReaderView: View {
 
     public var body: some View {
         GeometryReader { geo in
-            ZStack {
-                config.theme.background.ignoresSafeArea()
-
-                if showFinishedView {
-                    BookFinishedView(
-                        bookName: engine.book.name,
-                        onGoBookshelf: { dismiss() },
-                        onGoBookStore: { dismiss() },
-                        onChangeSource: { /* M2.5.5.1 留 */ },
-                        onWatchAdToContinue: {
-                            Task {
-                                _ = await AdManager.shared.showRewardedToUnlock()
-                                showFinishedView = false
-                            }
-                        }
-                    )
-                } else {
-                    VStack(spacing: 0) {
-                        PurifiedTopBar()
-                        contentView(canvasSize: geo.size)
-                            .background(
-                                GeometryReader { contentGeo in
-                                    Color.clear
-                                        .onAppear {
-                                            contentCanvasSize = contentGeo.size
-                                            debouncedRepaginate()
-                                        }
-                                        .onChange(of: contentGeo.size) { _, newSize in
-                                            contentCanvasSize = newSize
-                                            debouncedRepaginate()
-                                        }
-                                }
-                            )
-                    }
-                }
-
-                if menuVisible {
-                    menuOverlay
-                        .transition(.opacity)
-                }
-
-                if showChapterPaywall {
-                    chapterPaywallOverlay
-                        .transition(.opacity)
-                }
-            }
-            // 上滑唤目录 (M2.5.7.3)
-            .gesture(
-                DragGesture(minimumDistance: 30)
-                    .onEnded { value in
-                        if value.translation.height < -80 && abs(value.translation.width) < 50 {
-                            tocSheet = true
-                        }
-                    }
-            )
-            .sheet(item: Binding(
-                get: { dictKeyword.map { DictItem(text: $0) } },
-                set: { _ in dictKeyword = nil })
-            ) { item in
-                DictLookupSheet(keyword: item.text)
-            }
-            .sheet(item: Binding(
-                get: { browserUrl.map { BrowserItem(url: $0) } },
-                set: { _ in browserUrl = nil })
-            ) { item in
-                InAppBrowserScreen(url: item.url)
-            }
-            .onAppear {
-                screenSize = geo.size
-                viewAppearDate = Date()
-                Task { await engine.bootstrap() }
-                startReadingTimer()
-                UIApplication.shared.isIdleTimerDisabled = config.keepScreenOn
-                savedSystemBrightness = UIScreen.main.brightness
-                applyBrightness()
-                // 万象书屋: 记录「正在阅读」状态 — App 完全退出后重新打开能恢复到此书
-                UserDefaults.standard.set(engine.book.bookUrl, forKey: "wx.lastOpenedBookUrl")
-                // 万象书屋 (debug arg): 自动化测试入口
-                let args = ProcessInfo.processInfo.arguments
-                if args.contains("--ReaderShowMenu") || args.contains("-ReaderShowMenu") {
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 800_000_000)
-                        withAnimation { menuVisible = true }
-                    }
-                }
-                if args.contains("--ReaderShowChangeSource") || args.contains("-ReaderShowChangeSource") {
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        showChangeSource = true
-                    }
-                }
-                if args.contains("--ReaderShowChangeChapterSource") || args.contains("-ReaderShowChangeChapterSource") {
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        showChangeChapterSource = true
-                    }
-                }
-                if args.contains("--ReaderTriggerDownload") || args.contains("-ReaderTriggerDownload") {
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        triggerDownloadFromReader()
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                        withAnimation { menuVisible = true }
-                    }
-                }
-                #if DEBUG
-                if args.contains("--TestChapterPaywall") {
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        for i in 0..<5 {
-                            PurifiedReadingState.shared.markChapterOpened(uniqueKey: "test://paywall|\(i)")
-                        }
-                        checkChapterPaywall()
-                    }
-                }
-                if args.contains("--TestRewardedPrompt") {
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        if !AdManager.shared.bootstrapped { await AdManager.shared.bootstrap() }
-                        showRewardedPrompt = true
-                    }
-                }
-                if args.contains("--TestAdGrace") {
-                    Task {
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        for _ in 1...4 {
-                            let ok = await AdManager.shared.showRewardedToUnlock()
-                            if PurifiedReadingState.shared.isActive || ok { break }
-                        }
-                    }
-                }
-                #endif
-            }
-            .onDisappear {
-                stopReadingTimer()
-                UIApplication.shared.isIdleTimerDisabled = false
-                // 万象书屋 (P0 fix): 阅读器退出时恢复 interactivePopGestureRecognizer,
-                // 让书架/详情页的返回手势恢复正常.
-                UIApplication.shared.connectedScenes
-                    .compactMap { $0 as? UIWindowScene }
-                    .first?.windows.first
-                    .flatMap { findNavigationController(in: $0.rootViewController) }?
-                    .interactivePopGestureRecognizer?.isEnabled = true
-                // 退出阅读器时还原系统亮度，防止自定义低亮度泄漏到全局导致黑屏
-                if savedSystemBrightness >= 0 {
-                    UIScreen.main.brightness = savedSystemBrightness
-                }
-            }
-            .onChange(of: readerScenePhase) { _, phase in
-                switch phase {
-                case .inactive, .background:
-                    // 进入后台/非活跃时还原系统亮度，避免 App Switcher 截图呈现全黑
-                    if savedSystemBrightness >= 0 {
-                        UIScreen.main.brightness = savedSystemBrightness
-                    }
-                case .active:
-                    // 回到前台时重新应用阅读器自定义亮度
-                    applyBrightness()
-                @unknown default:
-                    break
-                }
-            }
-            .onChange(of: config.brightness) { _, _ in applyBrightness() }
-            .onChange(of: config.autoBrightness) { _, _ in applyBrightness() }
-            .onChange(of: geo.size) { _, newSize in
-                screenSize = newSize
-                debouncedRepaginate()
-            }
-            .onChange(of: config.keepScreenOn) { _, on in
-                UIApplication.shared.isIdleTimerDisabled = on
-            }
-            // 万象书屋: 翻页时实时持久化页内位置 (精确到章节内第几页)
-            .onChange(of: currentPageId) { _, newId in
-                if let id = newId { saveReadingPosition(pageId: id) }
-            }
-            .onChange(of: engine.currentChapterIndex) { _, newIdx in
-                // 万象书屋 (跨章翻页): 如果是从 pager 滑入相邻章节触发的切章, 保持当前页不回跳首页
-                let target = crossChapterTargetPageId
-                crossChapterTargetPageId = nil
-                repaginateCurrent(targetPageId: target)
-                let key = "\(engine.book.bookUrl)|\(newIdx)"
-                PurifiedReadingState.shared.markChapterOpened(uniqueKey: key)
-                checkChapterPaywall()
-            }
-            .onChange(of: engine.loadingChapter) { _, _ in
-                debouncedRepaginate()
-            }
-            .onChange(of: engine.chapterContentRevision) { _, _ in
-                debouncedRepaginate()
-            }
-            // 任何排版字段变化都要重新分页
-            .onReceive(config.$textSize.combineLatest(
-                config.$lineSpacing,
-                config.$paragraphSpacing,
-                config.$paddingHorizontal
-            )) { _ in
-                repaginateCurrent()
-            }
-            // 万象书屋 (M2.8): 切字体也要重新分页
-            .onReceive(config.$fontFamily) { _ in
-                repaginateCurrent()
-            }
+            readerContent(geo: geo)
         }
         .toolbar(.hidden, for: .navigationBar)
         // 万象书屋 (P0 fix): TabView 默认 push 时不隐藏底部 tabBar, 阅读器必须沉浸全屏
@@ -278,7 +80,7 @@ public struct ReaderView: View {
         .statusBarHidden(!menuVisible)
         .preferredColorScheme(config.theme.isDark ? .dark : .light)
         .sheet(isPresented: $styleSheet) {
-            ReadStyleSheet().presentationDetents([.medium, .large])
+            ReadStyleSheet(config: config).presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $tocSheet) {
             TocView(
@@ -564,6 +366,7 @@ public struct ReaderView: View {
             get: { currentPageId ?? pages.first?.id ?? "" },
             set: { newId in
                 currentPageId = newId
+                guard !isApplyingStyleChange else { return }
                 handlePageJump(to: newId)
             }
         )) {
@@ -573,6 +376,7 @@ public struct ReaderView: View {
                     config: config,
                     bookName: engine.book.name,
                     chapterCount: engine.chapters.count,
+                    chapterAttrString: chapterAttrCache[page.chapterIndex],
                     onTapMenu: { withAnimation { menuVisible.toggle() } },
                     onTapPrev: {
                         if let id = prevPageId() {
@@ -626,6 +430,7 @@ public struct ReaderView: View {
                     config: config,
                     bookName: engine.book.name,
                     chapterCount: engine.chapters.count,
+                    chapterAttrString: chapterAttrCache[p.chapterIndex],
                     onTapMenu: { withAnimation { menuVisible.toggle() } },
                     onTapPrev: {
                         // 万象书屋: 仿真模式下不加 withAnimation, PVC 自己管理 curl 动画
@@ -651,6 +456,7 @@ public struct ReaderView: View {
                 get: { currentPageId ?? pages.first?.id ?? "" },
                 set: { newId in
                     currentPageId = newId
+                    guard !isApplyingStyleChange else { return }
                     handlePageJump(to: newId)
                 }
             ),
@@ -849,7 +655,10 @@ public struct ReaderView: View {
                         Task { await engine.previousChapter() }
                     }
                     menuBtn("list.bullet", "目录") { tocSheet = true }
-                    menuBtn("textformat.size", "设置") { styleSheet = true }
+                    menuBtn("textformat.size", "设置") {
+                        menuVisible = false
+                        styleSheet = true
+                    }
                     menuBtn("chevron.right", "下一章") {
                         Task {
                             if engine.currentChapterIndex + 1 >= engine.chapters.count {
@@ -867,11 +676,15 @@ public struct ReaderView: View {
         .ignoresSafeArea()
     }
 
-    /// 万象书屋 (M2.8 Gap 3): scrollPager 用的 page body wrapper, 跟 ReaderPageView 的
-    /// ChapterPageBody 等价 (内部都是 segments 渲染).
     @ViewBuilder
     private func chapterPageBody(page: ReaderPage) -> some View {
-        ChapterPageBody(pageText: page.text, chapterTitle: page.chapterTitle, config: config)
+        CoreTextPageView(
+            fullAttrString: chapterAttrCache[page.chapterIndex],
+            charOffset: page.charOffset,
+            charLength: page.charLength,
+            canvasSize: page.canvasSize,
+            ctLineCount: page.ctLineCount
+        )
     }
 
     private func menuBtn(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
@@ -1113,23 +926,247 @@ public struct ReaderView: View {
     /// 执行一次分页, 避免先显示错误 viewport 的页面再跳转到正确页面.
     /// 动画结束后的后续请求立即执行, 不引入感知延迟.
     private func debouncedRepaginate(targetPageId: String? = nil) {
-        let elapsed = Date().timeIntervalSince(viewAppearDate)
-        if elapsed > 1.0 {
-            repaginateCurrent(targetPageId: targetPageId)
-            return
-        }
         sizeDebounceTask?.cancel()
+        let elapsed = Date().timeIntervalSince(viewAppearDate)
+        let delay: UInt64 = elapsed > 1.0 ? 150_000_000 : 600_000_000
         sizeDebounceTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 600_000_000)
+            try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
             repaginateCurrent(targetPageId: targetPageId)
         }
     }
 
+    /// 字号/字体变更：重排但保持当前章内页码不变，并关闭系统翻页动画.
+    @ViewBuilder
+    private func readerContent(geo: GeometryProxy) -> some View {
+        ZStack {
+            config.theme.background.ignoresSafeArea()
+
+            if showFinishedView {
+                BookFinishedView(
+                    bookName: engine.book.name,
+                    onGoBookshelf: { dismiss() },
+                    onGoBookStore: { dismiss() },
+                    onChangeSource: { },
+                    onWatchAdToContinue: {
+                        Task {
+                            _ = await AdManager.shared.showRewardedToUnlock()
+                            showFinishedView = false
+                        }
+                    }
+                )
+            } else {
+                VStack(spacing: 0) {
+                    PurifiedTopBar()
+                    contentView(canvasSize: geo.size)
+                        .allowsHitTesting(!styleSheet)
+                        .background(
+                            GeometryReader { contentGeo in
+                                Color.clear
+                                    .onAppear {
+                                        contentCanvasSize = contentGeo.size
+                                        debouncedRepaginate()
+                                    }
+                                    .onChange(of: contentGeo.size) { _, newSize in
+                                        contentCanvasSize = newSize
+                                        debouncedRepaginate()
+                                    }
+                            }
+                        )
+                }
+            }
+
+            if menuVisible {
+                menuOverlay.transition(.opacity)
+            }
+
+            if showChapterPaywall {
+                chapterPaywallOverlay.transition(.opacity)
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    if value.translation.height < -80 && abs(value.translation.width) < 50 {
+                        tocSheet = true
+                    }
+                }
+        )
+        .sheet(item: Binding(
+            get: { dictKeyword.map { DictItem(text: $0) } },
+            set: { _ in dictKeyword = nil })
+        ) { item in
+            DictLookupSheet(keyword: item.text)
+        }
+        .sheet(item: Binding(
+            get: { browserUrl.map { BrowserItem(url: $0) } },
+            set: { _ in browserUrl = nil })
+        ) { item in
+            InAppBrowserScreen(url: item.url)
+        }
+        .onAppear { handleAppear(geoSize: geo.size) }
+        .onDisappear { handleDisappear() }
+        .onChange(of: readerScenePhase) { _, phase in handleScenePhaseChange(phase) }
+        .onChange(of: config.brightness) { _, _ in applyBrightness() }
+        .onChange(of: config.autoBrightness) { _, _ in applyBrightness() }
+        .onChange(of: geo.size) { _, newSize in
+            screenSize = newSize
+            debouncedRepaginate()
+        }
+        .onChange(of: config.keepScreenOn) { _, on in
+            UIApplication.shared.isIdleTimerDisabled = on
+        }
+        .onChange(of: currentPageId) { _, newId in
+            if let id = newId { saveReadingPosition(pageId: id) }
+        }
+        .onChange(of: engine.currentChapterIndex) { _, newIdx in
+            let target = crossChapterTargetPageId
+            crossChapterTargetPageId = nil
+            repaginateCurrent(targetPageId: target)
+            let key = "\(engine.book.bookUrl)|\(newIdx)"
+            PurifiedReadingState.shared.markChapterOpened(uniqueKey: key)
+            checkChapterPaywall()
+        }
+        .onChange(of: engine.loadingChapter) { _, _ in debouncedRepaginate() }
+        .onChange(of: engine.chapterContentRevision) { _, _ in debouncedRepaginate() }
+        .onChange(of: config.textSize) { _, _ in
+            sizeDebounceTask?.cancel()
+            sizeDebounceTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                guard !Task.isCancelled else { return }
+                repaginateKeepingPageIndex()
+            }
+        }
+        .onReceive(config.$lineSpacing.combineLatest(
+            config.$paragraphSpacing,
+            config.$paddingHorizontal
+        )) { _ in
+            debouncedRepaginate()
+        }
+        .onReceive(config.$fontFamily) { _ in repaginateKeepingPageIndex() }
+        .onReceive(config.$theme) { _ in repaginateCurrent() }
+    }
+
+    private func handleAppear(geoSize: CGSize) {
+        screenSize = geoSize
+        viewAppearDate = Date()
+        Task { await engine.bootstrap() }
+        startReadingTimer()
+        UIApplication.shared.isIdleTimerDisabled = config.keepScreenOn
+        savedSystemBrightness = UIScreen.main.brightness
+        applyBrightness()
+        UserDefaults.standard.set(engine.book.bookUrl, forKey: "wx.lastOpenedBookUrl")
+        handleDebugLaunchArgs()
+    }
+
+    private func handleScenePhaseChange(_ phase: ScenePhase) {
+        switch phase {
+        case .inactive, .background:
+            if savedSystemBrightness >= 0 {
+                UIScreen.main.brightness = savedSystemBrightness
+            }
+        case .active:
+            applyBrightness()
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleDisappear() {
+        stopReadingTimer()
+        UIApplication.shared.isIdleTimerDisabled = false
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.windows.first
+            .flatMap { findNavigationController(in: $0.rootViewController) }?
+            .interactivePopGestureRecognizer?.isEnabled = true
+        if savedSystemBrightness >= 0 {
+            UIScreen.main.brightness = savedSystemBrightness
+        }
+    }
+
+    private func handleDebugLaunchArgs() {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--ReaderShowMenu") || args.contains("-ReaderShowMenu") {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                withAnimation { menuVisible = true }
+            }
+        }
+        if args.contains("--ReaderShowStyleSheet") || args.contains("-ReaderShowStyleSheet") {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                styleSheet = true
+            }
+        }
+        if args.contains("--ReaderShowChangeSource") || args.contains("-ReaderShowChangeSource") {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                showChangeSource = true
+            }
+        }
+        if args.contains("--ReaderShowChangeChapterSource") || args.contains("-ReaderShowChangeChapterSource") {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                showChangeChapterSource = true
+            }
+        }
+        if args.contains("--ReaderTriggerDownload") || args.contains("-ReaderTriggerDownload") {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                triggerDownloadFromReader()
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                withAnimation { menuVisible = true }
+            }
+        }
+        #if DEBUG
+        if args.contains("--TestChapterPaywall") {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                for i in 0..<5 {
+                    PurifiedReadingState.shared.markChapterOpened(uniqueKey: "test://paywall|\(i)")
+                }
+                checkChapterPaywall()
+            }
+        }
+        if args.contains("--TestRewardedPrompt") {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if !AdManager.shared.bootstrapped { await AdManager.shared.bootstrap() }
+                showRewardedPrompt = true
+            }
+        }
+        if args.contains("--TestAdGrace") {
+            Task {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                for _ in 1...4 {
+                    let ok = await AdManager.shared.showRewardedToUnlock()
+                    if PurifiedReadingState.shared.isActive || ok { break }
+                }
+            }
+        }
+        #endif
+    }
+
+    private func repaginateKeepingPageIndex() {
+        let keepPageIndex = pages.first(where: { $0.id == currentPageId })?.pageIndex
+        isApplyingStyleChange = true
+        defer {
+            isApplyingStyleChange = false
+            UIView.setAnimationsEnabled(true)
+        }
+        UIView.setAnimationsEnabled(false)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        repaginateCurrent(preservePageIndexInChapter: keepPageIndex)
+        CATransaction.commit()
+    }
+
     /// - Parameter targetPageId: 若非 nil, 且在重建后的 pages 中存在, 则保持该页为 currentPageId.
     ///   用于跨章节翻页场景 (用户滑进相邻章节), 防止章节切换时 UI 跳回首页.
     ///   nil (默认) = 跳到当前章的第一页 (菜单跳章、进度条跳章场景).
-    private func repaginateCurrent(targetPageId: String? = nil) {
+    /// - Parameter preservePageIndexInChapter: 字号变更时保持章内页码 (如第 5 页仍是 5-5), 避免 TabView 翻页动画.
+    private func repaginateCurrent(targetPageId: String? = nil, preservePageIndexInChapter: Int? = nil) {
         let viewport = contentCanvasSize.width > 0 ? contentCanvasSize : screenSize
         guard viewport.width > 0 else { return }
         let idx = engine.currentChapterIndex
@@ -1153,15 +1190,22 @@ public struct ReaderView: View {
             width: max(0, viewport.width - config.paddingHorizontal * 2),
             height: max(0, viewport.height - config.paddingTop - config.paddingBottom - footerHeight - headerHeight)
         )
+        // #region agent log
+        _dbg63Log("buildPages viewport=\(String(format: "%.0fx%.0f", viewport.width, viewport.height)) padTop=\(config.paddingTop) padBot=\(config.paddingBottom) headerH=\(headerHeight) footerH=\(footerHeight) canvas=\(String(format: "%.1fx%.1f", canvasSize.width, canvasSize.height)) textSize=\(config.textSize)")
+        // #endregion
         let snapshot = ReadConfigSnapshot.current(from: config)
 
         // 万象书屋 (跨章翻页): 把当前章 ± 1 章 (如果内容已在 contentCache 中) 一起分页并合并.
         // 这样 PageCurlContainer / TabView 的 pages 数组里包含相邻章节的页面,
         // viewControllerAfter/Before 不会在章节边界返回 nil, 用户可以用相同手势滑过章节边界.
+        let themeColor = UIColor(config.theme.textColor)
+        var newAttrCache: [Int: NSAttributedString] = [:]
         func paginateIfCached(_ i: Int) -> [ReaderPage] {
             guard i >= 0, i < engine.chapters.count,
                   let body = engine.content(for: i) else { return [] }
             let title = engine.chapters[safe: i]?.title ?? engine.book.name
+            newAttrCache[i] = PaginationEngine.buildChapterAttrString(
+                text: body, chapterTitle: title, config: snapshot, textColor: themeColor)
             return PaginationEngine.paginate(text: body, chapterIndex: i,
                                              chapterTitle: title, canvasSize: canvasSize, config: snapshot)
         }
@@ -1170,17 +1214,26 @@ public struct ReaderView: View {
         let currPages = paginateIfCached(idx)
         let nextPages = paginateIfCached(idx + 1)
         let combined = prevPages + currPages + nextPages
+        self.chapterAttrCache = newAttrCache
 
         let oldPages = self.pages
         self.pages = combined
 
         // 确定 currentPageId:
+        // - 字号变更: 保持章内 pageIndex 不变 (id 如 3-5 不变 → TabView 不播翻页动画)
         // - 跨章翻页时保持 targetPageId (已在相邻章节的页里) 不回跳
         // - 首次分页 (冷启恢复): 用 book.durChapterPos 精确恢复到上次读到的页
         // - 重新分页 (canvas 尺寸变化): 按字符偏移量定位, 而非 page ID (因为同一 ID 在
         //   不同 canvas 下对应不同文本)
         // - 普通跳章: 跳到当前章第一页
-        if let target = targetPageId, combined.contains(where: { $0.id == target }) {
+        if let pi = preservePageIndexInChapter {
+            let chapterPages = currPages
+            let maxPi = chapterPages.map(\.pageIndex).max() ?? pi
+            let clamped = min(pi, maxPi)
+            let restored = chapterPages.first(where: { $0.pageIndex == clamped }) ?? currPages.first
+            self.currentPageId = restored?.id ?? combined.first?.id
+            if let p = restored { preciseCharPos = p.charOffset }
+        } else if let target = targetPageId, combined.contains(where: { $0.id == target }) {
             self.currentPageId = target
             if let p = combined.first(where: { $0.id == target }) { preciseCharPos = p.charOffset }
             #if DEBUG
@@ -1376,10 +1429,9 @@ struct BrowserItem: Identifiable { let id = UUID(); let url: URL }
 private struct ReaderPageView: View {
     let page: ReaderPage
     @ObservedObject var config: ReadConfig
-    /// 书名: 章节首页页眉显示书名, 其他页显示章节标题
     let bookName: String
-    /// 总章节数: 用于计算页脚整体进度 %
     let chapterCount: Int
+    let chapterAttrString: NSAttributedString?
     let onTapMenu: () -> Void
     let onTapPrev: () -> Void
     let onTapNext: () -> Void
@@ -1400,11 +1452,13 @@ private struct ReaderPageView: View {
                 .foregroundStyle(config.theme.textColor.opacity(0.4))
                 .padding(.bottom, 8)
 
-                // ── 正文 (万象书屋 M2.8 Gap 3): 含 ␎WX_IMG[url]␏ 图片占位标记 ──
-                ChapterPageBody(
-                    pageText: page.text,
-                    chapterTitle: page.chapterTitle,
-                    config: config
+                // ── 正文: 直接用分页引擎的原始属性字符串 + charOffset 渲染 ──
+                CoreTextPageView(
+                    fullAttrString: chapterAttrString,
+                    charOffset: page.charOffset,
+                    charLength: page.charLength,
+                    canvasSize: page.canvasSize,
+                    ctLineCount: page.ctLineCount
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
@@ -1428,6 +1482,9 @@ private struct ReaderPageView: View {
                 .foregroundStyle(config.theme.textColor.opacity(0.4))
                 .padding(.top, 8)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("reader-page-id")
+            .accessibilityLabel(page.id)
             .padding(.horizontal, config.paddingHorizontal)
             .padding(.top, config.paddingTop)
             .padding(.bottom, config.paddingBottom)
@@ -1514,115 +1571,84 @@ private struct AutoReadConfigSheet: View {
     }
 }
 
-// MARK: - ChapterPageBody (M2.8 Gap 3)
+// MARK: - CoreTextPageView (M2.8)
 
-/// 万象书屋: 一页正文的渲染 wrapper, 按 ␎WX_IMG[url]␏ 占位标记切成 text/image 段,
-/// text 段用 SwiftUI Text, image 段用 ChapterImageBlock (AsyncImage + 全屏点击).
-/// 没有 image 时整页作为单个 Text 渲染, 跟之前行为完全等价 (零回归).
-struct ChapterPageBody: View {
-    let pageText: String
-    let chapterTitle: String
-    @ObservedObject var config: ReadConfig
+/// 使用分页引擎的原始 NSAttributedString + charOffset 渲染整页.
+/// 提取 attributedSubstring 避免对整章文本创建 CTFramesetter.
+private struct CoreTextPageView: UIViewRepresentable {
+    let fullAttrString: NSAttributedString?
+    let charOffset: Int
+    let charLength: Int
+    let canvasSize: CGSize
+    let ctLineCount: Int
 
-    /// 万象书屋 (M2.8): 用户选的中文字体. fontFamily 空 = 系统默认 .system.
-    private var bodyFont: Font {
-        if config.fontFamily.isEmpty {
-            return .system(size: config.textSize)
+    func makeUIView(context: Context) -> CoreTextPageDrawView {
+        let v = CoreTextPageDrawView()
+        v.backgroundColor = .clear
+        v.isOpaque = false
+        v.contentMode = .redraw
+        return v
+    }
+
+    func updateUIView(_ v: CoreTextPageDrawView, context: Context) {
+        guard let full = fullAttrString, full.length > 0 else {
+            v.pageAttrString = nil
+            v.renderSize = canvasSize
+            v.setNeedsDisplay()
+            return
         }
-        return .custom(config.fontFamily, size: config.textSize)
+        let off = max(0, min(charOffset, full.length))
+        let len = max(0, min(charLength, full.length - off))
+        v.pageAttrString = len > 0 ? full.attributedSubstring(from: NSRange(location: off, length: len)) : nil
+        v.renderSize = canvasSize
+        v.setNeedsDisplay()
     }
 
-    /// 万象书屋 (排版): 章节标题字号 = 正文 × chapterTitleScale (跟 PaginationEngine 一致).
-    private var titleFontSize: CGFloat {
-        (config.textSize * PaginationEngine.chapterTitleScale).rounded()
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: CoreTextPageDrawView, context: Context) -> CGSize? {
+        canvasSize
     }
+}
 
-    private var titleFont: Font {
-        if config.fontFamily.isEmpty {
-            return .system(size: titleFontSize, weight: .bold)
+private final class CoreTextPageDrawView: UIView {
+    var pageAttrString: NSAttributedString?
+    var renderSize: CGSize = .zero
+
+    override func draw(_ rect: CGRect) {
+        guard let ctx = UIGraphicsGetCurrentContext(),
+              let attr = pageAttrString, attr.length > 0 else { return }
+
+        let canvas = renderSize.width > 0 ? renderSize : bounds.size
+        guard canvas.width > 0, canvas.height > 0 else { return }
+
+        ctx.textMatrix = .identity
+        ctx.translateBy(x: 0, y: canvas.height)
+        ctx.scaleBy(x: 1, y: -1)
+
+        let framesetter = CTFramesetterCreateWithAttributedString(attr)
+        let path = CGPath(rect: CGRect(origin: .zero, size: canvas), transform: nil)
+        let frame = CTFramesetterCreateFrame(framesetter, CFRangeMake(0, 0), path, nil)
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        guard !lines.isEmpty else { return }
+
+        var origins = [CGPoint](repeating: .zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)
+
+        let lastY = origins[lines.count - 1].y
+        var lastDesc: CGFloat = 0
+        CTLineGetTypographicBounds(lines.last!, nil, &lastDesc, nil)
+        let actualWaste = max(0, lastY - lastDesc)
+
+        let avgLineSlot = canvas.height / CGFloat(lines.count)
+        let shouldDistribute = lines.count > 1 && actualWaste > 0.5 && actualWaste < avgLineSlot * 2
+
+        let extraPerGap: CGFloat = shouldDistribute
+            ? actualWaste / CGFloat(lines.count - 1) : 0
+
+        for i in 0..<lines.count {
+            let adjustedY = origins[i].y - CGFloat(i) * extraPerGap
+            ctx.textPosition = CGPoint(x: origins[i].x, y: adjustedY)
+            CTLineDraw(lines[i], ctx)
         }
-        return .custom(config.fontFamily, size: titleFontSize).weight(.bold)
-    }
-
-    /// 万象书屋 (排版): 第一页 page.text 以章节标题开头 (`title\n` 形式),
-    /// 砍下来单独渲染. 其它页保持原样.
-    private func stripChapterTitleIfFirstPage(_ s: String) -> (title: String?, body: String) {
-        let t = chapterTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { return (nil, s) }
-        guard s.hasPrefix(t) else { return (nil, s) }
-        let rest = s.dropFirst(t.count)
-        // 标题后面通常是单 \n (PaginationEngine 已加), 跳过它
-        if rest.hasPrefix("\n") {
-            return (t, String(rest.dropFirst()))
-        }
-        return (t, String(rest))
-    }
-
-    var body: some View {
-        let (title, restText) = stripChapterTitleIfFirstPage(pageText)
-        VStack(alignment: .leading, spacing: 0) {
-            if let title = title {
-                chapterTitleHeader(title)
-            }
-            chapterBody(restText)
-        }
-    }
-
-    @ViewBuilder
-    private func chapterTitleHeader(_ title: String) -> some View {
-        Text(title)
-            .font(titleFont)
-            .foregroundStyle(config.theme.textColor)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // 不加 padding(.top): config.paddingTop 已提供顶部留白
-            // padding(.bottom, 24) 与 titlePara.paragraphSpacing = 24 对应, 确保 CoreText/SwiftUI 高度一致
-            .padding(.bottom, 24)
-    }
-
-    @ViewBuilder
-    private func chapterBody(_ text: String) -> some View {
-        let segs = parseChapterPageSegments(text)
-        let uiTextColor = UIColor(config.theme.textColor)
-        if segs.count == 1, case .text(let txt, _) = segs[0] {
-            BodyTextUIView(attrText: bodyNSAttributedString(txt, textColor: uiTextColor))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(segs) { seg in
-                    switch seg {
-                    case .text(let txt, _):
-                        BodyTextUIView(attrText: bodyNSAttributedString(txt, textColor: uiTextColor))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    case .image(let url, _):
-                        ChapterImageBlock(imageUrl: url, textColor: config.theme.textColor)
-                    }
-                }
-            }
-        }
-    }
-
-    /// 正文 NSAttributedString: UIKit 直接可用, 与 PaginationEngine.makeAttributedString 保持完全一致的 lineSpacing/paragraphSpacing.
-    private func bodyNSAttributedString(_ text: String, textColor: UIColor) -> NSAttributedString {
-        let uiFont: UIFont = config.fontFamily.isEmpty
-            ? UIFont.systemFont(ofSize: config.textSize)
-            : (UIFont(name: config.fontFamily, size: config.textSize)
-                ?? UIFont.systemFont(ofSize: config.textSize))
-        let lineSpacingPt = config.textSize * max(0, config.lineSpacing - 1.0)
-        let paraStyle = NSMutableParagraphStyle()
-        paraStyle.lineSpacing = lineSpacingPt
-        paraStyle.paragraphSpacing = 0
-        paraStyle.paragraphSpacingBefore = config.paragraphSpacing
-        paraStyle.lineBreakMode = .byCharWrapping
-        let nsAttr = NSMutableAttributedString(string: text)
-        let range = NSRange(location: 0, length: (text as NSString).length)
-        nsAttr.addAttribute(.font, value: uiFont, range: range)
-        nsAttr.addAttribute(.paragraphStyle, value: paraStyle, range: range)
-        nsAttr.addAttribute(.foregroundColor, value: textColor, range: range)
-        if config.letterSpacing != 0 {
-            nsAttr.addAttribute(.kern, value: NSNumber(value: Float(config.letterSpacing)), range: range)
-        }
-        return nsAttr
     }
 }
 
@@ -1663,32 +1689,8 @@ private extension UIView {
     }
 }
 
-// MARK: - UITextView 正文渲染器 (与 CoreText 同一引擎, lineSpacing/paragraphSpacing 完全匹配分页计算)
+// MARK: - CoreText 正文渲染器 (与 PaginationEngine 完全同引擎, 零误差)
 
-private struct BodyTextUIView: UIViewRepresentable {
-    let attrText: NSAttributedString
-
-    func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
-        tv.isEditable = false
-        tv.isSelectable = true
-        tv.isScrollEnabled = false
-        tv.backgroundColor = .clear
-        tv.textContainerInset = .zero
-        tv.textContainer.lineFragmentPadding = 0
-        tv.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        tv.setContentHuggingPriority(.required, for: .vertical)
-        return tv
-    }
-
-    func updateUIView(_ tv: UITextView, context: Context) {
-        if tv.attributedText != attrText {
-            tv.attributedText = attrText
-        }
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
-        guard let width = proposal.width, width > 0 else { return nil }
-        return uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-    }
-}
+/// 使用 CoreText (CTFrameDraw) 渲染正文, 与 PaginationEngine 共用同一排版引擎.
+/// 通过垂直分散 (vertical justification) 将页底空白均匀分配到行间距, 彻底消除底部空白.
+// Old CoreTextBodyView/CoreTextDrawView removed — replaced by CoreTextPageView above

@@ -39,6 +39,14 @@ public struct ReaderPage: Identifiable, Hashable, Sendable {
     public let charOffset: Int
     /// 本页包含的字符数
     public let charLength: Int
+    /// CoreText 分页用的画布尺寸 (用于渲染时保持一致)
+    public let canvasSize: CGSize
+    /// CoreText 计算的底部浪费高度 (渲染时通过垂直分散消除)
+    public let ctWasteH: CGFloat
+    /// CoreText 计算的行数
+    public let ctLineCount: Int
+    /// 本页是否从段落边界开始 (非续行), 用于渲染时决定是否加 paragraphSpacingBefore
+    public let startsNewParagraph: Bool
 
     public var isFirstPage: Bool { pageIndex == 0 }
     public var isLastPage: Bool { pageIndex == totalPages - 1 }
@@ -60,17 +68,15 @@ public struct PaginationEngine {
     ///   - chapterTitle: 章节标题 (会自动加在第 1 页头)
     ///   - canvasSize: 文字区域可用尺寸 (扣除 padding 后的)
     ///   - config: 阅读偏好
-    public static func paginate(
+    /// Build the canonical NSAttributedString for a chapter (title + body).
+    /// Rendering must use this exact string with page.charOffset to match pagination.
+    /// textColor does not affect metrics — safe to differ between pagination and rendering.
+    public static func buildChapterAttrString(
         text: String,
-        chapterIndex: Int,
         chapterTitle: String,
-        canvasSize: CGSize,
-        config: ReadConfigSnapshot
-    ) -> [ReaderPage] {
-
-        guard canvasSize.width > 50, canvasSize.height > 50 else { return [] }
-
-        // 清理书源内容开头的章节标题重复行 (如 "第1章 初入 (第1/3页)")
+        config: ReadConfigSnapshot,
+        textColor: UIColor = .label
+    ) -> NSAttributedString {
         var cleanedText = text
         if !chapterTitle.isEmpty {
             let firstLines = cleanedText.components(separatedBy: "\n")
@@ -84,24 +90,39 @@ public struct PaginationEngine {
             }
         }
         let processedText = applyParagraphLayout(cleanedText, config: config)
-        let attrString = makeAttributedString(
-            chapterTitle: chapterTitle,
-            body: processedText,
-            config: config
-        )
+        return makeAttributedString(chapterTitle: chapterTitle, body: processedText, config: config,
+                                    textColor: textColor)
+    }
+
+    public static func paginate(
+        text: String,
+        chapterIndex: Int,
+        chapterTitle: String,
+        canvasSize: CGSize,
+        config: ReadConfigSnapshot
+    ) -> [ReaderPage] {
+
+        guard canvasSize.width > 50, canvasSize.height > 50 else { return [] }
+
+        let attrString = buildChapterAttrString(text: text, chapterTitle: chapterTitle, config: config)
         let totalLength = attrString.length
         if totalLength == 0 {
             return [ReaderPage(id: "\(chapterIndex)-0", chapterIndex: chapterIndex,
                                pageIndex: 0, totalPages: 1, text: "", chapterTitle: chapterTitle,
-                               charOffset: 0, charLength: 0)]
+                               charOffset: 0, charLength: 0,
+                               canvasSize: canvasSize, ctWasteH: 0, ctLineCount: 0,
+                               startsNewParagraph: true)]
         }
 
         // 2. CTFramesetter 反向算页面能装多少字符
         let framesetter = CTFramesetterCreateWithAttributedString(attrString)
-        // 每页: (文字切片, 在 attrString 中的起始字符偏移量)
-        var slices: [(text: String, charOffset: Int)] = []
+        var slices: [(text: String, charOffset: Int, wasteH: CGFloat, lineCount: Int, startsNewPara: Bool)] = []
         var startIdx: CFIndex = 0
-        var safety = 0  // 防御性死循环计数
+        var safety = 0
+
+        // #region agent log
+        _dbg63Log("paginate canvasW=\(String(format: "%.1f", canvasSize.width)) canvasH=\(String(format: "%.1f", canvasSize.height)) textSize=\(config.textSize) lineSpacing=\(config.lineSpacing) paraSpacing=\(config.paragraphSpacing) chIdx=\(chapterIndex) totalLen=\(totalLength)")
+        // #endregion
 
         while startIdx < totalLength, safety < 1000 {
             safety += 1
@@ -113,7 +134,6 @@ public struct PaginationEngine {
                 nil
             )
             let visibleRange = CTFrameGetVisibleStringRange(frame)
-            // bug #10 fix: visibleRange.length == 0 时也步进 1 char, 避免空转 (canvas 太窄一行装不下 1 字符的极端 case)
             if visibleRange.length <= 0 {
                 if startIdx < totalLength {
                     startIdx += 1
@@ -121,9 +141,28 @@ public struct PaginationEngine {
                 }
                 break
             }
+
+            let ctLines = CTFrameGetLines(frame) as! [CTLine]
+            var wasteH: CGFloat = 0
+            if !ctLines.isEmpty {
+                var origins = [CGPoint](repeating: .zero, count: ctLines.count)
+                CTFrameGetLineOrigins(frame, CFRangeMake(0, ctLines.count), &origins)
+                let lastOriginY = origins[ctLines.count - 1].y
+                var lastDesc: CGFloat = 0
+                CTLineGetTypographicBounds(ctLines.last!, nil, &lastDesc, nil)
+                wasteH = max(0, lastOriginY - lastDesc)
+            }
+
+            // #region agent log
+            if safety <= 5 {
+                _dbg63Log("page\(safety-1) lines=\(ctLines.count) visLen=\(visibleRange.length) wasteH=\(String(format: "%.1f", wasteH)) canvasH=\(String(format: "%.1f", canvasSize.height))")
+            }
+            // #endregion
+
             let pageRange = NSRange(location: visibleRange.location, length: visibleRange.length)
             let pageText = (attrString.string as NSString).substring(with: pageRange)
-            slices.append((text: pageText, charOffset: Int(startIdx)))
+            let isNewPara = startIdx == 0 || (attrString.string as NSString).substring(with: NSRange(location: Int(startIdx) - 1, length: 1)) == "\n"
+            slices.append((text: pageText, charOffset: Int(startIdx), wasteH: wasteH, lineCount: ctLines.count, startsNewPara: isNewPara))
             startIdx += visibleRange.length
         }
         // bug #10 fix: safety 触底是异常, 加日志方便用户上报
@@ -132,10 +171,11 @@ public struct PaginationEngine {
         }
 
         if slices.isEmpty {
-            // 容错: paginate 完没切到任何 slice (canvas 太小或全空 text), 把 attrString 整体作 1 页
             return [ReaderPage(id: "\(chapterIndex)-0", chapterIndex: chapterIndex,
                                pageIndex: 0, totalPages: 1, text: attrString.string,
-                               chapterTitle: chapterTitle, charOffset: 0, charLength: totalLength)]
+                               chapterTitle: chapterTitle, charOffset: 0, charLength: totalLength,
+                               canvasSize: canvasSize, ctWasteH: 0, ctLineCount: 0,
+                               startsNewParagraph: true)]
         }
 
         let total = slices.count
@@ -149,7 +189,11 @@ public struct PaginationEngine {
                 text: s.text,
                 chapterTitle: chapterTitle,
                 charOffset: s.charOffset,
-                charLength: nextOffset - s.charOffset
+                charLength: nextOffset - s.charOffset,
+                canvasSize: canvasSize,
+                ctWasteH: s.wasteH,
+                ctLineCount: s.lineCount,
+                startsNewParagraph: s.startsNewPara
             )
         }
     }
@@ -180,7 +224,8 @@ public struct PaginationEngine {
     }
 
     /// 构造 NSAttributedString — 标题段大字号 + 居中, 正文段普通字号. 都用 ReadConfigSnapshot.
-    private static func makeAttributedString(chapterTitle: String, body: String, config: ReadConfigSnapshot) -> NSAttributedString {
+    static func makeAttributedString(chapterTitle: String, body: String, config: ReadConfigSnapshot,
+                                     textColor: UIColor = .label) -> NSAttributedString {
         let bodyFont = resolveFont(family: config.fontFamily, size: config.textSize, bold: false)
         let titleSize = (config.textSize * Self.chapterTitleScale).rounded()
         let titleFont = resolveFont(family: config.fontFamily, size: titleSize, bold: true)
@@ -208,14 +253,14 @@ public struct PaginationEngine {
             result.append(NSAttributedString(string: trimmedTitle + "\n", attributes: [
                 .font: titleFont,
                 .paragraphStyle: titlePara,
-                .foregroundColor: UIColor.label,
+                .foregroundColor: textColor,
             ]))
         }
         result.append(NSAttributedString(string: body, attributes: [
             .font: bodyFont,
             .paragraphStyle: bodyPara,
             .kern: config.letterSpacing,
-            .foregroundColor: UIColor.label,
+            .foregroundColor: textColor,
         ]))
         return result
     }
@@ -230,6 +275,36 @@ public struct PaginationEngine {
         return UIFont(descriptor: desc, size: size)
     }
 }
+
+// #region agent log
+func _b08f71Log(_ msg: String, hyp: String = "") {
+    let logPath = "/Users/stark/Desktop/WXSW/.cursor/debug-b08f71.log"
+    let ts = Int(Date().timeIntervalSince1970 * 1000)
+    let json = "{\"sessionId\":\"b08f71\",\"timestamp\":\(ts),\"hypothesisId\":\"\(hyp)\",\"message\":\"\(msg.replacingOccurrences(of: "\"", with: "'"))\"}\n"
+    if let d = json.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: logPath) {
+            if let fh = try? FileHandle(forWritingTo: URL(fileURLWithPath: logPath)) { fh.seekToEndOfFile(); fh.write(d); fh.closeFile() }
+        } else {
+            FileManager.default.createFile(atPath: logPath, contents: d)
+        }
+    }
+}
+// #endregion
+
+// #region agent log
+func _dbg63Log(_ msg: String) {
+    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+    let path = docs.appendingPathComponent("debug-63be44.log")
+    let line = "\(msg)\n"
+    if let d = line.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: path.path) {
+            if let fh = try? FileHandle(forWritingTo: path) { fh.seekToEndOfFile(); fh.write(d); fh.closeFile() }
+        } else {
+            try? d.write(to: path)
+        }
+    }
+}
+// #endregion
 
 /// 万象书屋: 不可变快照, 在 PaginationEngine.paginate 调用时复制一份避免线程问题
 public struct ReadConfigSnapshot: Hashable, Sendable {
