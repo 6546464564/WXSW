@@ -36,6 +36,10 @@ public enum SyncHTTP {
     private static let responseCache = NSCache<NSString, CachedHTTPResponse>()
     private static let cacheTTL: TimeInterval = 30
 
+    public static func clearCache() {
+        responseCache.removeAllObjects()
+    }
+
     private static let session: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 8

@@ -1814,6 +1814,9 @@ final class _BrowserResultCache: @unchecked Sendable {
     func set(url: String, body: String) {
         cache.setObject(body as NSString, forKey: url as NSString)
     }
+    func clear() {
+        cache.removeAllObjects()
+    }
 }
 
 /// 万象书屋: legado JS `cache.putMemory()` / `getFromMemory()` 的进程内 KV 存储.

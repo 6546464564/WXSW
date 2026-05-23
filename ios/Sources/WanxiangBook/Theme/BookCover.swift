@@ -264,8 +264,8 @@ private enum BookCoverImageSession {
         cfg.timeoutIntervalForResource = 16
         cfg.httpMaximumConnectionsPerHost = 16
         cfg.requestCachePolicy = .returnCacheDataElseLoad
-        cfg.urlCache = URLCache(memoryCapacity: 32 * 1024 * 1024,
-                                diskCapacity: 256 * 1024 * 1024,
+        cfg.urlCache = URLCache(memoryCapacity: 16 * 1024 * 1024,
+                                diskCapacity: 128 * 1024 * 1024,
                                 diskPath: "WanxiangCoverHTTPCache")
         return URLSession(configuration: cfg)
     }()

@@ -373,7 +373,9 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
     func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
         NSLog("[WX-MEM] ⚠️ 收到内存警告, 开始清理缓存")
         URLCache.shared.removeAllCachedResponses()
-        NSLog("[WX-MEM] URLCache 已清理")
+        _BrowserResultCache.shared.clear()
+        SyncHTTP.clearCache()
+        NSLog("[WX-MEM] URLCache + BrowserCache + SyncHTTP 缓存已清理")
         NotificationCenter.default.post(name: .wanxiangMemoryWarning, object: nil)
     }
 }

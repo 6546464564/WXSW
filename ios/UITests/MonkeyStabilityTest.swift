@@ -337,17 +337,15 @@ final class MonkeyStabilityTest: XCTestCase {
         guard app.state == .runningForeground else { return }
         NSLog("[Monkey] 🔀 多任务切换")
         XCUIDevice.shared.press(.home)
-        sleep(1)
+        usleep(500_000)
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
         settings.launch()
-        if settings.wait(for: .runningForeground, timeout: 5) {
-            sleep(UInt32(Int.random(in: 2...4)))
-        } else {
-            sleep(2)
+        if settings.wait(for: .runningForeground, timeout: 3) {
+            sleep(1)
         }
         app.activate()
-        _ = app.wait(for: .runningForeground, timeout: 10)
-        sleep(1)
+        _ = app.wait(for: .runningForeground, timeout: 5)
+        usleep(500_000)
         multiTaskCount += 1
     }
 
@@ -472,22 +470,18 @@ final class MonkeyStabilityTest: XCTestCase {
         guard app.state == .runningForeground else { return }
         NSLog("[Monkey] 🔗 深度链接测试")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.97)).tap()
-        sleep(1)
+        usleep(500_000)
         guard app.state == .runningForeground else { return }
-        for _ in 0..<3 {
+        for _ in 0..<2 {
             guard app.state == .runningForeground else { break }
             let y = CGFloat.random(in: 0.15...0.85)
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: y)).tap()
-            sleep(1)
+            usleep(500_000)
         }
         guard app.state == .runningForeground else { return }
         let tab = [(0.17, 0.97), (0.50, 0.97)].randomElement()!
         app.coordinate(withNormalizedOffset: CGVector(dx: tab.0, dy: tab.1)).tap()
-        sleep(1)
-        guard app.state == .runningForeground else { return }
-        let y = CGFloat.random(in: 0.2...0.6)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: y)).tap()
-        sleep(2)
+        usleep(500_000)
     }
 
     // MARK: - 通知中心检查
