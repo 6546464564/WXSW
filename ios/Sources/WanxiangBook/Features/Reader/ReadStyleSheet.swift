@@ -33,16 +33,45 @@ struct ReadStyleSheet: View {
 
                 // 2. 排版
                 Section("排版") {
-                    Picker("字体", selection: $config.fontFamily) {
-                        ForEach(ReadConfig.chineseFonts, id: \.familyName) { f in
-                            Text(f.displayName)
-                                .font(f.familyName.isEmpty
-                                    ? .system(size: 16)
-                                    : .custom(f.familyName, size: 16))
-                                .tag(f.familyName)
+                    HStack {
+                        Text("字号").frame(width: 36, alignment: .leading)
+
+                        Button {
+                            config.textSize = max(12, config.textSize - 1)
+                        } label: {
+                            Text("A-")
+                                .font(.system(size: 15, weight: .medium))
+                                .frame(width: 48, height: 34)
+                                .background(Color(.systemGray5))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
+                        .buttonStyle(.plain)
+
+                        Text("\(Int(config.textSize))")
+                            .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                            .frame(minWidth: 36)
+
+                        Button {
+                            config.textSize = min(32, config.textSize + 1)
+                        } label: {
+                            Text("A+")
+                                .font(.system(size: 15, weight: .medium))
+                                .frame(width: 48, height: 34)
+                                .background(Color(.systemGray5))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+
+                        Picker("", selection: $config.fontFamily) {
+                            ForEach(ReadConfig.chineseFonts, id: \.familyName) { f in
+                                Text(f.displayName).tag(f.familyName)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
                     }
-                    sliderRow("字号", value: $config.textSize, range: 12...32, step: 1, format: { "\(Int($0))" })
                 }
 
                 // 4. 翻页
