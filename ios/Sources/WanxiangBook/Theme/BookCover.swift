@@ -197,8 +197,8 @@ private final class BookCoverImageCache {
     private let cache = NSCache<NSString, UIImage>()
 
     private init() {
-        cache.countLimit = 800
-        cache.totalCostLimit = 64 * 1024 * 1024
+        cache.countLimit = 200
+        cache.totalCostLimit = 32 * 1024 * 1024
         NotificationCenter.default.addObserver(
             forName: .wanxiangMemoryWarning, object: nil, queue: .main
         ) { [weak self] _ in
