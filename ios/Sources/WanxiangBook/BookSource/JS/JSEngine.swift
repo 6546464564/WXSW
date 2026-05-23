@@ -787,12 +787,12 @@ public actor JSEngine {
             Task.detached {
                 let bridge = await BrowserBridgeRegistry.shared.get()
                 let html = await bridge.loadAndWait(
-                    url: url, expectedKeyword: keyword, timeout: 20
+                    url: url, expectedKeyword: keyword, timeout: 15
                 )
                 box.body = html ?? ""
                 sema.signal()
             }
-            _ = sema.wait(timeout: .now() + 25)
+            _ = sema.wait(timeout: .now() + 18)
             if !box.body.isEmpty {
                 _BrowserResultCache.shared.set(url: url, body: box.body)
             }

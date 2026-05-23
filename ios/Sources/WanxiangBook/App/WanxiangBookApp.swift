@@ -229,9 +229,10 @@ final class AppState: ObservableObject {
         case .background:
             heartbeatTimer?.cancel()
             heartbeatTimer = nil
-            // 万象书屋: 切后台时强制 flush 埋点队列, 避免事件留在内存里被进程回收丢掉
-            // (跟 Android `BaseActivity.onPause` 里 `WanxiangAnalytics.flush()` 等价)
             await WanxiangAnalytics.shared.flush()
+            URLCache.shared.removeAllCachedResponses()
+            _BrowserResultCache.shared.clear()
+            SyncHTTP.clearCache()
         case .inactive:
             break
         @unknown default:
