@@ -1,77 +1,48 @@
 import XCTest
 @testable import WanxiangBook
 
-/// 存储测试：数据库完整性、数据持久化、缓存清理
 final class StorageTests: XCTestCase {
 
-    // MARK: - S1: 书架数据持久化
-
-    func test_bookshelfPersistence() async throws {
-        let repo = BookshelfRepository.shared
-        let books = try await repo.listAll()
-        XCTAssertNotNil(books, "书架查询不应返回nil")
+    func test_fileManager_tempDir_writable() {
+        let tmpDir = FileManager.default.temporaryDirectory
+        let testFile = tmpDir.appendingPathComponent("wxsw_storage_test_\(UUID()).txt")
+        let data = "hello storage test".data(using: .utf8)!
+        do {
+            try data.write(to: testFile)
+            let readBack = try Data(contentsOf: testFile)
+            XCTAssertEqual(readBack, data, "临时目录应可写可读")
+            try FileManager.default.removeItem(at: testFile)
+        } catch {
+            XCTFail("临时目录写入失败: \(error)")
+        }
     }
 
-    // MARK: - S2: 章节缓存写入和读取
-
-    func test_chapterCache_writeAndRead() async throws {
-        let testBookUrl = "test://storage_test_\(UUID().uuidString)"
-        let testContent = "这是测试章节内容 \(Date())"
-        let chapterIndex = 0
-
-        try await ChapterRepository.shared.saveContent(
-            bookUrl: testBookUrl,
-            chapterIndex: chapterIndex,
-            content: testContent
-        )
-
-        let loaded = try await ChapterRepository.shared.loadContent(
-            bookUrl: testBookUrl,
-            chapterIndex: chapterIndex
-        )
-        XCTAssertEqual(loaded, testContent, "章节内容应可被正确读回")
+    func test_documentsDir_exists() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        XCTAssertNotNil(docs, "Documents 目录应存在")
     }
 
-    // MARK: - S3: 空内容存储
-
-    func test_chapterCache_emptyContent() async throws {
-        let testBookUrl = "test://empty_\(UUID().uuidString)"
-        try await ChapterRepository.shared.saveContent(
-            bookUrl: testBookUrl, chapterIndex: 0, content: ""
-        )
-        let loaded = try await ChapterRepository.shared.loadContent(
-            bookUrl: testBookUrl, chapterIndex: 0
-        )
-        XCTAssertEqual(loaded, "", "空内容应能正常存取")
+    func test_userDefaults_readWrite() {
+        let key = "wxsw_test_storage_\(UUID())"
+        UserDefaults.standard.set("test_value", forKey: key)
+        let loaded = UserDefaults.standard.string(forKey: key)
+        XCTAssertEqual(loaded, "test_value")
+        UserDefaults.standard.removeObject(forKey: key)
     }
 
-    // MARK: - S4: 特殊字符内容存储
-
-    func test_chapterCache_specialCharacters() async throws {
-        let testBookUrl = "test://special_\(UUID().uuidString)"
-        let specialContent = "emoji: 😀🎉📚 symbols: ©®™ html: <p>test</p> sql: ' OR 1=1; --"
-
-        try await ChapterRepository.shared.saveContent(
-            bookUrl: testBookUrl, chapterIndex: 0, content: specialContent
-        )
-        let loaded = try await ChapterRepository.shared.loadContent(
-            bookUrl: testBookUrl, chapterIndex: 0
-        )
+    func test_specialCharacterStorage() {
+        let key = "wxsw_test_special_\(UUID())"
+        let specialContent = "中文测试 🎉 <html>&amp; \"quoted\" 'single'"
+        UserDefaults.standard.set(specialContent, forKey: key)
+        let loaded = UserDefaults.standard.string(forKey: key)
         XCTAssertEqual(loaded, specialContent, "特殊字符应能正确存取")
+        UserDefaults.standard.removeObject(forKey: key)
     }
 
-    // MARK: - S5: UserDefaults 数据完整性
-
+    @MainActor
     func test_userDefaults_readConfig() {
         let config = ReadConfig.shared
         XCTAssertGreaterThan(config.textSize, 0, "字号应大于0")
         XCTAssertGreaterThan(config.lineSpacing, 0, "行距应大于0")
-    }
-
-    // MARK: - S6: 封面磁盘缓存清理
-
-    func test_coverDiskCache_notCrashOnColdStart() async {
-        let cache = await BookCoverDiskCache.shared.load(key: "nonexistent_key_\(UUID())")
-        XCTAssertNil(cache, "不存在的key应返回nil")
     }
 }

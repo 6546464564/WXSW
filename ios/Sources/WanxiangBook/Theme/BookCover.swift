@@ -154,6 +154,10 @@ public struct BookCover: View {
     /// - 默认 UA: 避免部分站点拒空 UA / CF 拒绝
     /// - 默认 Referer: 同源首页
     /// - 合并 URL option.headers
+    static func makeImageRequestPublic(from raw: String) -> URLRequest? {
+        makeImageRequest(from: raw)
+    }
+
     private static func makeImageRequest(from raw: String) -> URLRequest? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

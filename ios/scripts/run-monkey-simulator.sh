@@ -68,6 +68,7 @@ xcodebuild test \
     -destination "platform=iOS Simulator,id=$SIM_UDID" \
     -only-testing:"$TEST_TARGET" \
     -allowProvisioningUpdates \
+    -derivedDataPath "$LOG_DIR/DerivedData" \
     -resultBundlePath "$LOG_DIR/result.xcresult" \
     2>&1 | tee "$LOG_DIR/xcodebuild.log"
 

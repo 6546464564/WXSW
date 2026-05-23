@@ -63,12 +63,16 @@ public final class AdManager: ObservableObject {
         let posId: String
     }
 
-    private let isUITest = CommandLine.arguments.contains("-uitest")
+    /// UI 测试模式: 完全禁用所有广告功能
+    public let isUITest = CommandLine.arguments.contains("-uitest")
 
     private init() {
         if isUITest {
             self.consented = false
-            adLog("[AdManager] UI test mode → ads disabled")
+            self.enabled = false
+            self.reviewMode = true
+            self.bootstrapped = true
+            adLog("[AdManager] UI test mode → all ads disabled")
             return
         }
         // 首次安装时 UserDefaults 无值 → object(forKey:) 返 nil → 视为已同意（自动授权）
@@ -180,7 +184,7 @@ public final class AdManager: ObservableObject {
     // MARK: - 配置加载
 
     public func bootstrap() async {
-        guard consented else { return }
+        guard !isUITest, consented else { return }
         guard !bootstrapped else { return }
 
         if bootstrapping {

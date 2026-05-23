@@ -32,7 +32,8 @@ final class SnapshotTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        if let png = screenshot.pngRepresentation {
+        let png = screenshot.pngRepresentation
+        if !png.isEmpty {
             let path = "\(screenshotDir)/\(name).png"
             let existingData = try? Data(contentsOf: URL(fileURLWithPath: path))
             if let existing = existingData {

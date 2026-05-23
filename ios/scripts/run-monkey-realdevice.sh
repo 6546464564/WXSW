@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 
 TOTAL_HOURS=${TOTAL_HOURS:-12}
 RUN_DURATION=${RUN_DURATION:-60}
-DEVICE_ID=${DEVICE_ID:-$(xcrun devicectl list devices 2>/dev/null | grep "available (paired)" | grep -oE '[A-F0-9-]{36}' | head -1)}
+DEVICE_ID=${DEVICE_ID:-$(xcrun devicectl list devices 2>/dev/null | grep -E "connected|available" | grep -v unavailable | grep -oE '[A-F0-9-]{36}' | head -1)}
 
 if [ -z "$DEVICE_ID" ]; then
     echo "❌ 未找到已连接的 iOS 真机"
@@ -69,6 +69,7 @@ while [ "$(date +%s)" -lt "$END_TS" ]; do
         -only-testing:WanxiangUITests/MonkeyStabilityTest/testMonkeyRun \
         -allowProvisioningUpdates \
         -allowProvisioningDeviceRegistration \
+        -derivedDataPath "$LOG_BASE/DerivedData" \
         -resultBundlePath "$RESULT_DIR/result.xcresult" \
         DEVELOPMENT_TEAM=6UX5G5838X \
         CODE_SIGN_STYLE=Automatic \
