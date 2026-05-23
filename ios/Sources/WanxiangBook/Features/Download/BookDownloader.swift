@@ -459,8 +459,8 @@ public final class ChapterImageCache: @unchecked Sendable {
     /// 万象书屋: chapter image 长期累积会爆 disk. 加一个 max size + LRU 淘汰策略,
     /// 跟 BookCoverDiskCache 类似但 size 上限更大 (漫画图片比 cover 大很多, 给 500MB).
     /// 触发时机: App 启动 + 后台时机 (AppScenePhase 切到 background).
-    public static let maxBytes: Int64 = 500 * 1024 * 1024   // 500 MB
-    public static let trimTargetBytes: Int64 = 400 * 1024 * 1024  // 触发淘汰后裁到 400MB
+    public static let maxBytes: Int64 = 300 * 1024 * 1024   // 300 MB
+    public static let trimTargetBytes: Int64 = 200 * 1024 * 1024  // 触发淘汰后裁到 200MB
 
     /// 检查 dir 总大小, 超过 maxBytes 就按 mtime 升序 (老的先) 淘汰直到 < trimTargetBytes.
     /// nonisolated + Task.detached 让它跑在后台 IO 队列, 不阻塞 reader.

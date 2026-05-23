@@ -56,7 +56,7 @@ public final class HTTPFetcher: @unchecked Sendable {
         // 万象书屋 (M2.6 fix): 资源级超时给到 60s — 这是"task 总时长"上限, 包含
         // retry 间隔 + 可能的 25s per-request × 3 retries. 之前 16s 让 content
         // 在第二次 retry 中途被杀, 用户报"阅读不了".
-        cfg.timeoutIntervalForResource = 60
+        cfg.timeoutIntervalForResource = 30
         cfg.waitsForConnectivity = true
         cfg.httpCookieAcceptPolicy = .always
         cfg.httpShouldSetCookies = true

@@ -42,7 +42,7 @@ public final class WKWebViewBridge: BrowserBridge {
         webView.load(req)
 
         let deadline = Date().addingTimeInterval(timeout)
-        let pollInterval: TimeInterval = 0.3
+        let pollInterval: TimeInterval = 0.5
         var lastHtml: String? = nil
 
         // 万象书屋: cloudflare/反爬常见挑战页特征
