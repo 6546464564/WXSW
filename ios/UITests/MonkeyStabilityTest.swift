@@ -19,7 +19,7 @@ final class MonkeyStabilityTest: XCTestCase {
         Int(ProcessInfo.processInfo.environment["MONKEY_DURATION"] ?? "720") ?? 720
     }
     private var throttleMs: Int {
-        Int(ProcessInfo.processInfo.environment["MONKEY_THROTTLE"] ?? "500") ?? 500
+        Int(ProcessInfo.processInfo.environment["MONKEY_THROTTLE"] ?? "100") ?? 100
     }
     private var screenshotIntervalSec: TimeInterval {
         TimeInterval(ProcessInfo.processInfo.environment["MONKEY_SCREENSHOT_INTERVAL"] ?? "300") ?? 300
@@ -51,6 +51,7 @@ final class MonkeyStabilityTest: XCTestCase {
         continueAfterFailure = true
         app = XCUIApplication()
         app.launchArguments = ["-unlockApp", "-skipSplash", "-uitest"]
+        (app as NSObject).setValue(false, forKey: "shouldWaitForQuiescence")
         app.launch()
         startDate = Date()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "App 未正常启动")
@@ -149,10 +150,10 @@ final class MonkeyStabilityTest: XCTestCase {
         NSLog("[Monkey] 🔄 重新启动 App (crash #%d)", crashCount)
         XCUIDevice.shared.orientation = .portrait
         app.terminate()
-        sleep(2)
+        sleep(1)
         app.launch()
-        _ = app.wait(for: .runningForeground, timeout: 15)
-        sleep(2)
+        _ = app.wait(for: .runningForeground, timeout: 10)
+        sleep(1)
     }
 
     // MARK: - 随机操作分发 (20种)
@@ -257,7 +258,7 @@ final class MonkeyStabilityTest: XCTestCase {
             field.typeText(text)
             textInputCount += 1
             NSLog("[Monkey] 📝 输入: %@", text)
-            if Bool.random() { field.typeText("\n"); sleep(2) }
+            if Bool.random() { field.typeText("\n"); usleep(500_000) }
         } else {
             tapCoordinate()
         }
@@ -322,12 +323,11 @@ final class MonkeyStabilityTest: XCTestCase {
         guard app.state == .runningForeground else { return }
         NSLog("[Monkey] 🏠 切换到后台")
         XCUIDevice.shared.press(.home)
-        let wait = UInt32(Int.random(in: 2...6))
+        let wait = UInt32(Int.random(in: 1...3))
         sleep(wait)
         NSLog("[Monkey] 🔙 恢复前台 (后台 %ds)", wait)
         app.activate()
-        _ = app.wait(for: .runningForeground, timeout: 10)
-        sleep(1)
+        _ = app.wait(for: .runningForeground, timeout: 5)
         bgFgCycleCount += 1
     }
 
@@ -367,15 +367,14 @@ final class MonkeyStabilityTest: XCTestCase {
         if let t = toggle {
             t.tap()
             NSLog("[Monkey] ✈️ 飞行模式 ON")
-            sleep(UInt32(Int.random(in: 3...6)))
+            sleep(2)
             t.tap()
             NSLog("[Monkey] 🌐 飞行模式 OFF")
-            sleep(2)
+            sleep(1)
             networkToggleCount += 1
         }
         app.activate()
-        _ = app.wait(for: .runningForeground, timeout: 10)
-        sleep(1)
+        _ = app.wait(for: .runningForeground, timeout: 5)
     }
 
     // MARK: - 屏幕旋转
@@ -387,9 +386,9 @@ final class MonkeyStabilityTest: XCTestCase {
         XCUIDevice.shared.orientation = target
         NSLog("[Monkey] 🔄 旋转: %d", target.rawValue)
         rotationCount += 1
-        sleep(2)
+        usleep(500_000)
         XCUIDevice.shared.orientation = .portrait
-        sleep(1)
+        usleep(300_000)
     }
 
     // MARK: - 暗色模式切换
@@ -398,7 +397,7 @@ final class MonkeyStabilityTest: XCTestCase {
         guard app.state == .runningForeground else { return }
         NSLog("[Monkey] 🌗 暗色模式切换")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.97)).tap()
-        sleep(1)
+        usleep(300_000)
         guard app.state == .runningForeground else { return }
         for label in ["跟随系统", "护眼模式"] {
             let sw = app.switches[label]
@@ -406,10 +405,10 @@ final class MonkeyStabilityTest: XCTestCase {
                 sw.tap()
                 NSLog("[Monkey] 🌗 切换: %@", label)
                 darkModeToggleCount += 1
-                sleep(2)
+                usleep(500_000)
                 guard app.state == .runningForeground else { return }
                 if sw.exists && sw.isHittable { sw.tap() }
-                sleep(1)
+                usleep(300_000)
                 return
             }
         }
@@ -420,7 +419,7 @@ final class MonkeyStabilityTest: XCTestCase {
                 cell.tap()
                 darkModeToggleCount += 1
                 NSLog("[Monkey] 🌗 点击: %@", label)
-                sleep(2)
+                usleep(500_000)
                 return
             }
         }
@@ -447,7 +446,7 @@ final class MonkeyStabilityTest: XCTestCase {
         startPt.press(forDuration: 0.05, thenDragTo: endPt)
         pullRefreshCount += 1
         NSLog("[Monkey] ⬇️ 下拉刷新")
-        sleep(2)
+        usleep(500_000)
     }
 
     // MARK: - 快速连续操作 (压力测试)
@@ -514,10 +513,10 @@ final class MonkeyStabilityTest: XCTestCase {
         guard app.state == .runningForeground else { return }
         NSLog("[Monkey] 🗑️ 数据清理重启")
         app.terminate()
-        sleep(3)
+        sleep(1)
         app.launch()
-        _ = app.wait(for: .runningForeground, timeout: 15)
-        sleep(3)
+        _ = app.wait(for: .runningForeground, timeout: 10)
+        sleep(1)
         dataClearCount += 1
         NSLog("[Monkey] 🗑️ App 已重启")
     }
@@ -540,16 +539,16 @@ final class MonkeyStabilityTest: XCTestCase {
         NSLog("[Monkey] 📚 流程: 搜索")
         let sf = app.searchFields.firstMatch
         if sf.exists && sf.isHittable {
-            sf.tap(); usleep(800_000)
+            sf.tap(); usleep(300_000)
             guard app.state == .runningForeground else { return }
             sf.typeText(randomSearchText() + "\n")
-            sleep(3)
+            sleep(1)
             guard app.state == .runningForeground else { return }
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: CGFloat.random(in: 0.25...0.6))).tap()
-            sleep(2)
+            usleep(500_000)
         } else {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.06)).tap()
-            sleep(2)
+            usleep(500_000)
         }
     }
 
@@ -557,30 +556,30 @@ final class MonkeyStabilityTest: XCTestCase {
         guard app.state == .runningForeground else { return }
         NSLog("[Monkey] 📚 流程: 书城")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.97)).tap()
-        sleep(2)
-        for _ in 0..<Int.random(in: 2...5) {
+        usleep(500_000)
+        for _ in 0..<Int.random(in: 2...4) {
             guard app.state == .runningForeground else { return }
-            app.swipeUp(); usleep(800_000)
+            app.swipeUp(); usleep(300_000)
         }
         guard app.state == .runningForeground else { return }
         app.coordinate(withNormalizedOffset: CGVector(
             dx: CGFloat.random(in: 0.1...0.9),
             dy: CGFloat.random(in: 0.25...0.65)
         )).tap()
-        sleep(3)
+        usleep(500_000)
     }
 
     private func flowReading() {
         guard app.state == .runningForeground else { return }
         NSLog("[Monkey] 📚 流程: 阅读")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.17, dy: 0.97)).tap()
-        sleep(2)
+        usleep(500_000)
         guard app.state == .runningForeground else { return }
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.3)).tap()
-        sleep(3)
-        for _ in 0..<Int.random(in: 3...8) {
+        sleep(1)
+        for _ in 0..<Int.random(in: 3...6) {
             guard app.state == .runningForeground else { return }
-            app.swipeLeft(); usleep(600_000)
+            app.swipeLeft(); usleep(300_000)
         }
         goBack()
     }
@@ -589,13 +588,13 @@ final class MonkeyStabilityTest: XCTestCase {
         guard app.state == .runningForeground else { return }
         NSLog("[Monkey] 📚 流程: 个人中心")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.83, dy: 0.97)).tap()
-        sleep(2)
+        usleep(500_000)
         for _ in 0..<Int.random(in: 2...4) {
             guard app.state == .runningForeground else { return }
             app.coordinate(withNormalizedOffset: CGVector(
                 dx: 0.5, dy: CGFloat.random(in: 0.2...0.8)
             )).tap()
-            sleep(2)
+            usleep(500_000)
         }
         goBack()
     }
@@ -649,7 +648,7 @@ final class MonkeyStabilityTest: XCTestCase {
             crashCount += 1
             takeScreenshot(name: "crash-recovery-\(crashCount)")
             app.activate()
-            sleep(2)
+            _ = app.wait(for: .runningForeground, timeout: 5)
             if app.state != .runningForeground { forceRelaunch() }
         }
     }
