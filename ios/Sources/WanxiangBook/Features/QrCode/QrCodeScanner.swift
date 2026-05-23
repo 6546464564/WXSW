@@ -67,12 +67,45 @@ struct QrCodeScannerView: UIViewControllerRepresentable {
         }
 
         private func showError(_ msg: String) {
+            let container = UIView(frame: view.bounds)
+            container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.alignment = .center
+            stack.spacing = 12
+            stack.translatesAutoresizingMaskIntoConstraints = false
+
+            let icon = UIImageView(image: UIImage(systemName: "camera.fill"))
+            icon.tintColor = .systemGray
+            icon.contentMode = .scaleAspectFit
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            icon.widthAnchor.constraint(equalToConstant: 48).isActive = true
+            icon.heightAnchor.constraint(equalToConstant: 48).isActive = true
+
             let label = UILabel()
             label.text = msg
             label.textColor = .white
-            label.frame = view.bounds
+            label.font = .systemFont(ofSize: 16, weight: .medium)
             label.textAlignment = .center
-            view.addSubview(label)
+
+            let hint = UILabel()
+            hint.text = "请检查相机权限或使用带摄像头的设备"
+            hint.textColor = .systemGray
+            hint.font = .systemFont(ofSize: 13)
+            hint.textAlignment = .center
+            hint.numberOfLines = 0
+
+            stack.addArrangedSubview(icon)
+            stack.addArrangedSubview(label)
+            stack.addArrangedSubview(hint)
+            container.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 32),
+            ])
+            view.addSubview(container)
         }
     }
 }

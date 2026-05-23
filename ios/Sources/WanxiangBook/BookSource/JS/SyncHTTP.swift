@@ -33,8 +33,9 @@ final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate {
 
 public enum SyncHTTP {
 
-    /// 万象书屋: legado 源 JS 用 `resp.header("location")` 探 302 跳转地址,
-    /// 所以 java.get/post 不能默认跟随 redirect — 让 caller 拿到原始 302 响应.
+    private static let responseCache = NSCache<NSString, CachedHTTPResponse>()
+    private static let cacheTTL: TimeInterval = 30
+
     private static let session: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 8
@@ -59,6 +60,13 @@ public enum SyncHTTP {
 
     private static func execute(url: String, method: String, body: Data?,
                                  headers: [String: String]) -> SyncHTTPResponse {
+        if method == "GET" && body == nil && headers.isEmpty {
+            let cacheKey = url as NSString
+            if let cached = responseCache.object(forKey: cacheKey),
+               Date().timeIntervalSince(cached.timestamp) < cacheTTL {
+                return cached.response
+            }
+        }
         guard let u = URL(string: url) else {
             return SyncHTTPResponse(
                 body: "Malformed URL: \(url)",
@@ -131,6 +139,16 @@ public enum SyncHTTP {
                 headers: [:]
             )
         }
+        if method == "GET" && body == nil && headers.isEmpty && result.statusCode >= 200 && result.statusCode < 300 {
+            let cached = CachedHTTPResponse(response: result)
+            responseCache.setObject(cached, forKey: url as NSString)
+        }
         return result
     }
+}
+
+final class CachedHTTPResponse: NSObject {
+    let response: SyncHTTPResponse
+    let timestamp = Date()
+    init(response: SyncHTTPResponse) { self.response = response }
 }

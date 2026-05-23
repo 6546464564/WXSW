@@ -46,10 +46,36 @@ public final class ReaderEngine: ObservableObject {
     /// 避免 prefetch 任务干扰主章 loading 状态
     private var loadingIndices: Set<Int> = []
 
+    private var memoryWarningObserver: Any?
+
     public init(book: ShelfBook, source: BookSource? = nil) {
         self.book = book
         self.source = source ?? BookSourceRegistry.shared.find(origin: book.origin)
         self.currentChapterIndex = max(0, book.durChapterIndex)
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: .wanxiangMemoryWarning, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleMemoryWarning()
+            }
+        }
+    }
+
+    deinit {
+        if let obs = memoryWarningObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
+
+    private func handleMemoryWarning() {
+        let keepRange = max(0, currentChapterIndex - 1)...min(chapters.count - 1, currentChapterIndex + 1)
+        var evicted = 0
+        for key in contentCache.keys where !keepRange.contains(key) {
+            contentCache.removeValue(forKey: key)
+            evicted += 1
+        }
+        cacheAccessOrder.removeAll { !keepRange.contains($0) }
+        NSLog("[WX-MEM] ReaderEngine: 内存警告清理 %d 章, 保留 %d 章", evicted, contentCache.count)
     }
 
     /// 万象书屋 (bug 3 fix): loadingChapter 只反映当前章

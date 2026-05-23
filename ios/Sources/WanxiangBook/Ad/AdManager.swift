@@ -63,7 +63,14 @@ public final class AdManager: ObservableObject {
         let posId: String
     }
 
+    private let isUITest = CommandLine.arguments.contains("-uitest")
+
     private init() {
+        if isUITest {
+            self.consented = false
+            adLog("[AdManager] UI test mode → ads disabled")
+            return
+        }
         // 首次安装时 UserDefaults 无值 → object(forKey:) 返 nil → 视为已同意（自动授权）
         let stored = UserDefaults.standard.object(forKey: Self.kConsented)
         if stored == nil {

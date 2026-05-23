@@ -775,24 +775,27 @@ public actor JSEngine {
         //     跟 SyncHTTP 同模式. 不在 main thread 上跑就 OK.
         let startBrowserAwait: @convention(block) (Any?, Any?) -> [String: Any] = { urlAny, keywordAny in
             let url = (urlAny as? String) ?? ""
-            let keyword = keywordAny as? String   // 可空, BrowserBridge 会兜底返 outerHTML
+            let keyword = keywordAny as? String
             guard !url.isEmpty else {
                 return ["body": "", "code": 0, "headers": [:] as [String: String]]
             }
-            // 跳出 actor: Task 在合作池跑 await, sema 同步等结果回灌
+            if let cached = _BrowserResultCache.shared.get(url: url) {
+                return ["body": cached, "code": 200, "headers": [:] as [String: String]]
+            }
             let sema = DispatchSemaphore(value: 0)
-            // 万象书屋: 用 wrapper class 让 closure 可写 (Swift block 默认按值捕获)
             let box = _BrowserResultBox()
             Task.detached {
                 let bridge = await BrowserBridgeRegistry.shared.get()
                 let html = await bridge.loadAndWait(
-                    url: url, expectedKeyword: keyword, timeout: 30
+                    url: url, expectedKeyword: keyword, timeout: 20
                 )
                 box.body = html ?? ""
                 sema.signal()
             }
-            // 35s 兜底: 给 BrowserBridge 30s + 缓冲, 自身 timeout 还是要的防 actor 卡死.
-            _ = sema.wait(timeout: .now() + 35)
+            _ = sema.wait(timeout: .now() + 25)
+            if !box.body.isEmpty {
+                _BrowserResultCache.shared.set(url: url, body: box.body)
+            }
             return [
                 "body": box.body,
                 "code": box.body.isEmpty ? 0 : 200,
@@ -1796,6 +1799,21 @@ public actor JSEngine {
 //   - 用 final class wrap 一个 mutable field 让 Task 跨线程回填
 final class _BrowserResultBox: @unchecked Sendable {
     var body: String = ""
+}
+
+final class _BrowserResultCache: @unchecked Sendable {
+    static let shared = _BrowserResultCache()
+    private let cache = NSCache<NSString, NSString>()
+    private init() {
+        cache.countLimit = 50
+        cache.totalCostLimit = 8 * 1024 * 1024
+    }
+    func get(url: String) -> String? {
+        cache.object(forKey: url as NSString) as? String
+    }
+    func set(url: String, body: String) {
+        cache.setObject(body as NSString, forKey: url as NSString)
+    }
 }
 
 /// 万象书屋: legado JS `cache.putMemory()` / `getFromMemory()` 的进程内 KV 存储.

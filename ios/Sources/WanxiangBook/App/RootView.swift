@@ -364,6 +364,7 @@ private struct IdentifiableString: Identifiable {
 
 extension Notification.Name {
     static let wanxiangTabBarHiddenChanged = Notification.Name("wanxiang.tabBarHiddenChanged")
+    static let wanxiangMemoryWarning = Notification.Name("wanxiang.memoryWarning")
 }
 
 private struct AnnouncementWrapper: Identifiable {

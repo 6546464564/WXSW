@@ -365,10 +365,15 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // M2.1.7: 全局崩溃捕获 (在第一行业务代码之前安装)
         CrashHandler.install()
-        // MetricKit 系统级诊断收集（崩溃/挂起/CPU异常/磁盘写入，iOS 自动收集）
         MetricKitSubscriber.shared.start()
         return true
+    }
+
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        NSLog("[WX-MEM] ⚠️ 收到内存警告, 开始清理缓存")
+        URLCache.shared.removeAllCachedResponses()
+        NSLog("[WX-MEM] URLCache 已清理")
+        NotificationCenter.default.post(name: .wanxiangMemoryWarning, object: nil)
     }
 }

@@ -193,10 +193,14 @@ private final class BookCoverImageCache {
     private let cache = NSCache<NSString, UIImage>()
 
     private init() {
-        // 万象书屋 (M2.4 perf): 内存缓存提到 800 / 64MB.
-        // 之前 300 / 24MB 在 32 源各 5+ 结果 = 150+ 封面时撑不住, 滚动列表频繁 evict + 重新 download.
         cache.countLimit = 800
         cache.totalCostLimit = 64 * 1024 * 1024
+        NotificationCenter.default.addObserver(
+            forName: .wanxiangMemoryWarning, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.cache.removeAllObjects()
+            NSLog("[WX-MEM] BookCoverImageCache 已清空")
+        }
     }
 
     func image(for key: String) -> UIImage? {

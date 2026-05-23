@@ -1038,6 +1038,10 @@ public struct ReaderView: View {
     // MARK: - 章节付费墙逻辑 (对齐 Android checkChapterPaywall)
 
     private func checkChapterPaywall() {
+        if CommandLine.arguments.contains("-uitest") {
+            showChapterPaywall = false
+            return
+        }
         let cfg = AdManager.shared
         guard cfg.enabled, cfg.consented, !cfg.reviewMode else {
             showChapterPaywall = false

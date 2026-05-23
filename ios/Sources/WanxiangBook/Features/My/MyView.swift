@@ -115,14 +115,16 @@ struct MyView: View {
                         )
                     }
 
-                    Button {
-                        showRelockConfirm = true
-                    } label: {
-                        rowLabel(
-                            icon: "lock.shield",
-                            title: "应用伪装",
-                            subtitle: "切换到伪装界面,保护隐私"
-                        )
+                    if !ProcessInfo.processInfo.arguments.contains("-uitest") {
+                        Button {
+                            showRelockConfirm = true
+                        } label: {
+                            rowLabel(
+                                icon: "lock.shield",
+                                title: "应用伪装",
+                                subtitle: "切换到伪装界面,保护隐私"
+                            )
+                        }
                     }
                 }
 
