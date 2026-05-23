@@ -1611,7 +1611,8 @@ struct ChapterPageBody: View {
         let lineSpacingPt = config.textSize * max(0, config.lineSpacing - 1.0)
         let paraStyle = NSMutableParagraphStyle()
         paraStyle.lineSpacing = lineSpacingPt
-        paraStyle.paragraphSpacing = config.paragraphSpacing
+        paraStyle.paragraphSpacing = 0
+        paraStyle.paragraphSpacingBefore = config.paragraphSpacing
         paraStyle.lineBreakMode = .byCharWrapping
         let nsAttr = NSMutableAttributedString(string: text)
         let range = NSRange(location: 0, length: (text as NSString).length)

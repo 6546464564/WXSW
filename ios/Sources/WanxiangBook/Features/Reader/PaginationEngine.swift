@@ -187,10 +187,9 @@ public struct PaginationEngine {
 
         let bodyPara = NSMutableParagraphStyle()
         bodyPara.lineSpacing = config.textSize * (config.lineSpacing - 1.0)
-        // 段间距直接使用 config.paragraphSpacing (默认 14pt), 与 bodyAttributedString 保持一致
-        bodyPara.paragraphSpacing = config.paragraphSpacing
+        bodyPara.paragraphSpacing = 0
+        bodyPara.paragraphSpacingBefore = config.paragraphSpacing
         bodyPara.firstLineHeadIndent = 0
-        // H2 fix: 改为 .natural (左对齐), 与 bodyAttributedString 默认对齐方式一致
         bodyPara.alignment = .natural
         bodyPara.lineBreakMode = .byCharWrapping
 
