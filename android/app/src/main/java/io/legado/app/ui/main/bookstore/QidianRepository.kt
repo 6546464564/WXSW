@@ -269,7 +269,7 @@ object QidianRepository {
         pageNum: Int = 1,
         gender: Channel = Channel.Male,
     ): List<QidianBook> {
-        if (pageNum == 1) return fetchRankSsr(type, gender)
+        if (pageNum == 1 && gender == Channel.Male) return fetchRankSsr(type, gender)
         return fetchRankAjax(type, pageNum, gender)
     }
 
@@ -379,7 +379,11 @@ object QidianRepository {
         var page = 1
         while (out.size < target && page <= 5) {
             val books = try {
-                if (page == 1) fetchRankSsr(type, gender) else fetchRankAjax(type, page, gender)
+                if (page == 1 && gender == Channel.Male) {
+                    fetchRankSsr(type, gender)
+                } else {
+                    fetchRankAjax(type, page, gender)
+                }
             } catch (t: Throwable) {
                 LogUtils.d(TAG, "page=$page failed: ${t.javaClass.simpleName}: ${t.message}")
                 emptyList()
@@ -483,7 +487,7 @@ object QidianRepository {
         RankType.Yuepiao    -> "yuepiaolist"
         RankType.HotReading -> "hotsalesList"
         RankType.Bestseller -> "dsList"
-        RankType.Recommend  -> "recomList"
+        RankType.Recommend  -> "recList"
         RankType.Update     -> "updateList"
         RankType.Sign       -> "signnewbookList"
         RankType.NewAuthor  -> "newauthorList"

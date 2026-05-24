@@ -170,7 +170,8 @@ actor QidianRepository {
         while out.count < target && page <= 5 {
             let books: [QidianBook]
             do {
-                books = page == 1
+                // gender=female 时 SSR 单榜第 1 页与男频同源; 女频一律走 majax
+                books = (page == 1 && gender == .male)
                     ? try await fetchRankSSR(type: type, gender: gender)
                     : try await fetchRankAjax(type: type, pageNum: page, gender: gender)
             } catch {
@@ -458,7 +459,7 @@ actor QidianRepository {
         case .yuepiao: return "yuepiaolist"
         case .hotReading: return "hotsalesList"
         case .bestseller: return "dsList"
-        case .recommend: return "recomList"
+        case .recommend: return "recList"
         case .update: return "updateList"
         case .sign: return "signnewbookList"
         case .newAuthor: return "newauthorList"
