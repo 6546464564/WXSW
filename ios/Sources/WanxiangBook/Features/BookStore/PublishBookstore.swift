@@ -1,6 +1,6 @@
 //
 //  PublishBookstore.swift
-//  出版频道: 后端 bookstore_feed 独立书单 → 与男/女生相同四榜 UI
+//  出版频道: 优先 mirror.ranksPublish (起点 catId=13100), feed 兜底
 //
 
 import Foundation
@@ -15,27 +15,26 @@ enum PublishBookstore {
     ]
 
     static func fetchRanks() async -> [QidianRankType: [QidianBook]] {
+        let mirrorRanks = await QidianRepository.shared.fetchPublishMirrorRanks()
+        if !mirrorRanks.isEmpty { return mirrorRanks }
         let items = (try? await WanxiangAPI.shared.fetchBookstoreFeed(channel: "publish")) ?? []
         let picks = items.compactMap { QidianBook.feedPick(from: $0) }
         return picksToRanks(picks)
     }
 
     static func fetchRankPages(type: QidianRankType, target: Int = 50) async -> [QidianBook] {
+        let mirrorPages = await QidianRepository.shared.fetchPublishRankPages(type: type, target: target)
+        if !mirrorPages.isEmpty { return mirrorPages }
         let ranks = await fetchRanks()
         return Array((ranks[type] ?? []).prefix(target))
     }
 
-    static func fetchEditorPicks() async -> [BookstoreFeedPick] {
-        let items = (try? await WanxiangAPI.shared.fetchBookstoreFeed(channel: "publish")) ?? []
-        return items.compactMap { QidianBook.feedPick(from: $0) }
-            .filter { $0.section == "editor" }
-    }
-
+    /// 出版书库: 阅读/新书/推荐三榜合并, 不含月票 (热门排行已用 yuepiaoTop50Publish)
     static func fetchLibraryMerged(target: Int = 50) async -> [QidianBook] {
         let ranks = await fetchRanks()
         var seen = Set<String>()
         var out: [QidianBook] = []
-        for rt in [QidianRankType.yuepiao, .hotReading, .newBook, .recommend] {
+        for rt in [QidianRankType.hotReading, .newBook, .recommend] {
             for b in ranks[rt] ?? [] {
                 let key = b.bookId.isEmpty ? b.name : b.bookId
                 if seen.insert(key).inserted { out.append(b) }

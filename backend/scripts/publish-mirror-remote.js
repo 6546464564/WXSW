@@ -20,6 +20,10 @@ async function main() {
     ? Object.values(payload.ranksFemale).reduce((s, a) => s + a.length, 0)
     : 0;
   console.log(`    男生 ${male} 本, 女生 ${female} 本, 月票50 ${payload.yuepiaoTop50?.length}, 女月票50 ${payload.yuepiaoTop50Female?.length}`);
+  const publish = payload.ranksPublish
+    ? Object.values(payload.ranksPublish).reduce((s, a) => s + a.length, 0)
+    : 0;
+  console.log(`    出版 ${publish} 本 (四榜), 出版月票50 ${payload.yuepiaoTop50Publish?.length ?? 0}`);
 
   console.log(`>>> 登录 ${BASE}...`);
   const loginRes = await fetch(`${BASE}/api/admin/login`, {

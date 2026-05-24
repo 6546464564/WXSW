@@ -55,7 +55,7 @@ object QidianRepository {
      * 万象书屋·书城 频道.
      *
      * D-22.1: m.qidian gender=female 与 male 榜单同源 (服务端/客户端均 mirror.ranks 兜底).
-     * Publish 走 /finish/ 完结频道 (4 完结榜).
+     * Publish 走 mirror.ranksPublish (catId=13100 实体书), feed 兜底.
      */
     enum class Channel {
         Male,
@@ -153,6 +153,45 @@ object QidianRepository {
         LogUtils.d(TAG, "ranks fallback to direct fetch gender=$genderParam")
         val url = "$BASE/rank/?gender=$genderParam"
         return fetchPageWithSSR(url) { pageData -> parseRanksFromPageData(pageData) }
+    }
+
+    /** 出版频道: mirror.ranksPublish (起点 catId=13100 实体书分类) */
+    suspend fun fetchPublishMirrorRanks(): Map<RankType, List<QidianBook>> {
+        WanxiangBookstoreMirror.fetch()?.let { mirror ->
+            mirror.getAsJsonObject("ranksPublish")?.let { obj ->
+                if (obj.size() > 0) {
+                    LogUtils.d(TAG, "ranksPublish from mirror version=${mirror.get("version")?.asLong}")
+                    return parseMirrorRanks(obj)
+                }
+            }
+        }
+        return emptyMap()
+    }
+
+    /** 出版频道榜单详情页 (~50 本): 月票走 yuepiaoTop50Publish, 其余合并各榜 */
+    suspend fun fetchPublishRankPages(type: RankType, target: Int = 50): List<QidianBook> {
+        if (type == RankType.Yuepiao) {
+            WanxiangBookstoreMirror.fetch()?.let { mirror ->
+                val arr = mirror.getAsJsonArray("yuepiaoTop50Publish")
+                if (arr != null && arr.size() > 0) {
+                    LogUtils.d(TAG, "yuepiaoTop50Publish from mirror size=${arr.size()}")
+                    return arr.mapNotNull {
+                        runCatching { mirrorBookToQidian(it.asJsonObject, RankType.Yuepiao) }.getOrNull()
+                    }.take(target)
+                }
+            }
+        }
+        val ranks = fetchPublishMirrorRanks()
+        if (ranks.isEmpty()) return emptyList()
+        val seen = LinkedHashSet<String>()
+        val out = ArrayList<QidianBook>(target + 10)
+        for (rt in listOf(type, RankType.Yuepiao, RankType.HotReading, RankType.NewBook, RankType.Recommend)) {
+            ranks[rt]?.forEach { b ->
+                val key = b.bookId.ifEmpty { b.name }
+                if (seen.add(key)) out.add(b)
+            }
+        }
+        return out.take(target)
     }
 
     /** 万象书屋 D-23: mirror 的 ranks 字段 → RankType map. */

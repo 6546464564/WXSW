@@ -26,6 +26,13 @@ struct RankDetailView: View {
             case .finish: return "完本书库"
             }
         }
+
+        func title(for channel: QidianChannel) -> String {
+            switch self {
+            case .rank(let t): return t.title
+            case .finish: return channel == .publish ? "出版书库" : "完本书库"
+            }
+        }
     }
 
     let mode: Mode
@@ -67,7 +74,7 @@ struct RankDetailView: View {
             .padding(.bottom, 40)
         }
         .background(WanxiangColors.background)
-        .navigationTitle(titleOverride ?? mode.title)
+        .navigationTitle(titleOverride ?? mode.title(for: channel))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await vm.load(mode: mode, channel: channel, force: true) }
         .task(id: "\(channel.rawValue)-\(String(describing: mode))") {
@@ -274,23 +281,28 @@ final class RankDetailViewModel: ObservableObject {
             )
             async let finishMale: [QidianBook] = await Self.computeFinishLibrary(target: 50, gender: .male)
             async let finishFemale: [QidianBook] = await Self.computeFinishLibrary(target: 50, gender: .female)
-            let (ypM, ypF, flM, flF) = await (yuepiaoMale, yuepiaoFemale, finishMale, finishFemale)
+            async let yuepiaoPublish: [QidianBook] = await PublishBookstore.fetchRankPages(type: .yuepiao, target: 50)
+            async let libraryPublish: [QidianBook] = await PublishBookstore.fetchLibraryMerged(target: 50)
+            let (ypM, ypF, flM, flF, ypP, libP) = await (yuepiaoMale, yuepiaoFemale, finishMale, finishFemale, yuepiaoPublish, libraryPublish)
             await MainActor.run {
                 let now = Date()
                 if !ypM.isEmpty { RankDetailViewModel.cache[.rank(.male, .yuepiao)] = (ypM, now) }
                 if !ypF.isEmpty { RankDetailViewModel.cache[.rank(.female, .yuepiao)] = (ypF, now) }
                 if !flM.isEmpty { RankDetailViewModel.cache[.finish(.male)] = (flM, now) }
                 if !flF.isEmpty { RankDetailViewModel.cache[.finish(.female)] = (flF, now) }
+                if !ypP.isEmpty { RankDetailViewModel.cache[.rank(.publish, .yuepiao)] = (ypP, now) }
+                if !libP.isEmpty { RankDetailViewModel.cache[.finish(.publish)] = (libP, now) }
             }
         }
     }
 
     /// 万象书屋: 完本书库 50 本算法 (Finish 4 榜合并 + Yuepiao 大字数补足) — 拆成 nonisolated static
     /// 让 instance 和 prewarm 都可调. gender 影响月票榜补充 (跟 Android rankGender 对齐).
+    /// 女频跳过共用 finish, 避免男女完本书库前 21 本相同.
     nonisolated static func computeFinishLibrary(target: Int, gender: QidianChannel) async -> [QidianBook] {
         var seen = Set<String>()
         var out: [QidianBook] = []
-        if let ranks = try? await QidianRepository.shared.fetchFinishRanks() {
+        if gender != .female, let ranks = try? await QidianRepository.shared.fetchFinishRanks() {
             let order: [QidianRankType] = [.finishClassic, .finishBestSell, .finishDs, .finishMovie]
             for rt in order {
                 for b in ranks[rt] ?? [] where seen.insert(b.bookId).inserted {

@@ -43,7 +43,7 @@ object BookstoreDetailLauncher {
             putExtra(EXTRA_KIND, pick.book.category)
             if (pick.targetURL.isNotBlank()) putExtra("bookUrl", pick.targetURL)
             if (pick.sourceOrigin.isNotBlank()) putExtra(EXTRA_ORIGIN, pick.sourceOrigin)
-            putExtra(EXTRA_ORIGIN_NAME, "编辑精选")
+            putExtra(EXTRA_ORIGIN_NAME, "出版书城")
         }
     }
 

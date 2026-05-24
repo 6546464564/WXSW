@@ -77,10 +77,6 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
      */
     private val channelRankCache get() = BookStorePrewarm.channelRankCache
 
-    /** 后端编辑精选 — 跟 iOS editorPicks 对齐 */
-    private var editorPicks: List<BookstoreFeedPick> = emptyList()
-    private var feedJob: Job? = null
-
     /** 当前已加载的书目列表 (9 榜单合并去重); 「换一换」时基于此数组做循环切片 */
     private var allBooks: List<QidianBook> = emptyList()
 
@@ -364,8 +360,8 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
             QidianRepository.Channel.Publish -> {
                 binding.tvBannerRankTitle.text = getString(R.string.bs_rank)
                 binding.tvBannerRankSub.text = "${hero.title} TOP 50"
-                binding.tvBannerLibraryTitle.text = getString(R.string.bs_library)
-                binding.tvBannerLibrarySub.text = getString(R.string.bs_library_sub)
+                binding.tvBannerLibraryTitle.text = getString(R.string.bs_library_publish)
+                binding.tvBannerLibrarySub.text = getString(R.string.bs_library_publish_sub)
             }
             else -> {
                 binding.tvBannerRankTitle.text = getString(R.string.bs_rank)
@@ -380,7 +376,12 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         }
         binding.cardLibrary.setOnClickListener {
             WanxiangAnalytics.track("bs_banner_library", type = "click")
-            RankDetailActivity.startFinish(requireContext(), getString(R.string.bs_library), currentChannel)
+            val libraryTitle = if (currentChannel == QidianRepository.Channel.Publish) {
+                getString(R.string.bs_library_publish)
+            } else {
+                getString(R.string.bs_library)
+            }
+            RankDetailActivity.startFinish(requireContext(), libraryTitle, currentChannel)
         }
     }
 
@@ -444,7 +445,6 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
             if (hit != null && System.currentTimeMillis() - hit.second < CACHE_TTL_MS) {
                 binding.refreshLayout.isRefreshing = false
                 bindAllSlots(hit.first)
-                applyFeedCache(forChannel = ch)
                 showContentUi()
                 return
             }
@@ -476,7 +476,6 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
                 } else {
                     channelRankCache[ch] = Pair(ranks, System.currentTimeMillis())
                     bindAllSlots(ranks)
-                    loadFeed(forChannel = ch)
                     showContentUi()
                 }
             } catch (t: Throwable) {
@@ -532,6 +531,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
      *   gridRanked    = recRank   top 8     (推荐榜, 带真排名 1-5+)
      *
      * Publish 频道复用 male 数据但板块顺序换一下 (用 dsRank 畅销榜替 hotRank, 让 tab 视觉有别).
+     * (已废弃: 出版现走 PublishBookstore / mirror.ranksPublish)
      */
     private fun bindAllSlots(ranks: Map<QidianRepository.RankType, List<QidianBook>>) {
         clearAllSlots()
@@ -560,83 +560,24 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         rebindRanked()
 
         ensureExtendedRanks(listOf(mustReadType(), completeType(), recommendType()))
-        applyFeedCache(forChannel = currentChannel)
-    }
-
-    private fun applyFeedCache(forChannel: QidianRepository.Channel) {
-        editorPicks = BookStorePrewarm.feedCache[forChannel].orEmpty()
-        bindEditorPicks()
-    }
-
-    private fun loadFeed(forChannel: QidianRepository.Channel) {
-        feedJob?.cancel()
-        if (forChannel == QidianRepository.Channel.Publish) {
-            feedJob = lifecycleScope.launch {
-                val picks = withContext(Dispatchers.IO) { PublishBookstore.fetchEditorPicks() }
-                if (!isAdded || currentChannel != forChannel) return@launch
-                if (picks.isNotEmpty()) {
-                    BookStorePrewarm.feedCache[forChannel] = picks
-                    editorPicks = picks
-                    bindEditorPicks()
-                } else {
-                    editorPicks = emptyList()
-                    bindEditorPicks()
-                }
-            }
-            return
-        }
-        applyFeedCache(forChannel)
-        val cached = BookStorePrewarm.feedCache[forChannel]
-        if (!cached.isNullOrEmpty()) return
-        val channelKey = when (forChannel) {
-            QidianRepository.Channel.Male -> "male"
-            QidianRepository.Channel.Female -> "female"
-            QidianRepository.Channel.Publish -> "publish"
-        }
-        feedJob = lifecycleScope.launch {
-            val picks = withContext(Dispatchers.IO) {
-                io.legado.app.help.WanxiangBackend.fetchBookstoreFeed(channelKey)
-            }
-            if (!isAdded || currentChannel != forChannel) return@launch
-            if (picks.isNotEmpty()) {
-                BookStorePrewarm.feedCache[forChannel] = picks
-                editorPicks = picks
-                bindEditorPicks()
-            }
-        }
-    }
-
-    private fun bindEditorPicks() {
-        binding.editorPicksSection.isVisible = editorPicks.isNotEmpty()
-        binding.editorPicksContainer.removeAllViews()
-        if (editorPicks.isEmpty()) return
-        for (pick in editorPicks) {
-            val v = inflater.inflate(R.layout.item_book_store_editor_pick, binding.editorPicksContainer, false)
-            v.findViewById<TextView>(R.id.tvName).text = pick.book.name
-            loadCover(v.findViewById(R.id.ivCover), pick.book.coverUrl, pick.book)
-            v.setOnClickListener { openFeedPick(pick) }
-            binding.editorPicksContainer.addView(v)
-        }
-    }
-
-    private fun openFeedPick(pick: BookstoreFeedPick) {
-        BookstoreDetailLauncher.open(requireContext(), pick)
     }
 
     private fun ensureExtendedRanks(types: List<QidianRepository.RankType>) {
-        if (currentChannel == QidianRepository.Channel.Publish) return
         extendJob?.cancel()
         val ch = currentChannel
-        val gender = if (ch == QidianRepository.Channel.Publish) {
-            QidianRepository.Channel.Male
-        } else {
-            ch
-        }
         extendJob = lifecycleScope.launch {
             for (type in types) {
                 if ((extendedRanks[type]?.size ?: 0) >= 20) continue
                 val full = withContext(Dispatchers.IO) {
-                    QidianRepository.fetchRankPages(type, target = 50, gender = gender)
+                    when (ch) {
+                        QidianRepository.Channel.Publish ->
+                            PublishBookstore.fetchRankPages(type, target = 50)
+                        else -> QidianRepository.fetchRankPages(
+                            type,
+                            target = 50,
+                            gender = ch,
+                        )
+                    }
                 }
                 if (!isAdded || currentChannel != ch) return@launch
                 if (full.isEmpty()) continue

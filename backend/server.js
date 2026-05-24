@@ -904,7 +904,11 @@ app.post('/api/admin/bookstore-mirror/publish', requireAdmin, requireRole(['supe
     + (payload.ranksFemale
       ? Object.values(payload.ranksFemale).reduce((s, l) => s + (l?.length || 0), 0)
       : 0)
-    + (payload.yuepiaoTop50Female?.length || 0);
+    + (payload.yuepiaoTop50Female?.length || 0)
+    + (payload.ranksPublish
+      ? Object.values(payload.ranksPublish).reduce((s, l) => s + (l?.length || 0), 0)
+      : 0)
+    + (payload.yuepiaoTop50Publish?.length || 0);
   db.insertBookstoreMirror({
     version: payload.version || Date.now(),
     payload: payloadStr,

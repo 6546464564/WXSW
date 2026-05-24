@@ -3,14 +3,10 @@ package io.legado.app.ui.main.bookstore
 import io.legado.app.help.WanxiangBackend
 
 /**
- * 出版频道: 后端 [bookstore_feed] 独立书单 → 与男/女生相同的四榜 UI.
+ * 出版频道: 优先 mirror.ranksPublish (起点 m 站 catId=13100 实体书),
+ * bookstore_feed 运营数据兜底.
  *
- * section 映射:
- *   banner    → 月票榜 (Hero)
- *   hot       → 阅读榜
- *   newbook   → 新书榜
- *   recommend → 推荐榜
- *   editor    → 编辑精选横滑 (不进四榜)
+ * 四榜 key 与男/女频一致: fyRank / hotRank / newbRank / recRank
  */
 object PublishBookstore {
 
@@ -22,17 +18,34 @@ object PublishBookstore {
     )
 
     suspend fun fetchRanks(): Map<QidianRepository.RankType, List<QidianBook>> {
+        val mirrorRanks = QidianRepository.fetchPublishMirrorRanks()
+        if (mirrorRanks.isNotEmpty()) return mirrorRanks
         val picks = WanxiangBackend.fetchBookstoreFeed("publish")
         return picksToRanks(picks)
     }
 
     suspend fun fetchRankPages(type: QidianRepository.RankType, target: Int = 50): List<QidianBook> {
+        val mirrorPages = QidianRepository.fetchPublishRankPages(type, target)
+        if (mirrorPages.isNotEmpty()) return mirrorPages
         return fetchRanks()[type].orEmpty().take(target)
     }
 
-    suspend fun fetchEditorPicks(): List<BookstoreFeedPick> {
-        return WanxiangBackend.fetchBookstoreFeed("publish")
-            .filter { it.section == "editor" }
+    /** 出版书库: 阅读/新书/推荐三榜合并, 不含月票 (热门排行已用 yuepiaoTop50Publish) */
+    suspend fun fetchLibraryMerged(target: Int = 50): List<QidianBook> {
+        val ranks = fetchRanks()
+        val seen = LinkedHashSet<String>()
+        val out = ArrayList<QidianBook>(target)
+        for (rt in listOf(
+            QidianRepository.RankType.HotReading,
+            QidianRepository.RankType.NewBook,
+            QidianRepository.RankType.Recommend,
+        )) {
+            ranks[rt]?.forEach { b ->
+                val key = b.bookId.ifEmpty { b.name }
+                if (seen.add(key)) out.add(b)
+            }
+        }
+        return out.take(target)
     }
 
     fun picksToRanks(picks: List<BookstoreFeedPick>): Map<QidianRepository.RankType, List<QidianBook>> {

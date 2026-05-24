@@ -127,48 +127,12 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <!-- Hero 头条 (跟 iOS: hero → editorPicks → banner) -->
+                    <!-- Hero 头条 -->
                     <FrameLayout
                         android:id="@+id/heroSlot"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp" />
-
-                    <!-- 编辑精选 (后端 /api/bookstore/feed) -->
-                    <LinearLayout
-                        android:id="@+id/editorPicksSection"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginHorizontal="12dp"
-                        android:layout_marginTop="14dp"
-                        android:background="@color/wanxiang_card"
-                        android:orientation="vertical"
-                        android:padding="12dp"
-                        android:visibility="gone"
-                        tools:visibility="visible">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/bs_editor_picks"
-                            android:textColor="@color/wanxiang_text_primary"
-                            android:textSize="20sp"
-                            android:textStyle="bold" />
-
-                        <HorizontalScrollView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp"
-                            android:overScrollMode="never"
-                            android:scrollbars="none">
-
-                            <LinearLayout
-                                android:id="@+id/editorPicksContainer"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:orientation="horizontal" />
-                        </HorizontalScrollView>
-                    </LinearLayout>
 
                     <!-- Banner: 热门排行 / 完本书库 -->
                     <LinearLayout

@@ -1,6 +1,5 @@
 package io.legado.app.ui.main.bookstore
 
-import io.legado.app.help.WanxiangBackend
 import io.legado.app.help.WanxiangBookstoreMirror
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.utils.LogUtils
@@ -19,9 +18,6 @@ object BookStorePrewarm {
     /** 频道 → (ranks, timestamp) — 跟 iOS BookStoreViewModel.channelRankCache 对齐 */
     val channelRankCache =
         mutableMapOf<QidianRepository.Channel, Pair<Map<QidianRepository.RankType, List<QidianBook>>, Long>>()
-
-    /** 频道 → 编辑精选 (后端 /api/bookstore/feed) */
-    val feedCache = mutableMapOf<QidianRepository.Channel, List<BookstoreFeedPick>>()
 
     /** RankDetail 进程级 cache — key: "rank:MALE:Yuepiao" | "finish:Female" */
     val rankDetailCache = mutableMapOf<String, Pair<List<QidianBook>, Long>>()
@@ -66,23 +62,7 @@ object BookStorePrewarm {
                     ?.takeIf { m -> m.values.any { it.isNotEmpty() } }
                     ?.let { channelRankCache[QidianRepository.Channel.Publish] = Pair(it, now) }
 
-                // 3) 编辑精选 feed (男/女全量; 出版仅 editor section)
-                for (ch in QidianRepository.Channel.values()) {
-                    val picks = when (ch) {
-                        QidianRepository.Channel.Publish -> PublishBookstore.fetchEditorPicks()
-                        else -> {
-                            val channelKey = when (ch) {
-                                QidianRepository.Channel.Male -> "male"
-                                QidianRepository.Channel.Female -> "female"
-                                QidianRepository.Channel.Publish -> "publish"
-                            }
-                            WanxiangBackend.fetchBookstoreFeed(channelKey)
-                        }
-                    }
-                    if (picks.isNotEmpty()) feedCache[ch] = picks
-                }
-
-                // 4) Banner 落地页: 男女月票 TOP50 + 男女完本书库; 出版书单榜
+                // 3) Banner 落地页: 男女月票 TOP50 + 男女完本书库
                 for (gender in listOf(QidianRepository.Channel.Male, QidianRepository.Channel.Female)) {
                     runCatching {
                         QidianRepository.fetchRankPages(
@@ -99,8 +79,20 @@ object BookStorePrewarm {
                             putRankDetailCache(rankCacheKey("finish", gender), finish)
                         }
                 }
+                runCatching {
+                    PublishBookstore.fetchRankPages(QidianRepository.RankType.Yuepiao, target = 50)
+                }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { yuepiao ->
+                    putRankDetailCache(
+                        rankCacheKey("rank", QidianRepository.Channel.Publish, QidianRepository.RankType.Yuepiao),
+                        yuepiao,
+                    )
+                }
+                runCatching { PublishBookstore.fetchLibraryMerged(target = 50) }
+                    .getOrNull()?.takeIf { it.isNotEmpty() }?.let { library ->
+                        putRankDetailCache(rankCacheKey("finish", QidianRepository.Channel.Publish), library)
+                    }
 
-        LogUtils.d(TAG, "prewarm ok ranks=${channelRankCache.size} feed=${feedCache.size} rankDetail=${rankDetailCache.size}")
+        LogUtils.d(TAG, "prewarm ok ranks=${channelRankCache.size} rankDetail=${rankDetailCache.size}")
     }
 
     /** 跟 RankDetailActivity.loadFinishLibrary 同算法, 供预热复用 */
@@ -110,15 +102,17 @@ object BookStorePrewarm {
         val target = 50
         val seen = HashSet<String>()
         val out = ArrayList<QidianBook>(target + 10)
-        runCatching { QidianRepository.fetchFinishRanks() }.getOrNull()?.let { ranks ->
-            val order = listOf(
-                QidianRepository.RankType.FinishClassic,
-                QidianRepository.RankType.FinishBestSell,
-                QidianRepository.RankType.FinishDs,
-                QidianRepository.RankType.FinishMovie,
-            )
-            for (rt in order) {
-                ranks[rt]?.forEach { if (seen.add(it.bookId)) out.add(it) }
+        if (gender != QidianRepository.Channel.Female) {
+            runCatching { QidianRepository.fetchFinishRanks() }.getOrNull()?.let { ranks ->
+                val order = listOf(
+                    QidianRepository.RankType.FinishClassic,
+                    QidianRepository.RankType.FinishBestSell,
+                    QidianRepository.RankType.FinishDs,
+                    QidianRepository.RankType.FinishMovie,
+                )
+                for (rt in order) {
+                    ranks[rt]?.forEach { if (seen.add(it.bookId)) out.add(it) }
+                }
             }
         }
         if (out.size < target) {

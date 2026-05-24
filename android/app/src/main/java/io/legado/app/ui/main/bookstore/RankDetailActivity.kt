@@ -50,12 +50,18 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
             ?: QidianRepository.RankType.Yuepiao
     }
 
-    private val titleText: String by lazy {
-        intent.getStringExtra(EXTRA_TITLE) ?: when (mode) {
-            "finish" -> "完本书库"
-            else -> rankType.title
+    private val titleText: String
+        get() {
+            intent.getStringExtra(EXTRA_TITLE)?.let { return it }
+            return when (mode) {
+                "finish" -> if (channel == QidianRepository.Channel.Publish) {
+                    getString(R.string.bs_library_publish)
+                } else {
+                    getString(R.string.bs_library)
+                }
+                else -> rankType.title
+            }
         }
-    }
 
     /** 跟 iOS RankDetailView.channel 对齐 */
     private val channel: QidianRepository.Channel by lazy {
@@ -169,21 +175,26 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
      *   前 23 本是真完结经典(诡秘之主/斗破苍穹/斗罗大陆/庆余年/将夜...)
      *   后 27 本来自月票榜 顶部高字数书 (字数 ≥ 200 万的多为完本或近完本经典)
      *   去重后总数 50 本左右.
+     *
+     * 女频: 起点无独立 /finish/ SSR, 共用男频 finish 会导致男女完本书库前 21 本相同;
+     * 女频完本只走女频月票榜大字数补足 50 本.
      */
     private suspend fun loadFinishLibrary(): List<QidianBook> {
         val seen = HashSet<String>()
         val out = ArrayList<QidianBook>(TARGET_COUNT + 30)
 
-        // 1) /finish/ 4 完结榜 (经典完本最优先)
-        runCatching { QidianRepository.fetchFinishRanks() }.getOrNull()?.let { ranks ->
-            val order = listOf(
-                QidianRepository.RankType.FinishClassic,
-                QidianRepository.RankType.FinishBestSell,
-                QidianRepository.RankType.FinishDs,
-                QidianRepository.RankType.FinishMovie,
-            )
-            for (rt in order) {
-                ranks[rt]?.forEach { if (seen.add(it.bookId)) out.add(it) }
+        // 1) /finish/ 4 完结榜 — 仅男频; 女频跳过共用 finish
+        if (rankGender != QidianRepository.Channel.Female) {
+            runCatching { QidianRepository.fetchFinishRanks() }.getOrNull()?.let { ranks ->
+                val order = listOf(
+                    QidianRepository.RankType.FinishClassic,
+                    QidianRepository.RankType.FinishBestSell,
+                    QidianRepository.RankType.FinishDs,
+                    QidianRepository.RankType.FinishMovie,
+                )
+                for (rt in order) {
+                    ranks[rt]?.forEach { if (seen.add(it.bookId)) out.add(it) }
+                }
             }
         }
 
@@ -214,24 +225,9 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
         return out.take(TARGET_COUNT)
     }
 
-    /** 出版频道「完本书库」: 合并 feed 各 section 书单 */
+    /** 出版频道「书库」: 阅读/新书/推荐三榜合并 (不含月票) */
     private suspend fun loadPublishLibrary(): List<QidianBook> {
-        val ranks = PublishBookstore.fetchRanks()
-        val seen = HashSet<String>()
-        val out = ArrayList<QidianBook>(TARGET_COUNT)
-        val order = listOf(
-            QidianRepository.RankType.Yuepiao,
-            QidianRepository.RankType.HotReading,
-            QidianRepository.RankType.NewBook,
-            QidianRepository.RankType.Recommend,
-        )
-        for (rt in order) {
-            ranks[rt]?.forEach { b ->
-                val key = b.bookId.ifBlank { b.name }
-                if (seen.add(key)) out.add(b)
-            }
-        }
-        return out.take(TARGET_COUNT)
+        return PublishBookstore.fetchLibraryMerged(TARGET_COUNT)
     }
 
     /** "569.44万字" → 5_694_400; "27.39万字" → 273_900; 解析失败返 0 */

@@ -27,6 +27,27 @@ const RANK_KEYS = [
 
 const FINISH_KEYS = ['classic', 'movie', 'bestSell', 'ds'];
 
+/** 起点 m 站「小说」分类 = 实体/出版书 (isPub=1, form=1), 非 /rank/ 网文榜 */
+const PUBLISH_CAT_ID = 13100;
+
+/** 出版榜补充: 分类 SSR 仅 20 本; 按作者搜索 isPub=1 扩池 (无 majax 分页 API) */
+const PUBLISH_SEARCH_AUTHORS = [
+  '刘慈欣', '余华', '东野圭吾', '马伯庸', '当年明月', '张嘉佳', '路遥', '莫言',
+  '村上春树', '毛姆', '加西亚·马尔克斯', '王小波', '三毛', '钱钟书',
+  '紫金陈', '麦家',
+];
+
+/** 出版 mirror 每榜条数: 首页 8 格 + 换一批缓冲 */
+const PUBLISH_RANK_PREVIEW = 12;
+
+/** 出版四榜 → 分类/搜索排序策略 */
+const PUBLISH_RANK_SPECS = [
+  { key: 'fyRank', sort: 'category' },
+  { key: 'hotRank', sort: 'categoryTail' },
+  { key: 'newbRank', sort: 'updateTime' },
+  { key: 'recRank', sort: 'recommend' },
+];
+
 /** 女频 majax 路径 → SSR 聚合 key (gender=female 时与男频 SSR 榜不同源) */
 const FEMALE_MAJAX_RANKS = [
   { majax: 'yuepiaolist', ssrPath: 'yuepiao', key: 'fyRank' },
@@ -224,15 +245,129 @@ async function fetchYuepiao50(gender = 'male') {
   return out.slice(0, 50);
 }
 
+function parsePublishSearchBook(obj, fallbackRank = 0) {
+  if (!obj || obj.isPub !== 1) return null;
+  const book = parseBook(obj, fallbackRank);
+  if (!book) return null;
+  return {
+    ...book,
+    _recommend: Number(obj.recomendCnt) || 0,
+    _updateTime: String(obj.updateTime || obj.lastUpdateTime || ''),
+  };
+}
+
+function parsePublishCategoryBook(obj, fallbackRank = 0) {
+  const book = parseBook(obj, fallbackRank);
+  if (!book) return null;
+  return { ...book, _recommend: 0, _updateTime: '' };
+}
+
+/** GET m.qidian.com/category/detail?catId=13100 → 出版书列表 (SSR 首页 ~20 本) */
+async function fetchPublishCategoryBooks() {
+  const resp = await httpGet(`${BASE}/category/detail?catId=${PUBLISH_CAT_ID}&gender=male`);
+  const html = await resp.text();
+  const pd = extractPageData(html);
+  const records = pd?.list?.records;
+  const arr = Array.isArray(records) ? records : [];
+  return arr.map(parsePublishCategoryBook).filter(Boolean);
+}
+
+/** 按作者搜索 isPub=1 的出版书 (403 时跳过该作者, 不拖垮整次 mirror) */
+async function fetchPublishSearchByAuthor(author) {
+  try {
+    const resp = await httpGet(`${BASE}/search?kw=${encodeURIComponent(author)}`);
+    const html = await resp.text();
+    const pd = extractPageData(html);
+    const records = pd?.bookInfo?.records;
+    const arr = Array.isArray(records) ? records : [];
+    return arr.map(parsePublishSearchBook).filter(Boolean);
+  } catch (e) {
+    console.warn(`[qidianMirror] publish search author=${author} skipped: ${e.message}`);
+    return [];
+  }
+}
+
+async function fetchPublishBookPool() {
+  const categoryBooks = await fetchPublishCategoryBooks();
+  const merged = [];
+  const seen = new Set();
+  const push = (b) => {
+    if (!b?.bid || seen.has(b.bid)) return;
+    seen.add(b.bid);
+    merged.push(b);
+  };
+  for (const b of categoryBooks) push(b);
+  // 串行搜索, 避免并行触发 403
+  for (const author of PUBLISH_SEARCH_AUTHORS) {
+    const list = await fetchPublishSearchByAuthor(author);
+    for (const b of list) push(b);
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return { categoryBooks, merged };
+}
+
+function stripPublishMeta(book) {
+  const { _recommend, _updateTime, ...rest } = book;
+  return rest;
+}
+
+function buildPublishRankList(pool, spec, preview = HOME_RANK_PREVIEW) {
+  const { categoryBooks, merged } = pool;
+  let list;
+  switch (spec.sort) {
+    case 'category':
+      list = [...categoryBooks];
+      break;
+    case 'categoryTail':
+      list = [...categoryBooks].reverse();
+      break;
+    case 'updateTime':
+      list = [...merged].sort((a, b) => String(b._updateTime).localeCompare(String(a._updateTime)));
+      break;
+    case 'recommend':
+      list = [...merged].sort((a, b) => (b._recommend || 0) - (a._recommend || 0));
+      break;
+    default:
+      list = [...merged];
+  }
+  return list.slice(0, preview).map(stripPublishMeta);
+}
+
+/** 出版频道四榜: 来源 catId=13100 + 作者搜索池 (起点无出版榜 majax) */
+async function fetchPublishRanks() {
+  const pool = await fetchPublishBookPool();
+  const out = {};
+  for (const spec of PUBLISH_RANK_SPECS) {
+    out[spec.key] = buildPublishRankList(pool, spec, PUBLISH_RANK_PREVIEW);
+  }
+  return out;
+}
+
+/** 出版月票 TOP50: 分类榜 + 推荐序补满 */
+async function fetchPublishTop50() {
+  const pool = await fetchPublishBookPool();
+  const byRecommend = [...pool.merged].sort((a, b) => (b._recommend || 0) - (a._recommend || 0));
+  const seen = new Set();
+  const out = [];
+  for (const b of [...pool.categoryBooks, ...byRecommend]) {
+    if (!b?.bid || seen.has(b.bid)) continue;
+    seen.add(b.bid);
+    out.push(stripPublishMeta(b));
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
 /**
- * 主入口: 拉取所有数据 → 拼成 mirror payload object.
  * 任一子任务失败 → 抛异常, 整次 cron 标记 ok=0, 但 DB 旧 cache 仍可用.
  */
 async function fetchMirrorPayload() {
-  const [ranks, yuepiaoTop50, finish] = await Promise.all([
+  const [ranks, yuepiaoTop50, finish, ranksPublish, yuepiaoTop50Publish] = await Promise.all([
     fetchRanksAggregate('male'),
     fetchYuepiao50('male'),
     fetchFinishRanks(),
+    fetchPublishRanks(),
+    fetchPublishTop50(),
   ]);
 
   // 女频: SSR gender=female 与男生榜同源; 用 majax gender=female 拿真女频榜.
@@ -250,6 +385,8 @@ async function fetchMirrorPayload() {
     yuepiaoTop50,
     yuepiaoTop50Female,
     finish,
+    ranksPublish,
+    yuepiaoTop50Publish,
   };
 }
 
@@ -291,7 +428,11 @@ async function fetchAndCache(db) {
     + (payload.ranksFemale
       ? Object.values(payload.ranksFemale).reduce((s, l) => s + l.length, 0)
       : 0)
-    + (payload.yuepiaoTop50Female?.length || 0);
+    + (payload.yuepiaoTop50Female?.length || 0)
+    + (payload.ranksPublish
+      ? Object.values(payload.ranksPublish).reduce((s, l) => s + l.length, 0)
+      : 0)
+    + (payload.yuepiaoTop50Publish?.length || 0);
 
   db.insertBookstoreMirror({
     version: payload.version,
@@ -341,5 +482,8 @@ module.exports = {
     fetchFemaleMirrorData,
     fetchFemaleRanksViaMajax,
     fetchMajaxRankPage,
+    fetchPublishRanks,
+    fetchPublishTop50,
+    fetchPublishCategoryBooks,
   },
 };

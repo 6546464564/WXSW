@@ -122,6 +122,37 @@ actor QidianRepository {
         return try parseRanksFromPageData(pageData)
     }
 
+    /// 出版频道: mirror.ranksPublish (起点 catId=13100 实体书)
+    func fetchPublishMirrorRanks() async -> [QidianRankType: [QidianBook]] {
+        guard let mirror = await BookstoreMirror.shared.fetch(),
+              let ranksObj = mirror["ranksPublish"] as? [String: Any],
+              !ranksObj.isEmpty else { return [:] }
+        log.debug("ranksPublish from mirror version=\(String(describing: mirror["version"] ?? "?"))")
+        return parseMirrorRanks(ranksObj)
+    }
+
+    /// 出版频道榜单详情 (~50 本)
+    func fetchPublishRankPages(type: QidianRankType, target: Int = 50) async -> [QidianBook] {
+        if type == .yuepiao,
+           let mirror = await BookstoreMirror.shared.fetch(),
+           let arr = mirror["yuepiaoTop50Publish"] as? [[String: Any]],
+           !arr.isEmpty {
+            log.debug("yuepiaoTop50Publish from mirror size=\(arr.count)")
+            return Array(arr.compactMap { mirrorBookToQidian($0, rankType: .yuepiao) }.prefix(target))
+        }
+        let ranks = await fetchPublishMirrorRanks()
+        guard !ranks.isEmpty else { return [] }
+        var seen = Set<String>()
+        var out: [QidianBook] = []
+        for rt in [type, .yuepiao, .hotReading, .newBook, .recommend] {
+            for b in ranks[rt] ?? [] {
+                let key = b.bookId.isEmpty ? b.name : b.bookId
+                if seen.insert(key).inserted { out.append(b) }
+            }
+        }
+        return Array(out.prefix(target))
+    }
+
     /// 万象书屋 D-22.1: 抓 /finish/ 完结频道, 返回 4 完结榜.
     func fetchFinishRanks() async throws -> [QidianRankType: [QidianBook]] {
         if let mirror = await BookstoreMirror.shared.fetch(),

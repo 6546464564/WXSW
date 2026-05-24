@@ -22,7 +22,7 @@
 //
 //  D-22.2 板块映射 (按 channel 决定取哪个 RankType):
 //   Male/Female: Yuepiao + HotReading + NewBook + Recommend
-//   Publish: 同上结构, 数据来自后端 bookstore_feed (PublishBookstore)
+//   Publish: 同上结构, 优先 mirror.ranksPublish (起点 catId=13100), feed 兜底
 //
 
 import SwiftUI
@@ -72,19 +72,6 @@ struct BookStoreView: View {
         detailTarget = BookDetailTarget(book: qidianBook.toSearchStub(), source: nil)
     }
 
-    private func tapFeedPick(_ pick: BookstoreFeedPick) {
-        var stub = pick.book.toSearchStub()
-        if !pick.targetURL.isEmpty { stub.bookUrl = pick.targetURL }
-        let source = pick.sourceOrigin.isEmpty
-            ? nil
-            : BookSourceRegistry.shared.find(origin: pick.sourceOrigin)
-        if source != nil, !pick.targetURL.isEmpty {
-            detailTarget = BookDetailTarget(book: stub, source: source)
-        } else {
-            detailTarget = BookDetailTarget(book: stub, source: nil)
-        }
-    }
-
     // MARK: - Content
 
     @ViewBuilder
@@ -100,9 +87,6 @@ struct BookStoreView: View {
                     } else {
                         if let hero = vm.heroBook {
                             heroCard(hero)
-                        }
-                        if !vm.editorPicks.isEmpty {
-                            editorPicksSection
                         }
                         bannerRow
                         sectionGrid(
@@ -257,7 +241,7 @@ struct BookStoreView: View {
                 navTarget = .rank(vm.heroType, vm.heroType.title)
             }
             bannerCard(
-                title: "完本书库",
+                title: vm.currentChannel == .publish ? "出版书库" : "完本书库",
                 subtitle: vm.currentChannel == .publish ? "经典出版 50 本" : "经典完结 50 本",
                 icon: "books.vertical.fill",
                 gradient: [
@@ -266,41 +250,10 @@ struct BookStoreView: View {
                 ]
             ) {
                 WanxiangAnalytics.shared.track("bs_banner_library", type: "click")
-                navTarget = .finish("完本书库")
+                let libraryTitle = vm.currentChannel == .publish ? "出版书库" : "完本书库"
+                navTarget = .finish(libraryTitle)
             }
         }
-    }
-
-    private var editorPicksSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("编辑精选")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(WanxiangColors.textPrimary)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(vm.editorPicks) { pick in
-                        Button { tapFeedPick(pick) } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ZStack(alignment: .bottomTrailing) {
-                                    BookCover(url: pick.book.coverUrl, width: 88, height: 118, bookTitle: pick.book.name)
-                                    if vm.isOnShelf(pick.book) { shelfBadge }
-                                }
-                                Text(pick.book.name)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(WanxiangColors.textPrimary)
-                                    .lineLimit(1)
-                                    .frame(width: 88, alignment: .leading)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .background(WanxiangColors.card)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 3)
     }
 
     private func bannerCard(
@@ -436,6 +389,7 @@ struct BookStoreView: View {
                 if vm.isOnShelf(book) {
                     shelfBadge
                 }
+                publishSourceChip
             }
             Text(book.name)
                 .font(.caption.weight(.semibold))
@@ -475,6 +429,7 @@ struct BookStoreView: View {
                 if vm.isOnShelf(book) {
                     shelfBadge
                 }
+                publishSourceChip
             }
             Text(book.name)
                 .font(.caption.weight(.semibold))
@@ -505,6 +460,20 @@ struct BookStoreView: View {
             .background(Color.black.opacity(0.55).clipShape(Capsule()))
             .padding(4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+    }
+
+    /// 跟 Android grid `tvSource` 对齐: 出版频道封面左下角「出版」标签
+    @ViewBuilder
+    private var publishSourceChip: some View {
+        if vm.currentChannel == .publish {
+            Text("出版")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Color.black.opacity(0.55).clipShape(Capsule()))
+                .padding(4)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
     }
 
     private func badge(text: String, color: Color) -> some View {
@@ -672,7 +641,6 @@ final class BookStoreViewModel: ObservableObject {
     @Published var currentChannel: QidianChannel = .male
     @Published var isLoading = false
     @Published var allBooks: [QidianBook] = []
-    @Published var editorPicks: [BookstoreFeedPick] = []
     @Published var shelfDedupeKeys: Set<String> = []
 
     private var ranks: [QidianRankType: [QidianBook]] = [:]
@@ -685,8 +653,6 @@ final class BookStoreViewModel: ObservableObject {
     /// (即使后端 mirror 已经在 `AppState.bootstrap` 后台预热好).
     /// 改成 static 后, prewarm() 写进的数据所有 View 实例都看得到, 切 Tab 不再闪 loading.
     private static var channelRankCache: [QidianChannel: (ranks: [QidianRankType: [QidianBook]], at: Date)] = [:]
-    /// 跟 Android BookStorePrewarm.feedCache 对齐 — 编辑精选进程级缓存
-    private static var feedCache: [QidianChannel: [BookstoreFeedPick]] = [:]
     private static let cacheTtl: TimeInterval = 5 * 60
 
     /// 「换一批」翻页偏移, 跟 Android swapPageMustRead/Complete/Ranked 对齐
@@ -792,13 +758,11 @@ final class BookStoreViewModel: ObservableObject {
         if let hit = Self.channelRankCache[ch],
            Date().timeIntervalSince(hit.at) < Self.cacheTtl {
             apply(ranks: hit.ranks, channel: ch)
-            editorPicks = Self.feedCache[ch] ?? []
             return
         }
         // 无 cache: 清掉上一频道数据, 避免女生 tab 短暂显示男生书
         ranks = [:]
         allBooks = []
-        editorPicks = []
         extendedRanks = [:]
         isLoading = true
     }
@@ -812,7 +776,6 @@ final class BookStoreViewModel: ObservableObject {
            let hit = Self.channelRankCache[ch],
            Date().timeIntervalSince(hit.at) < Self.cacheTtl {
             apply(ranks: hit.ranks, channel: ch)
-            await loadFeed(for: ch)
             return
         }
 
@@ -841,7 +804,6 @@ final class BookStoreViewModel: ObservableObject {
             }
             Self.channelRankCache[ch] = (result, Date())
             self.apply(ranks: result, channel: ch)
-            await self.loadFeed(for: ch)
         }
         loadTask = task
         await task.value
@@ -850,57 +812,31 @@ final class BookStoreViewModel: ObservableObject {
         }
     }
 
-    private func loadFeed(for channel: QidianChannel) async {
-        if channel == .publish {
-            let picks = await PublishBookstore.fetchEditorPicks()
-            guard currentChannel == channel else { return }
-            if !picks.isEmpty {
-                Self.feedCache[channel] = picks
-            }
-            editorPicks = picks
-            return
-        }
-        if let cached = Self.feedCache[channel], !cached.isEmpty {
-            guard currentChannel == channel else { return }
-            editorPicks = cached
-            return
-        }
-        let items = (try? await WanxiangAPI.shared.fetchBookstoreFeed(channel: channel.rawValue)) ?? []
-        let picks = items.compactMap { QidianBook.feedPick(from: $0) }
-        guard currentChannel == channel else { return }
-        if !picks.isEmpty {
-            Self.feedCache[channel] = picks
-        }
-        editorPicks = picks
-    }
-
     private func ensureExtendedRanks(for types: [QidianRankType], channel: QidianChannel) async {
-        if channel == .publish { return }
-        let gender: QidianChannel = channel
         for type in types {
             if (extendedRanks[type]?.count ?? 0) >= 20 { continue }
-            let full = await QidianRepository.shared.fetchRankPages(type: type, target: 50, gender: gender)
+            let full: [QidianBook]
+            if channel == .publish {
+                full = await PublishBookstore.fetchRankPages(type: type, target: 50)
+            } else {
+                full = await QidianRepository.shared.fetchRankPages(type: type, target: 50, gender: channel)
+            }
             guard !full.isEmpty else { continue }
             extendedRanks[type] = full
             objectWillChange.send()
         }
     }
 
-    /// 万象书屋: App 启动时 (`AppState.bootstrap`) 在后台调一次, 把 male/publish 两个频道的
-    /// 榜单预先灌进 `channelRankCache`. 之后用户从 Bookshelf 切到 Bookstore, vm 命中 cache,
-    /// `isLoading` 永远不会被置 true, 跟 Android `ViewPager` 预加载邻 Fragment 的实际效果对齐.
-    ///
-    /// fire-and-forget; 失败 (后端没起来 / 网络断) 静默 noop, 用户切 Tab 时自然走原冷路径.
+    /// 万象书屋: App 启动时在后台预灌三频道 mirror 榜单 cache.
     static func prewarmInBackground() {
         Task.detached(priority: .utility) {
-            // 跟 Android BookStorePrewarm: 先灌 mirror, 后续 fetchAllRanks 1 跳命中后端
             _ = await BookstoreMirror.shared.fetch(forceRefresh: false)
             async let male: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchAllRanks(gender: .male)) ?? [:]
             async let female: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchAllRanks(gender: .female)) ?? [:]
-            async let finish: [QidianRankType: [QidianBook]] = PublishBookstore.fetchRanks()
+            async let publish: [QidianRankType: [QidianBook]] = PublishBookstore.fetchRanks()
             let m = await male
             let f = await female
-            let p = await finish
+            let p = await publish
             await MainActor.run {
                 let now = Date()
                 if m.values.contains(where: { !$0.isEmpty }) {
@@ -911,22 +847,6 @@ final class BookStoreViewModel: ObservableObject {
                 }
                 if p.values.contains(where: { !$0.isEmpty }) {
                     BookStoreViewModel.channelRankCache[.publish] = (p, now)
-                }
-            }
-            for ch in QidianChannel.allCases {
-                if ch == .publish {
-                    let picks = await PublishBookstore.fetchEditorPicks()
-                    if !picks.isEmpty {
-                        await MainActor.run { BookStoreViewModel.feedCache[.publish] = picks }
-                    }
-                    continue
-                }
-                let items = (try? await WanxiangAPI.shared.fetchBookstoreFeed(channel: ch.rawValue)) ?? []
-                let picks = items.compactMap { QidianBook.feedPick(from: $0) }
-                if !picks.isEmpty {
-                    await MainActor.run {
-                        BookStoreViewModel.feedCache[ch] = picks
-                    }
                 }
             }
         }
