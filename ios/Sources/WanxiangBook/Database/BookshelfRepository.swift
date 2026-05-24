@@ -74,6 +74,12 @@ public struct ShelfBook: Identifiable, Hashable, Sendable {
         if durChapterIndex == 0 && durChapterPos == 0 { return "未读" }
         return "\(durChapterIndex + 1)/\(totalChapterNum)"
     }
+
+    /// 未读章节数 (跟 Android `Book.getUnreadChapterNum()` 对齐)
+    public var unreadChapterNum: Int {
+        guard totalChapterNum > 0 else { return 0 }
+        return max(0, totalChapterNum - durChapterIndex - 1)
+    }
 }
 
 /// 排序方式 (跟 Android `arrays.xml` `book_sort` 对齐)
@@ -171,18 +177,6 @@ public actor BookshelfRepository {
             sqlite3_bind_text(stmt, 2, author, -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(stmt, 3, excludingUrl, -1, SQLITE_TRANSIENT)
             return sqlite3_step(stmt) == SQLITE_ROW ? readRow(stmt) : nil
-        }
-    }
-
-    public func count() async throws -> Int {
-        try await DB.shared.openIfNeeded()
-        return try await DB.shared.execQuery { handle in
-            var stmt: OpaquePointer?
-            defer { sqlite3_finalize(stmt) }
-            guard sqlite3_prepare_v2(handle, "SELECT COUNT(*) FROM books", -1, &stmt, nil) == SQLITE_OK else {
-                return 0
-            }
-            return sqlite3_step(stmt) == SQLITE_ROW ? Int(sqlite3_column_int(stmt, 0)) : 0
         }
     }
 
@@ -344,6 +338,7 @@ public actor BookshelfRepository {
             sqlite3_bind_text(stmt, 6, bookUrl, -1, SQLITE_TRANSIENT)
             _ = sqlite3_step(stmt)
         }
+        NotificationCenter.default.post(name: .wanxiangBookshelfChanged, object: nil)
     }
 
     /// 更新阅读进度 (从阅读器调; M2.5 用)
@@ -365,6 +360,7 @@ public actor BookshelfRepository {
             sqlite3_bind_text(stmt, 6, bookUrl, -1, SQLITE_TRANSIENT)
             _ = sqlite3_step(stmt)
         }
+        NotificationCenter.default.post(name: .wanxiangBookshelfChanged, object: nil)
     }
 
     // MARK: - Helpers

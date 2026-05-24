@@ -50,6 +50,140 @@ final class WanxiangUITests: XCTestCase {
         add(a)
     }
 
+    // MARK: - DEMO walkthrough 辅助
+
+    private func demoBeat(_ sec: UInt32 = 1) { sleep(sec) }
+
+    @discardableResult
+    private func demoTapFirst(
+        _ candidates: [XCUIElement],
+        timeout: TimeInterval = 3,
+        fallback: (dx: CGFloat, dy: CGFloat)? = nil
+    ) -> Bool {
+        for el in candidates {
+            if el.waitForExistence(timeout: timeout), el.isHittable {
+                el.tap()
+                return true
+            }
+        }
+        if let fb = fallback {
+            app.coordinate(withNormalizedOffset: CGVector(dx: fb.dx, dy: fb.dy)).tap()
+            return true
+        }
+        return false
+    }
+
+    @discardableResult
+    private func demoWaitForAny(_ candidates: [XCUIElement], timeout: TimeInterval = 10) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if candidates.contains(where: { $0.exists && $0.isHittable }) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return false
+    }
+
+    private func demoBack() {
+        if app.buttons["reader.back"].waitForExistence(timeout: 1) {
+            app.buttons["reader.back"].tap()
+            demoBeat()
+            return
+        }
+        let backBtn = app.navigationBars.buttons.firstMatch
+        if backBtn.waitForExistence(timeout: 2), backBtn.isHittable {
+            backBtn.tap()
+        } else if app.buttons["取消"].waitForExistence(timeout: 1) {
+            app.buttons["取消"].tap()
+        }
+        demoBeat()
+    }
+
+    /// 阅读器隐藏 TabBar 且禁用了边缘返回, 必须先点屏幕呼出菜单再点返回.
+    private func demoExitReader(maxAttempts: Int = 12) {
+        if app.buttons["书架"].waitForExistence(timeout: 1) { return }
+        for _ in 0..<maxAttempts {
+            if app.buttons["书架"].waitForExistence(timeout: 1) { return }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            if app.buttons["reader.back"].waitForExistence(timeout: 2) {
+                app.buttons["reader.back"].tap()
+            } else if app.navigationBars.buttons.firstMatch.waitForExistence(timeout: 1) {
+                app.navigationBars.buttons.firstMatch.tap()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        }
+    }
+
+    private func demoTapTab(_ name: String) {
+        demoExitReader()
+        let tabId = switch name {
+        case "书架": "tab.bookshelf"
+        case "书城": "tab.bookstore"
+        default: "tab.my"
+        }
+        let tabX: CGFloat = switch name {
+        case "书架": 0.17
+        case "书城": 0.50
+        default: 0.83
+        }
+        if demoTapFirst([app.buttons[tabId], app.buttons[name]], fallback: (tabX, 0.97)) {
+            demoBeat()
+        }
+        switch name {
+        case "书架":
+            _ = demoWaitForAny([app.navigationBars["书架"], app.staticTexts["书架"]], timeout: 5)
+        case "书城":
+            _ = demoWaitForAny([app.buttons["bookstore.search"]], timeout: 8)
+        default:
+            _ = demoWaitForAny([app.navigationBars["我的"], app.staticTexts["我的"]], timeout: 5)
+        }
+    }
+
+    private func demoTapBookstoreChannel(id: String, label: String, x: CGFloat) {
+        demoTapFirst(
+            [app.buttons[id], app.otherElements[id], app.buttons[label], app.staticTexts[label]],
+            fallback: (x, 0.10)
+        )
+        _ = demoWaitForAny([app.buttons["bookstore.search"]], timeout: 6)
+        demoBeat()
+        demoSnapshot("DEMO-书城-频道-\(label)")
+    }
+
+    private func demoTapMyRow(
+        id: String,
+        label: String,
+        snapshotName: String,
+        fallbackY: CGFloat,
+        needsBack: Bool = true,
+        work: () -> Void = {}
+    ) {
+        demoTapFirst(
+            [
+                app.buttons[id],
+                app.otherElements[id],
+                app.cells.containing(NSPredicate(format: "label CONTAINS[c] %@", label)).firstMatch,
+                app.buttons.containing(NSPredicate(format: "label CONTAINS[c] %@", label)).firstMatch,
+            ],
+            fallback: (0.5, fallbackY)
+        )
+        demoBeat()
+        demoSnapshot(snapshotName)
+        work()
+        if needsBack { demoBack() }
+    }
+
+    private func demoSnapshot(_ name: String) {
+        guard app.state == .runningForeground else { return }
+        snapshot(name)
+    }
+
+    private func demoEnsureRunning() {
+        if app.state != .runningForeground {
+            app.launch()
+            _ = app.buttons["书架"].waitForExistence(timeout: 15)
+        }
+    }
+
     /// 进入「我的」页并等待加载
     private func goToMyPage() {
         app.buttons["我的"].tap()
@@ -1101,5 +1235,166 @@ final class WanxiangUITests: XCTestCase {
                 }
             }
         }
+    }
+
+    // MARK: - DEMO: 真机可见 · 书架 / 书城 / 我的 全功能慢速 walkthrough
+
+    /// 慢速演示测试 — 请在真机上观看屏幕自动操作（约 3–4 分钟）
+    func testDemo_visibleAllTabsWalkthrough() throws {
+        continueAfterFailure = true
+        launchUnlocked()
+
+        // ── 1. 书架 ──
+        demoSnapshot("DEMO-书架-初始")
+        app.swipeUp(); demoBeat()
+        app.swipeDown(); demoBeat()
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).press(
+            forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        )
+        demoBeat(2)
+
+        let shelfSearchBtn = app.navigationBars.buttons.matching(
+            NSPredicate(format: "label CONTAINS '搜索' OR label CONTAINS 'Search' OR label CONTAINS 'magnifyingglass'")
+        ).firstMatch
+        if demoTapFirst([shelfSearchBtn], fallback: (0.92, 0.08)) {
+            demoBeat()
+            demoSnapshot("DEMO-书架-搜索页")
+            demoBack()
+        }
+
+        func openBookshelfMenu() -> Bool {
+            let menuBtn = app.navigationBars.buttons.element(boundBy: 1)
+            guard menuBtn.waitForExistence(timeout: 2) else { return false }
+            menuBtn.tap(); demoBeat()
+            return true
+        }
+
+        if openBookshelfMenu() {
+            demoSnapshot("DEMO-书架-菜单")
+            let layoutItem = app.buttons.matching(NSPredicate(format: "label CONTAINS '布局'")).firstMatch
+            if demoTapFirst([layoutItem], fallback: (0.5, 0.3)) {
+                demoBeat()
+                demoSnapshot("DEMO-书架-布局设置")
+                demoTapFirst([app.buttons["完成"]], fallback: (0.5, 0.05))
+                demoBeat()
+            }
+        }
+
+        if openBookshelfMenu() {
+            let manageItem = app.buttons.matching(NSPredicate(format: "label CONTAINS '书架管理'")).firstMatch
+            if demoTapFirst([manageItem], fallback: (0.5, 0.3)) {
+                demoBeat()
+                demoSnapshot("DEMO-书架-书架管理")
+                demoBack()
+            }
+        }
+
+        if openBookshelfMenu() {
+            let groupItem = app.buttons.matching(NSPredicate(format: "label CONTAINS '分组管理'")).firstMatch
+            if demoTapFirst([groupItem], fallback: (0.5, 0.3)) {
+                demoBeat()
+                demoSnapshot("DEMO-书架-分组管理")
+                demoTapFirst([app.buttons["完成"]], fallback: (0.5, 0.05))
+                demoBeat()
+            }
+        }
+
+        let groupBtn = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS '全部' OR label CONTAINS '未分组'")
+        ).firstMatch
+        demoTapFirst([groupBtn], fallback: (0.15, 0.14))
+        demoBeat()
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.35)).tap()
+        demoBeat()
+        demoSnapshot("DEMO-书架-书籍/阅读")
+        for _ in 0..<3 {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
+            demoBeat()
+        }
+        demoExitReader()
+
+        // ── 2. 书城 ──
+        demoEnsureRunning()
+        demoTapTab("书城")
+        demoSnapshot("DEMO-书城-初始")
+        _ = demoWaitForAny([app.buttons["bookstore.search"]], timeout: 8)
+
+        demoTapBookstoreChannel(id: "bookstore.channel.male", label: "男生", x: 0.14)
+        demoTapBookstoreChannel(id: "bookstore.channel.female", label: "女生", x: 0.32)
+        demoTapBookstoreChannel(id: "bookstore.channel.publish", label: "出版", x: 0.48)
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        demoBeat()
+        demoSnapshot("DEMO-书城-详情")
+        demoBack()
+
+        demoTapFirst([app.buttons["bookstore.search"]], fallback: (0.92, 0.08))
+        demoBeat()
+
+        let searchField: XCUIElement = {
+            let byId = app.textFields["search.keyword"]
+            if byId.exists { return byId }
+            let byPlaceholder = app.textFields.matching(
+                NSPredicate(format: "placeholderValue CONTAINS '书名'")
+            ).firstMatch
+            return byPlaceholder.exists ? byPlaceholder : app.textFields.firstMatch
+        }()
+
+        if searchField.waitForExistence(timeout: 5) {
+            searchField.tap()
+            searchField.typeText("修仙\n")
+            let resultReady = demoWaitForAny([
+                app.cells.firstMatch,
+                app.buttons.matching(NSPredicate(format: "label CONTAINS '修仙'")).firstMatch,
+            ], timeout: 15)
+            if resultReady {
+                demoSnapshot("DEMO-书城-搜索结果")
+                if app.cells.firstMatch.exists {
+                    app.cells.firstMatch.tap()
+                } else {
+                    app.buttons.matching(NSPredicate(format: "label CONTAINS '修仙'")).firstMatch.tap()
+                }
+                demoBeat()
+                demoSnapshot("DEMO-书城-搜索详情")
+                demoBack()
+            } else {
+                demoSnapshot("DEMO-书城-搜索页")
+            }
+            demoBack()
+        } else {
+            demoSnapshot("DEMO-书城-搜索页")
+            demoBack()
+        }
+
+        // ── 3. 我的 ──
+        demoEnsureRunning()
+        demoTapTab("我的")
+        demoSnapshot("DEMO-我的-初始")
+        app.swipeUp(); demoBeat()
+
+        let toggles = app.switches
+        if toggles.count >= 1 { toggles.element(boundBy: 0).tap(); demoBeat() }
+        if toggles.count >= 2 { toggles.element(boundBy: 1).tap(); demoBeat() }
+
+        demoTapMyRow(id: "my.row.read_record", label: "阅读记录", snapshotName: "DEMO-我的-阅读记录", fallbackY: 0.52) {
+            app.swipeUp(); demoBeat()
+        }
+
+        demoTapMyRow(id: "my.row.feedback", label: "意见反馈", snapshotName: "DEMO-我的-意见反馈", fallbackY: 0.60, needsBack: false) {
+            if app.buttons["取消"].waitForExistence(timeout: 2) {
+                app.buttons["取消"].tap(); demoBeat()
+            } else {
+                demoBack()
+            }
+        }
+
+        demoTapMyRow(id: "my.row.download_manage", label: "下载管理", snapshotName: "DEMO-我的-下载管理", fallbackY: 0.68) {
+            app.swipeUp(); demoBeat()
+        }
+
+        demoTapTab("书架")
+        demoSnapshot("DEMO-完成")
+        demoBeat()
     }
 }

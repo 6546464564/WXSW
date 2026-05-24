@@ -133,6 +133,7 @@ struct BookStoreView: View {
                     .foregroundStyle(WanxiangColors.textPrimary)
                     .padding(10)
             }
+            .accessibilityIdentifier("bookstore.search")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
@@ -167,6 +168,8 @@ struct BookStoreView: View {
             .padding(.horizontal, 14)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("bookstore.channel.\(channel.rawValue)")
+        .accessibilityLabel(channel.title)
     }
 
     // MARK: - Hero

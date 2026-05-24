@@ -528,6 +528,8 @@ public struct ReaderView: View {
                         .font(.title3)
                         .foregroundStyle(.white)
                 }
+                .accessibilityIdentifier("reader.back")
+                .accessibilityLabel("返回")
                 Spacer()
                 Text(currentPageText)
                     .font(.subheadline.weight(.medium))

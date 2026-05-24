@@ -214,6 +214,7 @@ struct SearchView: View {
                 .textFieldStyle(.plain)
                 .focused($inputFocused)
                 .submitLabel(.search)
+                .accessibilityIdentifier("search.keyword")
                 .onChange(of: keyword) { _, new in
                     debounce(new)
                 }

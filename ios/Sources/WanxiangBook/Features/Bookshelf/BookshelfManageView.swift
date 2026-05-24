@@ -1,11 +1,9 @@
 //
 //  BookshelfManageView.swift
-//  万象书屋 iOS · 书架管理 (M2.2.5/6/8/9/11)
+//  万象书屋 iOS · 书架管理
 //
-//  - 多选 / 批量删除 / 批量加分组 / 批量更新目录
-//  - 阅读状态筛选 (追更/养肥/完结/全部)
-//  - 缓存状态角标
-//  - 工具栏完整 11 项菜单
+//  - 多选 / 批量删除 / 批量更新目录
+//  - 阅读状态筛选 (全部/未读/在读/已读完)
 //
 
 import SwiftUI
@@ -15,8 +13,6 @@ struct BookshelfManageView: View {
     @State private var books: [ShelfBook] = []
     @State private var selectedIds: Set<String> = []
     @State private var filter: ReadFilter = .all
-    @State private var showGroupSheet = false
-    @State private var importJsonPicker = false
     /// 万象书屋 (UX 2026-05-11): 用户点禁用按钮时的临时提示 (1.5s 自动消失)
     @State private var transientHint: String? = nil
     @State private var transientHintTask: Task<Void, Never>? = nil
@@ -170,31 +166,46 @@ struct BookshelfManageView: View {
         await load()
     }
 
-    /// 万象书屋 (2026-05-11): 批量更新选中书的目录. 跟 Android `BookshelfViewModel.upChapterList` 等价.
-    /// 流程: 每本书 fetchInfo (拿真 tocUrl) → fetchToc → 写 ChapterRepository + 更新
-    /// books.totalChapterNum/latestChapterTitle. 并发 3 个 in-flight, 单本 30s 硬超时, 失败的
-    /// 静默跳过. 结束 toast 显示 "更新完成: X/Y".
     private func batchUpdate() async {
-        let urls = Array(selectedIds)
-        guard !urls.isEmpty else { return }
-        let total = urls.count
+        let booksToUpdate = books.filter { selectedIds.contains($0.bookUrl) }
+        guard !booksToUpdate.isEmpty else { return }
+        let total = booksToUpdate.count
         showTransientHint("开始更新 \(total) 本书的目录…")
 
-        // 把 selectedIds 对应的 ShelfBook 找出来 (需要 origin 找 BookSource)
-        let booksToUpdate = books.filter { selectedIds.contains($0.bookUrl) }
+        let result = await BookshelfTocUpdater.update(books: booksToUpdate)
+
+        selectedIds.removeAll()
+        await load()
+        showTransientHint(result.failed == 0
+            ? "更新完成: \(result.ok)/\(total)"
+            : "更新完成: \(result.ok)/\(total) (失败 \(result.failed))")
+    }
+
+}
+
+// MARK: - 批量更新目录 (BookshelfView / BookshelfManageView 共用)
+
+enum BookshelfTocUpdater {
+
+    struct Result: Sendable {
+        var ok: Int
+        var failed: Int
+    }
+
+    /// 并发 3 本 in-flight, 单本 30s 硬超时, 失败静默跳过.
+    static func update(books: [ShelfBook]) async -> Result {
+        guard !books.isEmpty else { return .init(ok: 0, failed: 0) }
         var ok = 0
         var failed = 0
 
         await withTaskGroup(of: Bool.self) { group in
-            var iter = booksToUpdate.makeIterator()
-            let cap = min(3, booksToUpdate.count)
+            var iter = books.makeIterator()
+            let cap = min(3, books.count)
 
             @discardableResult
             func addNext() -> Bool {
                 guard let b = iter.next() else { return false }
-                group.addTask {
-                    return await Self.updateOneBook(b)
-                }
+                group.addTask { await updateOneBook(b) }
                 return true
             }
             for _ in 0..<cap { _ = addNext() }
@@ -203,16 +214,10 @@ struct BookshelfManageView: View {
                 addNext()
             }
         }
-
-        selectedIds.removeAll()
-        await load()
-        showTransientHint(failed == 0
-            ? "更新完成: \(ok)/\(total)"
-            : "更新完成: \(ok)/\(total) (失败 \(failed))")
+        return .init(ok: ok, failed: failed)
     }
 
-    /// 单本书的更新逻辑: fetchInfo → fetchToc → saveToc + updateTotalChapters. 30s 硬超时.
-    private nonisolated static func updateOneBook(_ book: ShelfBook) async -> Bool {
+    private static func updateOneBook(_ book: ShelfBook) async -> Bool {
         guard let source = await BookSourceRegistry.shared.find(origin: book.origin) else { return false }
         let searchBook = SearchBook(
             origin: book.origin, originName: book.originName,
@@ -245,10 +250,9 @@ struct BookshelfManageView: View {
             for await r in inner {
                 inner.cancelAll()
                 if let r = r { return r }
-                return false   // timeout
+                return false
             }
             return false
         }
     }
-
 }

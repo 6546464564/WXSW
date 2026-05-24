@@ -359,6 +359,7 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
     ///     英文/繁体的话改这个标记就能恢复跟系统.
     override init() {
         super.init()
+        BookCoverNetworkPolicy.start()
         let lockKey = "wx.lang.locked_v1"
         if !UserDefaults.standard.bool(forKey: lockKey) {
             UserDefaults.standard.set(["zh-Hans"], forKey: "AppleLanguages")

@@ -33,7 +33,12 @@ struct BookshelfView: View {
     @StateObject private var downloader = BookDownloader.shared
 
     // 万象书屋: 跟 Android `MainViewModel.saveTabPosition` 对齐, 切回书架记住上次 group
-    @State private var selectedGroupId: Int64 = BookGroup.allId
+    @AppStorage("wanxiang.shelf.selected_group") private var selectedGroupIdRaw: Int = Int(BookGroup.allId)
+
+    private var selectedGroupId: Int64 {
+        get { Int64(selectedGroupIdRaw) }
+        nonmutating set { selectedGroupIdRaw = Int(newValue) }
+    }
 
     // sheets
     @State private var searchPresented = false
@@ -45,6 +50,10 @@ struct BookshelfView: View {
     @State private var deleteConfirm: ShelfBook?
     @State private var renamingGroup: BookGroup?
     @State private var renameInput = ""
+    @State private var tocUpdateHint: String?
+    @State private var tocUpdateTask: Task<Void, Never>?
+    @State private var didInitialTask = false
+    @State private var isUpdatingToc = false
 
     #if DEBUG
     @State private var _autoNavBook: ShelfBook? = nil
@@ -57,6 +66,8 @@ struct BookshelfView: View {
     @AppStorage("wanxiang.shelf.sort") private var sortRaw: Int = ShelfSort.latestRead.rawValue
     @AppStorage("wanxiang.shelf.show_unread") private var showUnread: Bool = true
     @AppStorage("wanxiang.shelf.show_last_update") private var showLastUpdateTime: Bool = true
+    @AppStorage("wanxiang.shelf.show_fast_scroller") private var showFastScroller: Bool = false
+    @AppStorage("wanxiang.startup.refreshShelf") private var autoRefreshShelf: Bool = true
 
     private var sort: ShelfSort {
         ShelfSort(rawValue: sortRaw) ?? .latestRead
@@ -68,7 +79,10 @@ struct BookshelfView: View {
                 // 万象书屋: 跟 Android TabLayout 等价 — 横向 capsule chip 展示分组
                 groupBar
                 Group {
-                    if vm.books.isEmpty && !vm.isLoading {
+                    if vm.isLoading && vm.books.isEmpty {
+                        ProgressView("加载中…")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if vm.books.isEmpty {
                         emptyView
                     } else {
                         booksContainer
@@ -82,6 +96,8 @@ struct BookshelfView: View {
             .task(id: sortRaw) {
                 await vm.loadGroups()
                 await vm.refresh(sort: sort, groupId: selectedGroupId)
+                didInitialTask = true
+                maybePreloadCovers()
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--AutoOpenFirstBook"),
                    let first = vm.books.first {
@@ -93,7 +109,17 @@ struct BookshelfView: View {
                 }
                 #endif
             }
-            .refreshable { await vm.refresh(sort: sort) }
+            .onAppear {
+                guard autoRefreshShelf, didInitialTask else { return }
+                Task { await vm.refresh(sort: sort, groupId: selectedGroupId) }
+            }
+            .onChange(of: selectedGroupIdRaw) { _, _ in
+                Task { await vm.refresh(sort: sort, groupId: selectedGroupId) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .wanxiangBookshelfChanged)) { _ in
+                Task { await vm.refresh(sort: sort, groupId: selectedGroupId) }
+            }
+            .refreshable { await vm.refresh(sort: sort, groupId: selectedGroupId) }
             #if DEBUG
             .navigationDestination(isPresented: $_autoNavActive) {
                 if let book = _autoNavBook {
@@ -168,6 +194,18 @@ struct BookshelfView: View {
                     Button("取消", role: .cancel) {}
                 }
             }
+            .overlay(alignment: .bottom) {
+                if let hint = tocUpdateHint {
+                    Text(hint)
+                        .font(.caption)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Capsule().fill(.black.opacity(0.78)))
+                        .foregroundStyle(.white)
+                        .padding(.bottom, 16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .allowsHitTesting(false)
+                }
+            }
         }
     }
 
@@ -186,24 +224,35 @@ struct BookshelfView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button {
-                    Task { await vm.refresh(sort: sort) }
-                } label: { Label("更新目录", systemImage: "arrow.clockwise") }
+                    Task { await updateAllToc() }
+                } label: {
+                    Label(LocalizedStringKey("shelf.menu_update_toc"), systemImage: "arrow.clockwise")
+                }
+                .disabled(isUpdatingToc || vm.books.isEmpty)
 
                 NavigationLink {
                     ImportLocalView()
-                } label: { Label("添加本地", systemImage: "doc.badge.plus") }
+                } label: {
+                    Label(LocalizedStringKey("shelf.menu_add_local"), systemImage: "doc.badge.plus")
+                }
 
                 NavigationLink {
                     BookshelfManageView()
-                } label: { Label("书架管理", systemImage: "list.bullet.rectangle") }
+                } label: {
+                    Label(LocalizedStringKey("shelf.menu_manage"), systemImage: "list.bullet.rectangle")
+                }
 
                 Button {
                     showGroupManage = true
-                } label: { Label("分组管理", systemImage: "folder.badge.gearshape") }
+                } label: {
+                    Label(LocalizedStringKey("shelf.menu_group_manage"), systemImage: "folder.badge.gearshape")
+                }
 
                 Button {
                     showLayoutConfig = true
-                } label: { Label("书架布局", systemImage: "rectangle.3.group") }
+                } label: {
+                    Label(LocalizedStringKey("shelf.menu_layout"), systemImage: "rectangle.3.group")
+                }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -218,7 +267,6 @@ struct BookshelfView: View {
                 ForEach(vm.groups, id: \.id) { g in
                     Button {
                         selectedGroupId = g.id
-                        Task { await vm.refresh(sort: sort, groupId: g.id) }
                     } label: {
                         let isSelected = selectedGroupId == g.id
                         HStack(spacing: 4) {
@@ -318,7 +366,11 @@ struct BookshelfView: View {
                     NavigationLink {
                         ReaderView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
                     } label: {
-                        BookCard(book: book, showLastUpdate: showLastUpdateTime)
+                        BookCard(
+                            book: book,
+                            showLastUpdate: showLastUpdateTime,
+                            showUnread: showUnread
+                        )
                     }
                     .buttonStyle(.plain)
                     .contextMenu { contextMenuFor(book) }
@@ -327,9 +379,24 @@ struct BookshelfView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
         }
+        .scrollIndicators(showFastScroller ? .visible : .hidden)
     }
 
     private var listView: some View {
+        Group {
+            if showFastScroller && usesSectionIndex {
+                sectionedListView
+            } else {
+                plainListView
+            }
+        }
+    }
+
+    private var usesSectionIndex: Bool {
+        sort == .name || sort == .author
+    }
+
+    private var plainListView: some View {
         List {
             ForEach(vm.books) { book in
                 NavigationLink {
@@ -342,11 +409,71 @@ struct BookshelfView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .scrollIndicators(showFastScroller ? .visible : .hidden)
+    }
+
+    private var sectionedListView: some View {
+        let sections = Self.indexedSections(books: vm.books, sort: sort)
+        return ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                List {
+                    ForEach(sections, id: \.title) { section in
+                        Section(section.title) {
+                            ForEach(section.books) { book in
+                                NavigationLink {
+                                    ReaderView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
+                                } label: {
+                                    bookListRow(book)
+                                }
+                                .contextMenu { contextMenuFor(book) }
+                            }
+                        }
+                        .id(section.title)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+
+                sectionIndexBar(sections: sections) { title in
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(title, anchor: .top)
+                    }
+                }
+            }
+        }
+    }
+
+    private func sectionIndexBar(sections: [ShelfBookSection], onTap: @escaping (String) -> Void) -> some View {
+        VStack(spacing: 2) {
+            ForEach(sections, id: \.title) { section in
+                Button {
+                    onTap(section.title)
+                } label: {
+                    Text(section.title)
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 16, height: 14)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.trailing, 4)
+        .foregroundStyle(WanxiangColors.primary.opacity(0.85))
     }
 
     private func bookListRow(_ book: ShelfBook) -> some View {
         HStack(spacing: 12) {
-            BookCover(url: book.coverUrl, width: 50, height: 70, bookTitle: book.name)
+            ZStack(alignment: .topTrailing) {
+                BookCover(url: book.coverUrl, width: 50, height: 70, bookTitle: book.name)
+                if showUnread, book.unreadChapterNum > 0 {
+                    Text("\(book.unreadChapterNum)")
+                        .font(.system(size: 9, weight: .bold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4).padding(.vertical, 2)
+                        .background(Capsule().fill(WanxiangColors.primary))
+                        .offset(x: 4, y: -4)
+                }
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(book.name).font(.subheadline.weight(.medium))
                 Text(book.author).font(.caption2).foregroundStyle(.secondary)
@@ -362,7 +489,7 @@ struct BookshelfView: View {
                         .foregroundStyle(.secondary)
                 }
                 if showLastUpdateTime, book.latestChapterTime > 0 {
-                    Text("最后更新:\(formatRelative(book.latestChapterTime))")
+                    Text("最后更新:\(ShelfTimeFormat.relative(book.latestChapterTime, compact: false))")
                         .font(.caption2)
                         .foregroundStyle(WanxiangColors.textSecondary.opacity(0.85))
                 }
@@ -448,19 +575,69 @@ struct BookshelfView: View {
 
     // MARK: - Helpers
 
-    /// "1m 前 / 2h 前 / 3d 前 / yyyy-MM-dd"
-    private func formatRelative(_ ts: Int64) -> String {
+    private func updateAllToc() async {
+        guard !vm.books.isEmpty, !isUpdatingToc else { return }
+        isUpdatingToc = true
+        defer { isUpdatingToc = false }
+        let total = vm.books.count
+        showTocHint("开始更新 \(total) 本书的目录…")
+        let result = await BookshelfTocUpdater.update(books: vm.books)
+        await vm.refresh(sort: sort, groupId: selectedGroupId)
+        showTocHint(result.failed == 0
+            ? "更新完成: \(result.ok)/\(total)"
+            : "更新完成: \(result.ok)/\(total) (失败 \(result.failed))")
+    }
+
+    private func showTocHint(_ msg: String) {
+        tocUpdateTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.18)) { tocUpdateHint = msg }
+        tocUpdateTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled {
+                withAnimation(.easeInOut(duration: 0.18)) { tocUpdateHint = nil }
+            }
+        }
+    }
+
+    private func maybePreloadCovers() {
+        guard UserDefaults.standard.bool(forKey: "wanxiang.shelf.preloadCovers") else { return }
+        let urls = vm.books.prefix(24).compactMap(\.coverUrl)
+        Task { await BookCoverPreloader.preload(urls: urls) }
+    }
+
+    private static func indexedSections(books: [ShelfBook], sort: ShelfSort) -> [ShelfBookSection] {
+        let keyed = Dictionary(grouping: books) { book -> String in
+            let source = sort == .author ? book.author : book.name
+            let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let first = trimmed.first else { return "#" }
+            let s = String(first).uppercased()
+            return s.first?.isLetter == true ? s : "#"
+        }
+        return keyed.keys.sorted().map { title in
+            ShelfBookSection(title: title, books: keyed[title] ?? [])
+        }
+    }
+}
+
+private struct ShelfBookSection {
+    let title: String
+    let books: [ShelfBook]
+}
+
+enum ShelfTimeFormat {
+    /// "1m 前 / 2h 前 / 3d 前 / yyyy-MM-dd" (compact 用于网格卡片)
+    static func relative(_ ts: Int64, compact: Bool) -> String {
         let date = Date(timeIntervalSince1970: TimeInterval(ts) / 1000)
         let diff = Date().timeIntervalSince(date)
         switch diff {
         case ..<0: return "刚刚"
-        case 0..<60: return "\(Int(diff))秒前"
-        case 60..<3600: return "\(Int(diff/60))分钟前"
-        case 3600..<86400: return "\(Int(diff/3600))小时前"
-        case 86400..<(86400*30): return "\(Int(diff/86400))天前"
+        case 0..<60: return compact ? "\(Int(diff))s 前" : "\(Int(diff))秒前"
+        case 60..<3600: return compact ? "\(Int(diff/60))m 前" : "\(Int(diff/60))分钟前"
+        case 3600..<86400: return compact ? "\(Int(diff/3600))h 前" : "\(Int(diff/3600))小时前"
+        case 86400..<(86400*30): return compact ? "\(Int(diff/86400))d 前" : "\(Int(diff/86400))天前"
         default:
             let f = DateFormatter()
-            f.dateFormat = "yyyy-MM-dd"
+            f.dateFormat = compact ? "MM-dd" : "yyyy-MM-dd"
             return f.string(from: date)
         }
     }
@@ -471,6 +648,7 @@ struct BookshelfView: View {
 private struct BookCard: View {
     let book: ShelfBook
     let showLastUpdate: Bool
+    let showUnread: Bool
     @ObservedObject private var downloader = BookDownloader.shared
 
     var body: some View {
@@ -481,6 +659,15 @@ private struct BookCard: View {
                     BookCover(url: book.coverUrl, width: geo.size.width, height: h, bookTitle: book.name)
                 }
                 .aspectRatio(3.0/4.2, contentMode: .fit)
+                if showUnread, book.unreadChapterNum > 0 {
+                    Text("\(book.unreadChapterNum)")
+                        .font(.caption2.monospacedDigit().weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Capsule().fill(WanxiangColors.primary))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(4)
+                }
                 if book.progress > 0 {
                     GeometryReader { geo in
                         Rectangle()
@@ -519,26 +706,11 @@ private struct BookCard: View {
                 .foregroundStyle(WanxiangColors.textSecondary)
                 .lineLimit(1)
             // 始终占位，保持每张卡片等高，避免网格行错位
-            Text(showLastUpdate && book.latestChapterTime > 0 ? BookCard.formatRelative(book.latestChapterTime) : " ")
+            Text(showLastUpdate && book.latestChapterTime > 0
+                 ? ShelfTimeFormat.relative(book.latestChapterTime, compact: true) : " ")
                 .font(.system(size: 9))
                 .foregroundStyle(WanxiangColors.textSecondary.opacity(0.75))
                 .lineLimit(1)
-        }
-    }
-
-    static func formatRelative(_ ts: Int64) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(ts) / 1000)
-        let diff = Date().timeIntervalSince(date)
-        switch diff {
-        case ..<0: return "刚刚"
-        case 0..<60: return "\(Int(diff))s 前"
-        case 60..<3600: return "\(Int(diff/60))m 前"
-        case 3600..<86400: return "\(Int(diff/3600))h 前"
-        case 86400..<(86400*30): return "\(Int(diff/86400))d 前"
-        default:
-            let f = DateFormatter()
-            f.dateFormat = "MM-dd"
-            return f.string(from: date)
         }
     }
 }
@@ -570,7 +742,7 @@ final class BookshelfViewModel: ObservableObject {
 
     func pin(_ book: ShelfBook) async {
         try? await BookshelfRepository.shared.pin(bookUrl: book.bookUrl)
-        await refresh(sort: .manual)
+        await refresh(sort: .manual, groupId: currentGroupId)
     }
 
     func moveToGroup(_ book: ShelfBook, groupId: Int64, currentSort: ShelfSort) async {

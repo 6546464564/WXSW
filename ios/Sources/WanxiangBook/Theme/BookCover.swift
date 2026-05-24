@@ -8,6 +8,7 @@
 
 import SwiftUI
 import UIKit
+import Network
 
 public struct BookCover: View {
     public let url: String?
@@ -115,6 +116,11 @@ public struct BookCover: View {
         if let disk = await BookCoverDiskCache.shared.load(key: cacheKey) {
             BookCoverImageCache.shared.set(disk, for: cacheKey)
             image = disk
+            isLoading = false
+            return
+        }
+        // 仅 WiFi 加载封面 (设置页 wanxiang.shelf.wifiOnlyCovers, 默认开)
+        if BookCoverNetworkPolicy.shouldSkipNetworkDownload {
             isLoading = false
             return
         }
@@ -269,4 +275,43 @@ private enum BookCoverImageSession {
                                 diskPath: "WanxiangCoverHTTPCache")
         return URLSession(configuration: cfg)
     }()
+}
+
+/// 封面网络策略 — 读取设置 `wanxiang.shelf.wifiOnlyCovers`
+enum BookCoverNetworkPolicy {
+    private static let monitor = NWPathMonitor()
+    private static let queue = DispatchQueue(label: "wx.bookcover.network")
+    private static var isExpensive = false
+
+    static func start() {
+        monitor.pathUpdateHandler = { path in
+            isExpensive = path.status == .satisfied
+                && !path.usesInterfaceType(.wifi)
+                && !path.usesInterfaceType(.wiredEthernet)
+        }
+        monitor.start(queue: queue)
+        let current = monitor.currentPath
+        isExpensive = current.status == .satisfied
+            && !current.usesInterfaceType(.wifi)
+            && !current.usesInterfaceType(.wiredEthernet)
+    }
+
+    static var shouldSkipNetworkDownload: Bool {
+        let wifiOnly = UserDefaults.standard.object(forKey: "wanxiang.shelf.wifiOnlyCovers") as? Bool ?? true
+        return wifiOnly && isExpensive
+    }
+}
+
+/// 预加载封面 (设置页 `wanxiang.shelf.preloadCovers` 开启时, 书架加载后后台拉封面进磁盘缓存)
+enum BookCoverPreloader {
+    static func preload(urls: [String]) async {
+        for raw in urls {
+            guard let request = BookCover.makeImageRequestPublic(from: raw) else { continue }
+            let cacheKey = request.url?.absoluteString ?? raw
+            if BookCoverImageCache.shared.image(for: cacheKey) != nil { continue }
+            if await BookCoverDiskCache.shared.load(key: cacheKey) != nil { continue }
+            if BookCoverNetworkPolicy.shouldSkipNetworkDownload { continue }
+            _ = try? await BookCoverImageSession.shared.data(for: request)
+        }
+    }
 }

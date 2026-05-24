@@ -14,7 +14,7 @@
 //   - swShowWaitUpBooks        → showWaitUpCount  (我们 iOS 默认 true, 没有可视开关意义,
 //                                                   暂不放; 跟 Android `swShowWaitUpBooks` 对应)
 //
-//  保存方式: 直接写 @AppStorage, 关闭 sheet 后 BookshelfView .onChange 即时刷新.
+//  保存方式: 直接写 @AppStorage; sort 变更时 BookshelfView `.task(id: sortRaw)` 自动重载.
 //
 
 import SwiftUI

@@ -19,6 +19,23 @@
 "my.read_record_summary" = "查看每日閱讀時長統計";
 "my.feedback" = "意見反饋";
 "my.feedback_summary" = "向我們提建議或回報問題";
+"my.download_manage" = "下載管理";
+"my.download_summary_idle" = "管理離線下載任務";
+"my.download_summary_running" = "%d 本下載中";
+"my.download_summary_running_finished" = "%d 本下載中 · %d 已完成";
+"my.download_summary_finished" = "%d 本已完成";
+"my.app_disguise" = "應用偽裝";
+"my.app_disguise_summary" = "切換到偽裝介面,保護隱私";
+"my.app_disguise_confirm_title" = "啟用應用偽裝";
+"my.app_disguise_confirm_message" = "啟用後將立即切換到偽裝介面（QR Code 產生器），需重新輸入密碼才能返回。";
+"my.app_disguise_confirm_action" = "確認偽裝";
+"my.app_name_ios" = "萬象書屋 iOS";
+"my.import_source_title" = "書源匯入";
+"my.import_source_success" = "已合併匯入 %d 個書源(與伺服器書源共存,僅本地多出的 URL 會保留)";
+"my.import_source_failed" = "匯入失敗:%@";
+"my.import_source_open_failed" = "無法開啟檔案:%@";
+"my.ok" = "好的";
+"my.cancel" = "取消";
 
 // MARK: - 解鎖卡
 "unlock_card_title" = "純淨閱讀";

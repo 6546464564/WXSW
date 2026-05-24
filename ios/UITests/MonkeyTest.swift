@@ -133,7 +133,7 @@ final class MonkeyTest: XCTestCase {
         app.launch()
         _ = app.buttons["书架"].waitForExistence(timeout: 15)
 
-        addUIInterruptionMonitor(named: "SystemAlerts") { [weak self] alert -> Bool in
+        addUIInterruptionMonitor(withDescription: "SystemAlerts") { [weak self] alert -> Bool in
             return self?.handleSystemAlert(alert) ?? false
         }
 

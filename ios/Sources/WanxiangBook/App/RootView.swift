@@ -13,6 +13,7 @@ struct RootView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var theme = ThemeManager.shared
     @StateObject private var eyeCare = EyeCareModeManager.shared
+    @AppStorage("wanxiang.startup.openLastBook") private var openLastBook: Bool = false
 
     /// 跟 Android `default_home_page` 偏好对齐 (默认书架)
     /// 万象书屋: launch argument `-DefaultTab male/female/my` 可在 App Store 截图脚本里指定
@@ -119,7 +120,7 @@ struct RootView: View {
                           || args.contains("--OpenTts") || args.contains("-OpenTts")
                           || args.contains("--Search") || args.contains("-Search")
                           || args.contains("-uitest") || args.contains("-skipStateRestore")
-            if !isDebugRun,
+            if !isDebugRun && openLastBook,
                let savedUrl = UserDefaults.standard.string(forKey: "wx.lastOpenedBookUrl") {
                 // 稍微等一下，让 splash 转场和 RootView 首帧渲染完
                 try? await Task.sleep(nanoseconds: 400_000_000)  // 0.4s
@@ -347,6 +348,8 @@ private struct CustomTabBar: View {
             .animation(.easeInOut(duration: 0.18), value: isSelected)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("tab.\(item.tab == .bookshelf ? "bookshelf" : item.tab == .bookStore ? "bookstore" : "my")")
+        .accessibilityLabel(item.label)
     }
 
     /// 取当前 device 底部安全区高度 (home indicator)
