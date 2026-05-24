@@ -61,23 +61,28 @@ object BookStorePrewarm {
                     .getOrNull()
                     ?.takeIf { m -> m.values.any { it.isNotEmpty() } }
                     ?.let { channelRankCache[QidianRepository.Channel.Female] = Pair(it, now) }
-                runCatching { QidianRepository.fetchFinishRanks() }
+                runCatching { PublishBookstore.fetchRanks() }
                     .getOrNull()
                     ?.takeIf { m -> m.values.any { it.isNotEmpty() } }
                     ?.let { channelRankCache[QidianRepository.Channel.Publish] = Pair(it, now) }
 
-                // 3) 编辑精选 feed (三频道)
+                // 3) 编辑精选 feed (男/女全量; 出版仅 editor section)
                 for (ch in QidianRepository.Channel.values()) {
-                    val channelKey = when (ch) {
-                        QidianRepository.Channel.Male -> "male"
-                        QidianRepository.Channel.Female -> "female"
-                        QidianRepository.Channel.Publish -> "publish"
+                    val picks = when (ch) {
+                        QidianRepository.Channel.Publish -> PublishBookstore.fetchEditorPicks()
+                        else -> {
+                            val channelKey = when (ch) {
+                                QidianRepository.Channel.Male -> "male"
+                                QidianRepository.Channel.Female -> "female"
+                                QidianRepository.Channel.Publish -> "publish"
+                            }
+                            WanxiangBackend.fetchBookstoreFeed(channelKey)
+                        }
                     }
-                    val picks = WanxiangBackend.fetchBookstoreFeed(channelKey)
                     if (picks.isNotEmpty()) feedCache[ch] = picks
                 }
 
-                // 4) Banner 落地页: 男女月票 TOP50 + 男女完本书库 (女频 banner 同秒开)
+                // 4) Banner 落地页: 男女月票 TOP50 + 男女完本书库; 出版书单榜
                 for (gender in listOf(QidianRepository.Channel.Male, QidianRepository.Channel.Female)) {
                     runCatching {
                         QidianRepository.fetchRankPages(

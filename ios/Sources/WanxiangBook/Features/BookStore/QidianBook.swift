@@ -68,7 +68,7 @@ struct QidianBook: Hashable, Identifiable {
 /// 万象书屋·书城频道 (跟 Android `QidianRepository.Channel` 对齐)
 ///
 /// D-22.1: 女频与男频 UI/数据结构一致; mirror.ranksFemale 空时 fallback ranks.
-/// Publish 走独立 endpoint /finish/ (m.qidian 真完结频道, 4 完结榜).
+/// Publish 走后端 bookstore_feed 独立书单 (PublishBookstore).
 enum QidianChannel: String, CaseIterable, Identifiable {
     case male, female, publish
     var id: String { rawValue }
@@ -175,8 +175,16 @@ struct BookstoreFeedPick: Identifiable, Hashable {
     let book: QidianBook
     let targetURL: String
     let sourceOrigin: String
+    let section: String
 
     var id: String { book.id }
+
+    init(book: QidianBook, targetURL: String, sourceOrigin: String, section: String = "recommend") {
+        self.book = book
+        self.targetURL = targetURL
+        self.sourceOrigin = sourceOrigin
+        self.section = section
+    }
 }
 
 extension QidianBook {
@@ -226,7 +234,8 @@ extension QidianBook {
         return BookstoreFeedPick(
             book: book,
             targetURL: feedString(item, "target_url", "targetUrl", "bookUrl"),
-            sourceOrigin: feedString(item, "source_origin", "sourceOrigin", "origin")
+            sourceOrigin: feedString(item, "source_origin", "sourceOrigin", "origin"),
+            section: feedString(item, "section").isEmpty ? "recommend" : feedString(item, "section")
         )
     }
 

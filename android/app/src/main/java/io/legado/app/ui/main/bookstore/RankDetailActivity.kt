@@ -122,8 +122,12 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
                     cached
                 } else {
                     withContext(Dispatchers.IO) {
-                        when (mode) {
-                            "finish" -> loadFinishLibrary()
+                        when {
+                            mode == "finish" && channel == QidianRepository.Channel.Publish ->
+                                loadPublishLibrary()
+                            mode == "finish" -> loadFinishLibrary()
+                            channel == QidianRepository.Channel.Publish ->
+                                PublishBookstore.fetchRankPages(rankType, TARGET_COUNT)
                             else -> QidianRepository.fetchRankPages(
                                 rankType,
                                 target = TARGET_COUNT,
@@ -205,6 +209,26 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
                     if (out.size >= TARGET_COUNT) break
                     if (seen.add(b.bookId)) out.add(b)
                 }
+            }
+        }
+        return out.take(TARGET_COUNT)
+    }
+
+    /** 出版频道「完本书库」: 合并 feed 各 section 书单 */
+    private suspend fun loadPublishLibrary(): List<QidianBook> {
+        val ranks = PublishBookstore.fetchRanks()
+        val seen = HashSet<String>()
+        val out = ArrayList<QidianBook>(TARGET_COUNT)
+        val order = listOf(
+            QidianRepository.RankType.Yuepiao,
+            QidianRepository.RankType.HotReading,
+            QidianRepository.RankType.NewBook,
+            QidianRepository.RankType.Recommend,
+        )
+        for (rt in order) {
+            ranks[rt]?.forEach { b ->
+                val key = b.bookId.ifBlank { b.name }
+                if (seen.add(key)) out.add(b)
             }
         }
         return out.take(TARGET_COUNT)

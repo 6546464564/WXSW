@@ -338,27 +338,23 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
     }
 
     private fun heroType(): QidianRepository.RankType = when (currentChannel) {
-        QidianRepository.Channel.Male -> QidianRepository.RankType.Yuepiao
-        QidianRepository.Channel.Female -> QidianRepository.RankType.Yuepiao
-        QidianRepository.Channel.Publish -> QidianRepository.RankType.FinishClassic
+        QidianRepository.Channel.Male, QidianRepository.Channel.Female -> QidianRepository.RankType.Yuepiao
+        QidianRepository.Channel.Publish -> QidianRepository.RankType.Yuepiao
     }
 
     private fun mustReadType(): QidianRepository.RankType = when (currentChannel) {
-        QidianRepository.Channel.Male -> QidianRepository.RankType.HotReading
-        QidianRepository.Channel.Female -> QidianRepository.RankType.HotReading
-        QidianRepository.Channel.Publish -> QidianRepository.RankType.FinishBestSell
+        QidianRepository.Channel.Male, QidianRepository.Channel.Female -> QidianRepository.RankType.HotReading
+        QidianRepository.Channel.Publish -> QidianRepository.RankType.HotReading
     }
 
     private fun completeType(): QidianRepository.RankType = when (currentChannel) {
-        QidianRepository.Channel.Male -> QidianRepository.RankType.NewBook
-        QidianRepository.Channel.Female -> QidianRepository.RankType.NewBook
-        QidianRepository.Channel.Publish -> QidianRepository.RankType.FinishDs
+        QidianRepository.Channel.Male, QidianRepository.Channel.Female -> QidianRepository.RankType.NewBook
+        QidianRepository.Channel.Publish -> QidianRepository.RankType.NewBook
     }
 
     private fun recommendType(): QidianRepository.RankType = when (currentChannel) {
-        QidianRepository.Channel.Male -> QidianRepository.RankType.Recommend
-        QidianRepository.Channel.Female -> QidianRepository.RankType.Recommend
-        QidianRepository.Channel.Publish -> QidianRepository.RankType.FinishMovie
+        QidianRepository.Channel.Male, QidianRepository.Channel.Female -> QidianRepository.RankType.Recommend
+        QidianRepository.Channel.Publish -> QidianRepository.RankType.Recommend
     }
 
     private fun updateBanners() {
@@ -366,10 +362,10 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         val complete = completeType()
         when (currentChannel) {
             QidianRepository.Channel.Publish -> {
-                binding.tvBannerRankTitle.text = "经典完本"
+                binding.tvBannerRankTitle.text = getString(R.string.bs_rank)
                 binding.tvBannerRankSub.text = "${hero.title} TOP 50"
-                binding.tvBannerLibraryTitle.text = "完本精选"
-                binding.tvBannerLibrarySub.text = "${complete.title} TOP 50"
+                binding.tvBannerLibraryTitle.text = getString(R.string.bs_library)
+                binding.tvBannerLibrarySub.text = getString(R.string.bs_library_sub)
             }
             else -> {
                 binding.tvBannerRankTitle.text = getString(R.string.bs_rank)
@@ -384,11 +380,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         }
         binding.cardLibrary.setOnClickListener {
             WanxiangAnalytics.track("bs_banner_library", type = "click")
-            if (currentChannel == QidianRepository.Channel.Publish) {
-                RankDetailActivity.startRank(requireContext(), complete, complete.title, currentChannel)
-            } else {
-                RankDetailActivity.startFinish(requireContext(), getString(R.string.bs_library), currentChannel)
-            }
+            RankDetailActivity.startFinish(requireContext(), getString(R.string.bs_library), currentChannel)
         }
     }
 
@@ -472,7 +464,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
             try {
                 val ranks = withContext(Dispatchers.IO) {
                     when (ch) {
-                        QidianRepository.Channel.Publish -> QidianRepository.fetchFinishRanks()
+                        QidianRepository.Channel.Publish -> PublishBookstore.fetchRanks()
                         QidianRepository.Channel.Female -> QidianRepository.fetchAllRanks(QidianRepository.Channel.Female)
                         QidianRepository.Channel.Male -> QidianRepository.fetchAllRanks(QidianRepository.Channel.Male)
                     }
@@ -578,6 +570,21 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
 
     private fun loadFeed(forChannel: QidianRepository.Channel) {
         feedJob?.cancel()
+        if (forChannel == QidianRepository.Channel.Publish) {
+            feedJob = lifecycleScope.launch {
+                val picks = withContext(Dispatchers.IO) { PublishBookstore.fetchEditorPicks() }
+                if (!isAdded || currentChannel != forChannel) return@launch
+                if (picks.isNotEmpty()) {
+                    BookStorePrewarm.feedCache[forChannel] = picks
+                    editorPicks = picks
+                    bindEditorPicks()
+                } else {
+                    editorPicks = emptyList()
+                    bindEditorPicks()
+                }
+            }
+            return
+        }
         applyFeedCache(forChannel)
         val cached = BookStorePrewarm.feedCache[forChannel]
         if (!cached.isNullOrEmpty()) return
@@ -617,6 +624,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
     }
 
     private fun ensureExtendedRanks(types: List<QidianRepository.RankType>) {
+        if (currentChannel == QidianRepository.Channel.Publish) return
         extendJob?.cancel()
         val ch = currentChannel
         val gender = if (ch == QidianRepository.Channel.Publish) {

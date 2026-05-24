@@ -39,6 +39,8 @@ data class BookstoreFeedPick(
     val book: QidianBook,
     val targetURL: String,
     val sourceOrigin: String,
+    /** banner / hot / newbook / recommend / editor */
+    val section: String = "recommend",
 )
 
 /** 后端 feed JSON 字段: snake_case (DB) 与 camelCase (listBookstoreFeed API) 双兼容 */
@@ -67,6 +69,7 @@ fun feedPickFromJson(obj: com.google.gson.JsonObject): BookstoreFeedPick? {
         book = book,
         targetURL = obj.feedStringField("target_url", "targetUrl", "bookUrl"),
         sourceOrigin = obj.feedStringField("source_origin", "sourceOrigin", "origin"),
+        section = obj.feedStringField("section").ifBlank { "recommend" },
     )
 }
 

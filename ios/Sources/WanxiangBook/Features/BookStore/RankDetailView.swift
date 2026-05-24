@@ -235,15 +235,25 @@ final class RankDetailViewModel: ObservableObject {
         let gender: QidianChannel = channel == .publish ? .male : channel
         switch mode {
         case .rank(let type):
-            let result = await QidianRepository.shared.fetchRankPages(
-                type: type, target: targetCount, gender: gender
-            )
+            let result: [QidianBook]
+            if channel == .publish {
+                result = await PublishBookstore.fetchRankPages(type: type, target: targetCount)
+            } else {
+                result = await QidianRepository.shared.fetchRankPages(
+                    type: type, target: targetCount, gender: gender
+                )
+            }
             books = result
             if !result.isEmpty {
                 Self.cache[cacheKey] = (result, Date())
             }
         case .finish:
-            let result = await loadFinishLibrary(channel: channel)
+            let result: [QidianBook]
+            if channel == .publish {
+                result = await PublishBookstore.fetchLibraryMerged(target: targetCount)
+            } else {
+                result = await loadFinishLibrary(channel: channel)
+            }
             books = result
             if !result.isEmpty {
                 Self.cache[.finish(channel)] = (result, Date())

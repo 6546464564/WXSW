@@ -21,8 +21,8 @@
 //   └──────────────────────────────────────┘
 //
 //  D-22.2 板块映射 (按 channel 决定取哪个 RankType):
-//   Male/Female: Yuepiao + HotReading + NewBook + Recommend (结构完全一致)
-//   Publish: FinishClassic + FinishBestSell + FinishDs + FinishMovie
+//   Male/Female: Yuepiao + HotReading + NewBook + Recommend
+//   Publish: 同上结构, 数据来自后端 bookstore_feed (PublishBookstore)
 //
 
 import SwiftUI
@@ -245,7 +245,7 @@ struct BookStoreView: View {
     private var bannerRow: some View {
         HStack(spacing: 12) {
             bannerCard(
-                title: vm.currentChannel == .publish ? "经典完本" : "热门排行",
+                title: "热门排行",
                 subtitle: "\(vm.heroType.title) TOP 50",
                 icon: "flame.fill",
                 gradient: [
@@ -257,8 +257,8 @@ struct BookStoreView: View {
                 navTarget = .rank(vm.heroType, vm.heroType.title)
             }
             bannerCard(
-                title: vm.currentChannel == .publish ? "完本精选" : "完本书库",
-                subtitle: vm.currentChannel == .publish ? "\(vm.completeType.title) TOP 50" : "经典完结 50 本",
+                title: "完本书库",
+                subtitle: vm.currentChannel == .publish ? "经典出版 50 本" : "经典完结 50 本",
                 icon: "books.vertical.fill",
                 gradient: [
                     Color(red: 0.78, green: 0.92, blue: 0.83),
@@ -266,11 +266,7 @@ struct BookStoreView: View {
                 ]
             ) {
                 WanxiangAnalytics.shared.track("bs_banner_library", type: "click")
-                if vm.currentChannel == .publish {
-                    navTarget = .rank(vm.completeType, vm.completeType.title)
-                } else {
-                    navTarget = .finish("完本书库")
-                }
+                navTarget = .finish("完本书库")
             }
         }
     }
@@ -707,26 +703,22 @@ final class BookStoreViewModel: ObservableObject {
     /// D-22.2 板块映射 (按 channel 决定取哪个 RankType)
     var heroType: QidianRankType {
         switch currentChannel {
-        case .male, .female: return .yuepiao
-        case .publish: return .finishClassic
+        case .male, .female, .publish: return .yuepiao
         }
     }
     var mustReadType: QidianRankType {
         switch currentChannel {
-        case .male, .female: return .hotReading
-        case .publish: return .finishBestSell
+        case .male, .female, .publish: return .hotReading
         }
     }
     var completeType: QidianRankType {
         switch currentChannel {
-        case .male, .female: return .newBook
-        case .publish: return .finishDs
+        case .male, .female, .publish: return .newBook
         }
     }
     var recommendType: QidianRankType {
         switch currentChannel {
-        case .male, .female: return .recommend
-        case .publish: return .finishMovie
+        case .male, .female, .publish: return .recommend
         }
     }
 
@@ -830,7 +822,7 @@ final class BookStoreViewModel: ObservableObject {
             let result: [QidianRankType: [QidianBook]]
             switch ch {
             case .publish:
-                result = (try? await QidianRepository.shared.fetchFinishRanks()) ?? [:]
+                result = await PublishBookstore.fetchRanks()
             case .female:
                 result = (try? await QidianRepository.shared.fetchAllRanks(gender: .female)) ?? [:]
             case .male:
@@ -859,6 +851,15 @@ final class BookStoreViewModel: ObservableObject {
     }
 
     private func loadFeed(for channel: QidianChannel) async {
+        if channel == .publish {
+            let picks = await PublishBookstore.fetchEditorPicks()
+            guard currentChannel == channel else { return }
+            if !picks.isEmpty {
+                Self.feedCache[channel] = picks
+            }
+            editorPicks = picks
+            return
+        }
         if let cached = Self.feedCache[channel], !cached.isEmpty {
             guard currentChannel == channel else { return }
             editorPicks = cached
@@ -874,7 +875,8 @@ final class BookStoreViewModel: ObservableObject {
     }
 
     private func ensureExtendedRanks(for types: [QidianRankType], channel: QidianChannel) async {
-        let gender: QidianChannel = channel == .publish ? .male : channel
+        if channel == .publish { return }
+        let gender: QidianChannel = channel
         for type in types {
             if (extendedRanks[type]?.count ?? 0) >= 20 { continue }
             let full = await QidianRepository.shared.fetchRankPages(type: type, target: 50, gender: gender)
@@ -895,7 +897,7 @@ final class BookStoreViewModel: ObservableObject {
             _ = await BookstoreMirror.shared.fetch(forceRefresh: false)
             async let male: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchAllRanks(gender: .male)) ?? [:]
             async let female: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchAllRanks(gender: .female)) ?? [:]
-            async let finish: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchFinishRanks()) ?? [:]
+            async let finish: [QidianRankType: [QidianBook]] = PublishBookstore.fetchRanks()
             let m = await male
             let f = await female
             let p = await finish
@@ -912,6 +914,13 @@ final class BookStoreViewModel: ObservableObject {
                 }
             }
             for ch in QidianChannel.allCases {
+                if ch == .publish {
+                    let picks = await PublishBookstore.fetchEditorPicks()
+                    if !picks.isEmpty {
+                        await MainActor.run { BookStoreViewModel.feedCache[.publish] = picks }
+                    }
+                    continue
+                }
                 let items = (try? await WanxiangAPI.shared.fetchBookstoreFeed(channel: ch.rawValue)) ?? []
                 let picks = items.compactMap { QidianBook.feedPick(from: $0) }
                 if !picks.isEmpty {

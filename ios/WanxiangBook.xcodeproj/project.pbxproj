@@ -202,6 +202,7 @@
 		F8060EF73FF2143A001E0FB6 /* ChangeSourceCandidateCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C76976C64583D9DD66D508A0 /* ChangeSourceCandidateCache.swift */; };
 		FB02FCF6496BE1A1DB7AD8D0 /* AudioPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7DE8C468AD3A9A99F895B80 /* AudioPlayerView.swift */; };
 		FC726EA81878185E0A7A85D5 /* WanxiangColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 449823ADB9A3D47E5FBB954F /* WanxiangColors.swift */; };
+		FF4A7E09FE3BE0BAB0330A37 /* PublishBookstore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D0077D51C8D2E3B252B7B6C /* PublishBookstore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -258,6 +259,7 @@
 		16A7594C6CB95F769FD28A70 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
 		16DD7EDEFBDA6EF03B236C3F /* CacheView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheView.swift; sourceTree = "<group>"; };
 		1C85EC37809F8A96EF346F3A /* AutoReadController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoReadController.swift; sourceTree = "<group>"; };
+		1D0077D51C8D2E3B252B7B6C /* PublishBookstore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublishBookstore.swift; sourceTree = "<group>"; };
 		1D74D7E0AFA8B0C8C02E6CA8 /* ChangeSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSourceView.swift; sourceTree = "<group>"; };
 		1E070F45375A57818943DD5E /* MonkeyStabilityTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonkeyStabilityTest.swift; sourceTree = "<group>"; };
 		1E2CBACD33F8FF232AE9B305 /* CrashHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashHandler.swift; sourceTree = "<group>"; };
@@ -858,6 +860,7 @@
 				430CD10D33560F08D8B6E5E8 /* BookstoreMirror.swift */,
 				69FE42AD78DBF13DDD9FDD81 /* BookStoreView.swift */,
 				C5604779BBCCDAECA42F916D /* ExploreShowView.swift */,
+				1D0077D51C8D2E3B252B7B6C /* PublishBookstore.swift */,
 				6BF2C82EC1801B05941B87E6 /* QidianBook.swift */,
 				DE324462B464322A32BE7C74 /* QidianRepository.swift */,
 				255339063530EF62E7345A61 /* RankDetailView.swift */,
@@ -1304,6 +1307,7 @@
 				EE9342008A75E458D821FE04 /* PaginationEngine.swift in Sources */,
 				D4D54BC2074C3BF4F0B7EE66 /* PdfImporter.swift in Sources */,
 				4F5D385EC62492D93CB4D2D0 /* PromoCodeManager.swift in Sources */,
+				FF4A7E09FE3BE0BAB0330A37 /* PublishBookstore.swift in Sources */,
 				CC54270B834F9234BB13B602 /* PurifiedReadingState.swift in Sources */,
 				A07E1DA2222A2171F8EDC14E /* QidianBook.swift in Sources */,
 				0A3B499C81D83F03B2BD8EBC /* QidianRepository.swift in Sources */,
