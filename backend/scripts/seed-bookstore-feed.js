@@ -11,6 +11,16 @@
 const db = require('../db');
 db.init();
 
+/** Open Library 封面 (无图时客户端仍有彩色占位) */
+function coverFor(title) {
+  return `https://covers.openlibrary.org/b/title/${encodeURIComponent(title)}-L.jpg`;
+}
+
+function withCover(item) {
+  if (item.cover_url) return item;
+  return { ...item, cover_url: coverFor(item.name) };
+}
+
 const seedItems = [
   // ==== 男生频道 (编辑精选) ====
   { channel: 'male', section: 'banner', name: '斗破苍穹', author: '天蚕土豆', cover_url: '', intro: '三十年河东，三十年河西，莫欺少年穷。', kind: '玄幻', target_url: 'https://search?q=斗破苍穹', priority: 100 },
@@ -85,7 +95,7 @@ if (db.__db) {
 
 let inserted = 0;
 let skipped = 0;
-for (const item of seedItems) {
+for (const item of seedItems.map(withCover)) {
   try {
     db.upsertBookstoreFeed({
       channel: item.channel,

@@ -613,7 +613,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         for (pick in editorPicks) {
             val v = inflater.inflate(R.layout.item_book_store_editor_pick, binding.editorPicksContainer, false)
             v.findViewById<TextView>(R.id.tvName).text = pick.book.name
-            loadCover(v.findViewById(R.id.ivCover), pick.book.coverUrl)
+            loadCover(v.findViewById(R.id.ivCover), pick.book.coverUrl, pick.book)
             v.setOnClickListener { openFeedPick(pick) }
             binding.editorPicksContainer.addView(v)
         }
@@ -680,7 +680,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
                 intro.isVisible = false
             }
         }
-        loadCover(v.findViewById(R.id.ivCover), book.coverUrl)
+        loadCover(v.findViewById(R.id.ivCover), book.coverUrl, book)
         v.setOnClickListener { openBookstoreBook(book) }
         binding.heroSlot.addView(v)
     }
@@ -699,8 +699,14 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
                 it.isVisible = false
             }
         }
-        loadCover(v.findViewById(R.id.ivCover), book.coverUrl)
+        loadCover(v.findViewById(R.id.ivCover), book.coverUrl, book)
         applyBadgeAndTag(v, book, index)
+        v.findViewById<TextView?>(R.id.tvSource)?.let { src ->
+            if (currentChannel == QidianRepository.Channel.Publish) {
+                src.text = "出版"
+                src.isVisible = true
+            }
+        }
         applyShelfBadge(v, book)
         v.setOnClickListener { openBookstoreBook(book) }
         grid.addView(v)
@@ -740,7 +746,13 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
             )
             rank.isVisible = true
         }
-        loadCover(v.findViewById(R.id.ivCover), book.coverUrl)
+        loadCover(v.findViewById(R.id.ivCover), book.coverUrl, book)
+        v.findViewById<TextView?>(R.id.tvSource)?.let { src ->
+            if (currentChannel == QidianRepository.Channel.Publish) {
+                src.text = "出版"
+                src.isVisible = true
+            }
+        }
         applyShelfBadge(v, book)
         v.setOnClickListener { openBookstoreBook(book) }
         grid.addView(v)
@@ -800,7 +812,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
             },
         )
         v.findViewById<TextView>(R.id.tvName).text = book.name
-        loadCover(v.findViewById(R.id.ivCover), book.coverUrl)
+        loadCover(v.findViewById(R.id.ivCover), book.coverUrl, book)
         v.setOnClickListener { openBookstoreBook(book) }
         grid.addView(v)
     }
@@ -818,7 +830,17 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         }
     }
 
-    private fun loadCover(iv: ImageView, url: String?) {
+    private fun loadCover(iv: ImageView, url: String?, book: QidianBook? = null) {
+        if (iv is io.legado.app.ui.widget.image.CoverImageView) {
+            iv.load(
+                path = url?.takeIf { it.isNotBlank() },
+                name = book?.name,
+                author = book?.author,
+                fragment = this,
+                lifecycle = this.lifecycle,
+            )
+            return
+        }
         ImageLoader.load(this, this.lifecycle, url)
             .placeholder(R.drawable.bs_cover_placeholder)
             .error(R.drawable.bs_cover_placeholder)

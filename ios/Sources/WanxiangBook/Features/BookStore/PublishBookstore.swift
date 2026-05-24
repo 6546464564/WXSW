@@ -62,18 +62,22 @@ enum PublishBookstore {
 
 private extension BookstoreFeedPick {
     func toRankBook(rank: Int, rankType: QidianRankType) -> QidianBook {
-        QidianBook(
+        let cat = book.category.isEmpty ? book.subCategory : book.category
+        let intro = book.intro.isEmpty && !book.author.isEmpty
+            ? "\(book.author) · \(cat)"
+            : book.intro
+        return QidianBook(
             name: book.name,
             coverUrl: book.coverUrl,
             author: book.author,
-            category: book.category.isEmpty ? book.subCategory : book.category,
+            category: cat,
             subCategory: book.subCategory,
             wordCount: book.wordCount,
             bookId: book.bookId,
             rank: rank,
             rankName: rankType.title,
             rankCount: book.rankCount,
-            intro: book.intro
+            intro: intro
         )
     }
 }

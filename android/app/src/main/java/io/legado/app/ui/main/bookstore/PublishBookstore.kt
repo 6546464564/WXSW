@@ -51,8 +51,15 @@ object PublishBookstore {
 private fun BookstoreFeedPick.toRankBook(
     rank: Int,
     rankType: QidianRepository.RankType,
-): QidianBook = book.copy(
-    rank = rank,
-    rankName = rankType.title,
-    category = book.category.ifBlank { book.subCategory },
-)
+): QidianBook {
+    val cat = book.category.ifBlank { book.subCategory }
+    val intro = book.intro.ifBlank {
+        listOf(book.author, cat).filter { it.isNotBlank() }.joinToString(" · ")
+    }
+    return book.copy(
+        rank = rank,
+        rankName = rankType.title,
+        category = cat,
+        intro = intro,
+    )
+}

@@ -25,11 +25,10 @@
             app:cardCornerRadius="6dp"
             app:cardElevation="0dp">
 
-            <ImageView
+            <io.legado.app.ui.widget.image.CoverImageView
                 android:id="@+id/ivCover"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="@drawable/bs_cover_placeholder"
                 android:contentDescription="@null"
                 android:scaleType="centerCrop" />
         </androidx.cardview.widget.CardView>
