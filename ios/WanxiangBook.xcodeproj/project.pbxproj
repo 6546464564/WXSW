@@ -15,7 +15,6 @@
 		0759F7DA73C3221FFF5801B5 /* SelectorEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF67A801369DE6258CAE808F /* SelectorEngine.swift */; };
 		097ADC85028ED1F59E11E837 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2F6DE729EF86C038299F70 /* Keychain.swift */; };
 		0A36D7BED0038AE0B5765AB2 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 0A25805F3871BE0F273E44E8 /* SwiftSoup */; };
-		0A3AAB850F234C0EC75E7DE0 /* ExploreShowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5604779BBCCDAECA42F916D /* ExploreShowView.swift */; };
 		0A3B499C81D83F03B2BD8EBC /* QidianRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE324462B464322A32BE7C74 /* QidianRepository.swift */; };
 		0B9B0C6EFB5888E7ECF083FC /* JsLibCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2167D285604662CF7070F4DD /* JsLibCache.swift */; };
 		0C6E8FF9E9352AD1B7E5F2BC /* BookshelfView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3071950330DAEB58FF3FDEEC /* BookshelfView.swift */; };
@@ -185,6 +184,7 @@
 		DD72516824426DFDA3052D28 /* SelectorDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44EC6325C3E5D95B21D922CD /* SelectorDispatcher.swift */; };
 		DEF82FB6E940BD122B2B3119 /* BookSourceRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F89DC180C0DF6E20D18337E6 /* BookSourceRegistry.swift */; };
 		E0E009DFF61259C2AE191E13 /* PerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AA428F24A97F22ABF09CCC7 /* PerformanceTests.swift */; };
+		E1CE4E9AA4AFC67F0C942EEA /* ExploreShowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93CF8B965896FA41CAB5B165 /* ExploreShowView.swift */; };
 		E208223C94E64D0644737DA0 /* CrashRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 165E9A74A340F3D319964C1F /* CrashRecoveryTests.swift */; };
 		E3A9625ED898DE1D01C54E77 /* ImportLocalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B6E626009E9F649E8508FA /* ImportLocalView.swift */; };
 		E54ABA2D1914EE47280A021F /* zh-Hant.lproj in Resources */ = {isa = PBXBuildFile; fileRef = 9BC02BFD17E81C93FF26C449 /* zh-Hant.lproj */; };
@@ -359,6 +359,7 @@
 		8EA678B33A428AE0DE29981B /* ATTPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ATTPrompt.swift; sourceTree = "<group>"; };
 		91CA12E4DE47127EC08E8FD8 /* BookSourceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSourceEngine.swift; sourceTree = "<group>"; };
 		91F3E74EA657FAFB4B4347BE /* SearchLegadoOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchLegadoOrderingTests.swift; sourceTree = "<group>"; };
+		93CF8B965896FA41CAB5B165 /* ExploreShowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploreShowView.swift; sourceTree = "<group>"; };
 		9609E13744B3275554C5C64C /* CoreTelephony.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreTelephony.framework; path = System/Library/Frameworks/CoreTelephony.framework; sourceTree = SDKROOT; };
 		961D1E1FDA4ED1BE0B5F4227 /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
 		98006B8D77EB6EE5DC1F998D /* ReadConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadConfig.swift; sourceTree = "<group>"; };
@@ -389,7 +390,6 @@
 		BC2F6DE729EF86C038299F70 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		BC4A6DDC2FDCF4642C422475 /* SearchParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchParser.swift; sourceTree = "<group>"; };
 		C1D8B8C0D9D9C3DE4AADD759 /* SafeRegex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafeRegex.swift; sourceTree = "<group>"; };
-		C5604779BBCCDAECA42F916D /* ExploreShowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploreShowView.swift; sourceTree = "<group>"; };
 		C6263FDC1DAADF991E7D4FB3 /* ReaderEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderEngine.swift; sourceTree = "<group>"; };
 		C65DEF454541C15ADA6AD542 /* WanxiangAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WanxiangAPI.swift; sourceTree = "<group>"; };
 		C76976C64583D9DD66D508A0 /* ChangeSourceCandidateCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeSourceCandidateCache.swift; sourceTree = "<group>"; };
@@ -802,6 +802,14 @@
 			path = Fonts;
 			sourceTree = "<group>";
 		};
+		8021B076FD08E4AD8DF655A7 /* Explore */ = {
+			isa = PBXGroup;
+			children = (
+				93CF8B965896FA41CAB5B165 /* ExploreShowView.swift */,
+			);
+			path = Explore;
+			sourceTree = "<group>";
+		};
 		9D136A6F85061A8D1873736E /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -859,7 +867,6 @@
 			children = (
 				430CD10D33560F08D8B6E5E8 /* BookstoreMirror.swift */,
 				69FE42AD78DBF13DDD9FDD81 /* BookStoreView.swift */,
-				C5604779BBCCDAECA42F916D /* ExploreShowView.swift */,
 				1D0077D51C8D2E3B252B7B6C /* PublishBookstore.swift */,
 				6BF2C82EC1801B05941B87E6 /* QidianBook.swift */,
 				DE324462B464322A32BE7C74 /* QidianRepository.swift */,
@@ -939,6 +946,7 @@
 				CAB463846EA20E1B601C3FC5 /* Browser */,
 				3757F2A06C8283E5E13AF2E6 /* Cache */,
 				1BFE75D92CC6B9EB103FDCB4 /* Download */,
+				8021B076FD08E4AD8DF655A7 /* Explore */,
 				307B88A4B3D66DF007400E25 /* Feedback */,
 				47FC60A1C6C116DB15695C1D /* Game */,
 				6D97838DCFBA8334AD8A3355 /* ImportLocal */,
@@ -1279,7 +1287,7 @@
 				2DCCD79C2317FF98D4620864 /* DownloadRangeSheet.swift in Sources */,
 				CF1B10204314679407C7DCCA /* EpubImporter.swift in Sources */,
 				DBBC7B646049D6F7C0D6DB9E /* ExploreParser.swift in Sources */,
-				0A3AAB850F234C0EC75E7DE0 /* ExploreShowView.swift in Sources */,
+				E1CE4E9AA4AFC67F0C942EEA /* ExploreShowView.swift in Sources */,
 				3B9C3AF393CDF9C5A80AC33E /* EyeCareModeManager.swift in Sources */,
 				5AC912BE102BCCF3292D5A92 /* FeedbackView.swift in Sources */,
 				8127971C92105462E9872939 /* Game2048View.swift in Sources */,

@@ -1,8 +1,8 @@
 //
 //  ExploreShowView.swift
-//  万象书屋 iOS · 发现某频道书列表 (M2.3 v2)
+//  万象书屋 iOS · 书源发现频道列表
 //
-//  对应 Android: io.legado.app.ui.book.explore.ExploreShowActivity
+//  目录: Features/Explore (对应 Android ExploreShowActivity)
 //
 //  - 进入: source + 该 explore kind (玄幻/都市/穿越...)
 //  - 拉 BookSourceEngine.fetchExplore → list of SearchBook
