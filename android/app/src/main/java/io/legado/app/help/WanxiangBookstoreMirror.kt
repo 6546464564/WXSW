@@ -13,7 +13,7 @@ import java.io.File
  * 万象书屋 D-23: 拉后端 mirror cache (替代直抓 m.qidian.com).
  *
  * iOS [BookstoreMirror.swift] 对齐:
- *   - 内存 5 分钟 TTL + 磁盘 payload + SP etag
+ *   - 内存 1 天 TTL + 磁盘 payload + SP etag
  *   - 304 冷启动无内存 cache → 清 etag 重试拿 200 body (避免一直 fallback 直抓起点)
  *   - transient 错误 retry 1 次
  */
@@ -25,7 +25,7 @@ object WanxiangBookstoreMirror {
     private const val DEVICE_TOKEN_KEY = "token"
     private const val ETAG_SP = "wanxiang_bookstore_mirror"
     private const val ETAG_KEY = "etag"
-    private const val MEM_CACHE_TTL_MS = 5 * 60_000L
+    private const val MEM_CACHE_TTL_MS = 24 * 60 * 60_000L   // 1 天, 跟服务端 mirror 节奏对齐
     private const val PLATFORM = "android"
 
     @Volatile
@@ -75,7 +75,8 @@ object WanxiangBookstoreMirror {
                 }
             }
         }
-        return null
+        loadDiskCacheIfNeeded()
+        return cachedPayload
     }
 
     private sealed class Outcome {

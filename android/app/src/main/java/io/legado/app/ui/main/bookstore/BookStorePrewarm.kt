@@ -13,13 +13,13 @@ import io.legado.app.utils.LogUtils
 object BookStorePrewarm {
 
     private const val TAG = "BookStorePrewarm"
-    private const val CACHE_TTL_MS = 5 * 60_000L
+    private const val CACHE_TTL_MS = 24 * 60 * 60_000L   // 1 天
 
     /** 频道 → (ranks, timestamp) — 跟 iOS BookStoreViewModel.channelRankCache 对齐 */
     val channelRankCache =
         mutableMapOf<QidianRepository.Channel, Pair<Map<QidianRepository.RankType, List<QidianBook>>, Long>>()
 
-    /** RankDetail 进程级 cache — key: "rank:MALE:Yuepiao" | "finish:Female" */
+    /** RankDetail 进程级 cache — key: "rank:MALE:Yuepiao" | "finish:Female"; TTL 1 天 */
     val rankDetailCache = mutableMapOf<String, Pair<List<QidianBook>, Long>>()
 
     fun rankCacheKey(mode: String, channel: QidianRepository.Channel, type: QidianRepository.RankType? = null): String {
@@ -30,6 +30,11 @@ object BookStorePrewarm {
         val hit = rankDetailCache[key] ?: return null
         if (System.currentTimeMillis() - hit.second >= CACHE_TTL_MS) return null
         return hit.first.takeIf { it.isNotEmpty() }
+    }
+
+    /** 拉取失败时回退到过期 cache */
+    fun getRankDetailStale(key: String): List<QidianBook>? {
+        return rankDetailCache[key]?.first?.takeIf { it.isNotEmpty() }
     }
 
     fun putRankDetailCache(key: String, books: List<QidianBook>) {

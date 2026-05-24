@@ -94,7 +94,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         private const val COMPLETE_GRID = 8
         private const val RANKED_COUNT = 8
         private const val TAG = "BookStoreFragment"
-        private const val CACHE_TTL_MS = 5 * 60_000L
+        private const val CACHE_TTL_MS = 24 * 60 * 60_000L   // 1 天
     }
 
     override fun onFragmentCreated(view: View, savedInstanceState: Bundle?) {
@@ -451,8 +451,6 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
                     withContext(Dispatchers.IO) {
                         io.legado.app.help.WanxiangBookstoreMirror.fetch(forceRefresh = true)
                     }
-                    BookStorePrewarm.clearRankDetailCache()
-                    BookStorePrewarm.clearChannelRankCache()
                 }
                 val ranks = withContext(Dispatchers.IO) {
                     when (ch) {
@@ -464,7 +462,13 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
                 if (!isAdded) return@launch
                 if (currentChannel != ch) return@launch
                 if (ranks.values.all { it.isEmpty() }) {
-                    showFailedUi()
+                    val stale = channelRankCache[ch]?.first
+                    if (stale != null && stale.values.any { it.isNotEmpty() }) {
+                        bindAllSlots(stale)
+                        showContentUi()
+                    } else {
+                        showFailedUi()
+                    }
                 } else {
                     channelRankCache[ch] = Pair(ranks, System.currentTimeMillis())
                     bindAllSlots(ranks)

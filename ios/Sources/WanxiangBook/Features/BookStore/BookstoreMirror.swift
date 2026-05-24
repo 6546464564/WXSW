@@ -30,7 +30,7 @@ actor BookstoreMirror {
     static let shared = BookstoreMirror()
 
     private let path = "/api/bookstore/mirror"
-    private let memCacheTtl: TimeInterval = 5 * 60   // 5 分钟
+    private let memCacheTtl: TimeInterval = 24 * 60 * 60   // 1 天, 跟服务端 mirror 节奏对齐
 
     private var cachedPayload: [String: Any]?
     private var cachedAt: Date = .distantPast
@@ -72,7 +72,8 @@ actor BookstoreMirror {
                 }
             }
         }
-        return nil
+        loadDiskCacheIfNeeded()
+        return cachedPayload
     }
 
     private enum FetchOutcome {

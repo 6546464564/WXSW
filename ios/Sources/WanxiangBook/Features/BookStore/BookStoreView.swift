@@ -660,7 +660,7 @@ final class BookStoreViewModel: ObservableObject {
     /// (即使后端 mirror 已经在 `AppState.bootstrap` 后台预热好).
     /// 改成 static 后, prewarm() 写进的数据所有 View 实例都看得到, 切 Tab 不再闪 loading.
     private static var channelRankCache: [QidianChannel: (ranks: [QidianRankType: [QidianBook]], at: Date)] = [:]
-    private static let cacheTtl: TimeInterval = 5 * 60
+    private static let cacheTtl: TimeInterval = 24 * 60 * 60   // 1 天
 
     /// 「换一批」翻页偏移, 跟 Android swapPageMustRead/Complete/Ranked 对齐
     private var swapPageMustRead = 0
@@ -791,8 +791,6 @@ final class BookStoreViewModel: ObservableObject {
             guard let self else { return }
             if force {
                 _ = await BookstoreMirror.shared.fetch(forceRefresh: true)
-                RankDetailViewModel.clearCache()
-                Self.channelRankCache.removeAll()
             }
             let result: [QidianRankType: [QidianBook]]
             switch ch {
@@ -807,6 +805,11 @@ final class BookStoreViewModel: ObservableObject {
             guard self.currentChannel == ch else { return }
             self.isLoading = false
             if !result.values.contains(where: { !$0.isEmpty }) {
+                if let stale = Self.channelRankCache[ch]?.ranks,
+                   stale.values.contains(where: { !$0.isEmpty }) {
+                    apply(ranks: stale, channel: ch)
+                    return
+                }
                 if self.currentChannel == ch {
                     self.ranks = [:]
                     self.allBooks = []

@@ -86,7 +86,7 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
         )
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
         binding.recyclerView.adapter = adapter
-        binding.refreshLayout.setOnRefreshListener { loadData() }
+        binding.refreshLayout.setOnRefreshListener { loadData(forceRefresh = true) }
         refreshShelfKeys()
         loadData()
     }
@@ -112,7 +112,7 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
         }
     }
 
-    private fun loadData() {
+    private fun loadData(forceRefresh: Boolean = false) {
         loadJob?.cancel()
         binding.tvStatus.isVisible = true
         binding.tvStatus.setText(R.string.bs_loading)
@@ -123,11 +123,11 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
                     "finish" -> BookStorePrewarm.rankCacheKey("finish", channel)
                     else -> BookStorePrewarm.rankCacheKey("rank", channel, rankType)
                 }
-                val cached = BookStorePrewarm.getRankDetailCached(cacheKey)
+                val cached = if (forceRefresh) null else BookStorePrewarm.getRankDetailCached(cacheKey)
                 val books = if (cached != null) {
                     cached
                 } else {
-                    withContext(Dispatchers.IO) {
+                    val loaded = withContext(Dispatchers.IO) {
                         when {
                             mode == "finish" && channel == QidianRepository.Channel.Publish ->
                                 loadPublishLibrary()
@@ -140,10 +140,12 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
                                 gender = rankGender,
                             )
                         }
-                    }.also { loaded ->
-                        if (loaded.isNotEmpty()) {
-                            BookStorePrewarm.putRankDetailCache(cacheKey, loaded)
-                        }
+                    }
+                    if (loaded.isNotEmpty()) {
+                        BookStorePrewarm.putRankDetailCache(cacheKey, loaded)
+                        loaded
+                    } else {
+                        BookStorePrewarm.getRankDetailStale(cacheKey).orEmpty()
                     }
                 }
                 if (isFinishing) return@launch

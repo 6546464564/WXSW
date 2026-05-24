@@ -212,7 +212,7 @@ final class RankDetailViewModel: ObservableObject {
     /// 让 banner 跳进来时 vm.books 立即同步填充, 永远不闪 ProgressView.
     /// 跟 BookStoreViewModel.channelRankCache 同思路: `AppState.bootstrap` 后台预热.
     private static var cache: [CacheKey: (books: [QidianBook], at: Date)] = [:]
-    private static let cacheTtl: TimeInterval = 5 * 60
+    private static let cacheTtl: TimeInterval = 24 * 60 * 60   // 1 天
 
     static func clearCache() {
         cache.removeAll()
@@ -254,9 +254,11 @@ final class RankDetailViewModel: ObservableObject {
                     type: type, target: targetCount, gender: gender
                 )
             }
-            books = result
             if !result.isEmpty {
+                books = result
                 Self.cache[cacheKey] = (result, Date())
+            } else if let stale = Self.cache[cacheKey]?.books, !stale.isEmpty {
+                books = stale
             }
         case .finish:
             let result: [QidianBook]
@@ -265,9 +267,11 @@ final class RankDetailViewModel: ObservableObject {
             } else {
                 result = await loadFinishLibrary(channel: channel)
             }
-            books = result
             if !result.isEmpty {
-                Self.cache[.finish(channel)] = (result, Date())
+                books = result
+                Self.cache[cacheKey] = (result, Date())
+            } else if let stale = Self.cache[cacheKey]?.books, !stale.isEmpty {
+                books = stale
             }
         }
     }
