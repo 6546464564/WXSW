@@ -33,20 +33,6 @@ object BookstoreDetailLauncher {
         }
     }
 
-    fun open(context: Context, pick: BookstoreFeedPick) {
-        context.startActivity<BookInfoActivity> {
-            putExtra("name", pick.book.name)
-            putExtra("author", pick.book.author)
-            putExtra(EXTRA_FROM_BOOKSTORE, true)
-            putExtra(EXTRA_COVER, pick.book.coverUrl)
-            putExtra(EXTRA_INTRO, pick.book.intro)
-            putExtra(EXTRA_KIND, pick.book.category)
-            if (pick.targetURL.isNotBlank()) putExtra("bookUrl", pick.targetURL)
-            if (pick.sourceOrigin.isNotBlank()) putExtra(EXTRA_ORIGIN, pick.sourceOrigin)
-            putExtra(EXTRA_ORIGIN_NAME, "出版书城")
-        }
-    }
-
     fun buildKind(book: QidianBook): String {
         val tags = listOf(book.category, book.subCategory).filter { it.isNotBlank() }
         var kind = tags.joinToString(" · ")

@@ -176,7 +176,14 @@ struct BookStoreView: View {
             tapBookCell(book)
         } label: {
             HStack(alignment: .top, spacing: 14) {
-                BookCover(url: book.coverUrl, width: 96, height: 128, bookTitle: book.name)
+                ZStack(alignment: .topLeading) {
+                    BookCover(url: book.coverUrl, width: 96, height: 128, bookTitle: book.name)
+                    if vm.isOnShelf(book) {
+                        shelfBadge
+                    }
+                    publishSourceChip
+                }
+                .frame(width: 96, height: 128)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Text("榜首")
@@ -242,7 +249,7 @@ struct BookStoreView: View {
             }
             bannerCard(
                 title: vm.currentChannel == .publish ? "出版书库" : "完本书库",
-                subtitle: vm.currentChannel == .publish ? "经典出版 50 本" : "经典完结 50 本",
+                subtitle: vm.currentChannel == .publish ? "阅读 · 新书 · 推荐" : "经典完结 50 本",
                 icon: "books.vertical.fill",
                 gradient: [
                     Color(red: 0.78, green: 0.92, blue: 0.83),
@@ -782,6 +789,11 @@ final class BookStoreViewModel: ObservableObject {
         if allBooks.isEmpty { isLoading = true }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
+            if force {
+                _ = await BookstoreMirror.shared.fetch(forceRefresh: true)
+                RankDetailViewModel.clearCache()
+                Self.channelRankCache.removeAll()
+            }
             let result: [QidianRankType: [QidianBook]]
             switch ch {
             case .publish:

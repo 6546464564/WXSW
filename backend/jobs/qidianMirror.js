@@ -191,9 +191,9 @@ async function fetchFemaleRanksViaMajax() {
     out[key] = books.slice(0, HOME_RANK_PREVIEW);
   }
 
-  const ssrFallback = await fetchRanksAggregate('female');
+  // dsRank/signRank 无女频 majax; SSR gender=female 与男频同源, 省略以免女频展示男书
   for (const key of FEMALE_SSR_FALLBACK_KEYS) {
-    out[key] = (ssrFallback[key] || []).slice(0, HOME_RANK_PREVIEW);
+    out[key] = [];
   }
 
   return out;

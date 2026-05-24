@@ -185,7 +185,13 @@ object QidianRepository {
         if (ranks.isEmpty()) return emptyList()
         val seen = LinkedHashSet<String>()
         val out = ArrayList<QidianBook>(target + 10)
-        for (rt in listOf(type, RankType.Yuepiao, RankType.HotReading, RankType.NewBook, RankType.Recommend)) {
+        val order = if (type == RankType.Yuepiao) {
+            listOf(RankType.Yuepiao)
+        } else {
+            listOf(type, RankType.HotReading, RankType.NewBook, RankType.Recommend)
+        }
+        for (rt in order) {
+            if (rt == RankType.Yuepiao && type != RankType.Yuepiao) continue
             ranks[rt]?.forEach { b ->
                 val key = b.bookId.ifEmpty { b.name }
                 if (seen.add(key)) out.add(b)

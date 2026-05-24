@@ -462,6 +462,13 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         }
         loadJob = lifecycleScope.launch {
             try {
+                if (forceRefresh) {
+                    withContext(Dispatchers.IO) {
+                        io.legado.app.help.WanxiangBookstoreMirror.fetch(forceRefresh = true)
+                    }
+                    BookStorePrewarm.clearRankDetailCache()
+                    BookStorePrewarm.clearChannelRankCache()
+                }
                 val ranks = withContext(Dispatchers.IO) {
                     when (ch) {
                         QidianRepository.Channel.Publish -> PublishBookstore.fetchRanks()
@@ -622,6 +629,15 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
             }
         }
         loadCover(v.findViewById(R.id.ivCover), book.coverUrl, book)
+        v.findViewById<TextView?>(R.id.tvSource)?.let { src ->
+            if (currentChannel == QidianRepository.Channel.Publish) {
+                src.text = "出版"
+                src.isVisible = true
+            } else {
+                src.isVisible = false
+            }
+        }
+        applyShelfBadge(v, book)
         v.setOnClickListener { openBookstoreBook(book) }
         binding.heroSlot.addView(v)
     }

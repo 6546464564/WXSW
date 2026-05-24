@@ -144,7 +144,11 @@ actor QidianRepository {
         guard !ranks.isEmpty else { return [] }
         var seen = Set<String>()
         var out: [QidianBook] = []
-        for rt in [type, .yuepiao, .hotReading, .newBook, .recommend] {
+        let order: [QidianRankType] = type == .yuepiao
+            ? [.yuepiao]
+            : [type, .hotReading, .newBook, .recommend]
+        for rt in order {
+            if rt == .yuepiao && type != .yuepiao { continue }
             for b in ranks[rt] ?? [] {
                 let key = b.bookId.isEmpty ? b.name : b.bookId
                 if seen.insert(key).inserted { out.append(b) }

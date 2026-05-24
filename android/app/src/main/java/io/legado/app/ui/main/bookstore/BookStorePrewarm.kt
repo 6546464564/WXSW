@@ -38,6 +38,16 @@ object BookStorePrewarm {
         }
     }
 
+    /** 下拉刷新 mirror 后清 RankDetail 预热, 避免仍展示旧 banner 列表 */
+    fun clearRankDetailCache() {
+        rankDetailCache.clear()
+    }
+
+    /** 强制刷新 mirror 后清频道榜单 cache */
+    fun clearChannelRankCache() {
+        channelRankCache.clear()
+    }
+
     /** App 启动后 fire-and-forget; 失败静默, 用户进书城走原冷路径 */
     fun prewarmInBackground() {
         Coroutine.async { runCatching { prewarm() } }

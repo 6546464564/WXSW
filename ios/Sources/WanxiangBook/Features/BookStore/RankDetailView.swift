@@ -214,6 +214,10 @@ final class RankDetailViewModel: ObservableObject {
     private static var cache: [CacheKey: (books: [QidianBook], at: Date)] = [:]
     private static let cacheTtl: TimeInterval = 5 * 60
 
+    static func clearCache() {
+        cache.removeAll()
+    }
+
     private enum CacheKey: Hashable {
         case rank(QidianChannel, QidianRankType)
         case finish(QidianChannel)

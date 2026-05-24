@@ -15,9 +15,9 @@
     <string name="bs_rank">热门排行</string>
     <string name="bs_rank_sub">点击搜索热门好书 ›</string>
     <string name="bs_library">完本书库</string>
-    <string name="bs_library_sub">点击搜索完本经典 ›</string>
+    <string name="bs_library_sub">经典完结 50 本</string>
     <string name="bs_library_publish">出版书库</string>
-    <string name="bs_library_publish_sub">经典出版 50 本</string>
+    <string name="bs_library_publish_sub">阅读 · 新书 · 推荐</string>
     <string name="bs_banner_rank_keyword">热门</string>
     <string name="bs_banner_library_keyword">完本</string>
 
@@ -92,7 +92,6 @@
     <string name="bs_load_failed">加载失败，下拉重试</string>
     <string name="bs_retry">重试</string>
     <string name="bs_on_shelf">已在书架</string>
-    <string name="bs_editor_picks">编辑精选</string>
     <string name="bs_source_resolving">来源:查找中…</string>
     <string name="bs_source_resolve_failed">暂未找到此书源，点此换源</string>
     <string name="bs_try_change_source">尝试换源</string>
