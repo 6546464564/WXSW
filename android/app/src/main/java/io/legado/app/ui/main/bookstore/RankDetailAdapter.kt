@@ -3,6 +3,7 @@ package io.legado.app.ui.main.bookstore
 import android.content.Context
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.view.isVisible
 import io.legado.app.R
 import io.legado.app.base.adapter.ItemViewHolder
 import io.legado.app.base.adapter.RecyclerAdapter
@@ -18,6 +19,7 @@ import io.legado.app.help.glide.ImageLoader
 class RankDetailAdapter(
     context: Context,
     private val onBookClick: (QidianBook) -> Unit,
+    private val isOnShelf: (QidianBook) -> Boolean = { false },
 ) : RecyclerAdapter<QidianBook, ItemRankDetailBinding>(context) {
 
     fun submit(books: List<QidianBook>) {
@@ -73,6 +75,7 @@ class RankDetailAdapter(
                 .placeholder(R.drawable.bs_cover_placeholder)
                 .error(R.drawable.bs_cover_placeholder)
                 .into(ivCover)
+            tvShelfBadge.isVisible = isOnShelf(item)
         }
     }
 

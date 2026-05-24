@@ -13,7 +13,10 @@ import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import io.legado.app.R
 import io.legado.app.base.BaseFragment
+import io.legado.app.data.appDb
 import io.legado.app.databinding.FragmentBookStoreBinding
+import io.legado.app.help.WanxiangAnalytics
+import io.legado.app.help.book.isNotShelf
 import io.legado.app.help.glide.ImageLoader
 import io.legado.app.ui.book.search.SearchActivity
 import io.legado.app.ui.main.MainFragmentInterface
@@ -23,6 +26,7 @@ import io.legado.app.utils.dpToPx
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -39,7 +43,7 @@ import kotlinx.coroutines.withContext
  *   完本精选 grid = newbRank  (8 本)     (新书榜 — "起点没纯完结榜, 用新书替代")
  *   推荐榜 grid   = recRank   (8 本)     (推荐榜 — 带真排名 1-5+)
  *
- * 点击书目 -> SearchActivity 预填书名
+ * 点击书目 -> BookstoreDetailLauncher 秒进详情 stub, 后台找源
  */
 class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFragmentInterface {
 
@@ -59,12 +63,23 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
     /** 当前 in-flight 的列表加载 Job; 切换频道时取消, 避免旧请求覆盖新频道 */
     private var loadJob: Job? = null
 
+    /** 扩展榜单加载 Job (lazy 拉到 ~50 本, 给「换一批」用) */
+    private var extendJob: Job? = null
+
+    /** 9 (or 4) 榜单 map — 跟 iOS BookStoreViewModel.ranks 对齐 */
+    private var ranks: Map<QidianRepository.RankType, List<QidianBook>> = emptyMap()
+
+    /** 各 section 对应榜单的扩展池 (lazy fetchRankPages target=50) */
+    private val extendedRanks = mutableMapOf<QidianRepository.RankType, List<QidianBook>>()
+
     /**
-     * 万象书屋 D-22: 频道维度短时缓存. 现在缓存的是「整张榜单 map」,
-     * 切 Tab 来回时复用避免重复请求 m.qidian.
+     * 万象书屋 D-22: 频道维度短时缓存 — 进程级单例 (跟 iOS BookStoreViewModel 对齐).
      */
-    private val channelRankCache =
-        mutableMapOf<QidianRepository.Channel, Pair<Map<QidianRepository.RankType, List<QidianBook>>, Long>>()
+    private val channelRankCache get() = BookStorePrewarm.channelRankCache
+
+    /** 后端编辑精选 — 跟 iOS editorPicks 对齐 */
+    private var editorPicks: List<BookstoreFeedPick> = emptyList()
+    private var feedJob: Job? = null
 
     /** 当前已加载的书目列表 (9 榜单合并去重); 「换一换」时基于此数组做循环切片 */
     private var allBooks: List<QidianBook> = emptyList()
@@ -73,6 +88,9 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
     private var swapPageMustRead = 0
     private var swapPageComplete = 0
     private var swapPageRanked = 0
+
+    /** 跟 iOS shelfDedupeKeys 对齐 — name+author 去重 */
+    private var shelfDedupeKeys: Set<String> = emptySet()
 
     private lateinit var inflater: LayoutInflater
 
@@ -89,13 +107,63 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         setupSwipeRefreshColors()
         setupSectionActions()
         setupTopBar()
-        setupBanners()
+        binding.loadFailedSection.btnRetryLoad.setOnClickListener { reload(forceRefresh = true) }
         binding.refreshLayout.setOnRefreshListener { reload(forceRefresh = true) }
         reload(forceRefresh = false)
+        refreshShelfKeys()
         // 万象书屋 D-17 (THEME-EInk): EInk 模式下书城页布局含大量米黄色 drawable (bg_cosmic_*),
         // 这些 drawable 不响应 night 资源切换 (因为 EInk 走 NIGHT_NO).
         // 在代码层面动态覆盖为纯白, 让 EInk 模式下书城跟其他页保持一致 (黑白阅读)
         applyEInkOverridesIfNeeded()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshShelfKeys()
+    }
+
+    private fun refreshShelfKeys() {
+        lifecycleScope.launch {
+            val keys = withContext(Dispatchers.IO) {
+                appDb.bookDao.flowAll().first()
+                    .filterNot { it.isNotShelf }
+                    .map { shelfKey(it.name, it.author) }
+                    .toSet()
+            }
+            if (!isAdded) return@launch
+            shelfDedupeKeys = keys
+            if (ranks.isNotEmpty()) {
+                rebindMustRead()
+                rebindComplete()
+                rebindRanked()
+            }
+        }
+    }
+
+    private fun shelfKey(name: String, author: String) = "$name\u0000$author"
+
+    private fun QidianBook.isOnShelf(): Boolean = shelfDedupeKeys.contains(shelfKey(name, author))
+
+    private fun showLoadingUi(clearContent: Boolean) {
+        binding.loadFailedSection.root.isVisible = false
+        binding.skeletonSection.root.isVisible = clearContent
+        binding.bookStoreContent.isVisible = !clearContent
+        binding.tvStatus.isVisible = !clearContent
+    }
+
+    private fun showContentUi() {
+        binding.loadFailedSection.root.isVisible = false
+        binding.skeletonSection.root.isVisible = false
+        binding.bookStoreContent.isVisible = true
+        binding.tvStatus.isVisible = false
+    }
+
+    private fun showFailedUi() {
+        binding.loadFailedSection.root.isVisible = true
+        binding.skeletonSection.root.isVisible = false
+        binding.bookStoreContent.isVisible = false
+        binding.tvStatus.isVisible = false
+        binding.refreshLayout.isRefreshing = false
     }
 
     /**
@@ -177,50 +245,81 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         binding.sectionRecommend.tvSectionTitle.text = rankedType.title
     }
 
-    /** 「换一换」: 取下一页 8 本, 不重新发请求 */
+    /** 「换一换」: 在同榜单扩展池内翻页 — 跟 iOS sectionBooks 对齐 */
     private fun rebindMustRead() {
-        if (allBooks.isEmpty()) return
-        binding.gridMustRead.removeAllViews()
-        val sliced = sliceBooks(allBooks, swapPageMustRead, MUST_READ_GRID, offsetSeed = 1)
-        sliced.forEachIndexed { idx, book ->
-            addGridCell(binding.gridMustRead, book, idx)
-        }
+        rebindSection(
+            grid = binding.gridMustRead,
+            type = mustReadType(),
+            page = swapPageMustRead,
+            slotOffset = 0,
+            ranked = false,
+            gridSlotOffset = 0,
+        )
     }
 
     private fun rebindComplete() {
-        if (allBooks.isEmpty()) return
-        binding.gridComplete.removeAllViews()
-        val sliced =
-            sliceBooks(allBooks, swapPageComplete, COMPLETE_GRID, offsetSeed = MUST_READ_GRID + 1)
-        sliced.forEachIndexed { idx, book ->
-            addGridCell(binding.gridComplete, book, idx + MUST_READ_GRID)
-        }
+        rebindSection(
+            grid = binding.gridComplete,
+            type = completeType(),
+            page = swapPageComplete,
+            slotOffset = MUST_READ_GRID,
+            ranked = false,
+            gridSlotOffset = MUST_READ_GRID,
+        )
     }
 
     private fun rebindRanked() {
-        if (allBooks.isEmpty()) return
-        binding.gridRanked.removeAllViews()
-        val offset = MUST_READ_GRID + COMPLETE_GRID + 1
-        val sliced = sliceBooks(allBooks, swapPageRanked, RANKED_COUNT, offsetSeed = offset)
-        // 排名始终从 1 开始, 让换页前后徽章顺序保持一致
-        sliced.forEachIndexed { idx, book ->
-            addRankedCell(binding.gridRanked, idx + 1, book)
+        rebindSection(
+            grid = binding.gridRanked,
+            type = recommendType(),
+            page = swapPageRanked,
+            slotOffset = MUST_READ_GRID + COMPLETE_GRID,
+            ranked = true,
+            gridSlotOffset = 0,
+        )
+    }
+
+    private fun rebindSection(
+        grid: GridLayout,
+        type: QidianRepository.RankType,
+        page: Int,
+        slotOffset: Int,
+        ranked: Boolean,
+        gridSlotOffset: Int,
+    ) {
+        val books = sectionBooks(type, page, slotOffset, if (ranked) RANKED_COUNT else MUST_READ_GRID)
+        if (books.isEmpty()) return
+        grid.removeAllViews()
+        if (ranked) {
+            books.forEachIndexed { idx, book ->
+                addRankedGridCell(grid, idx + 1, book)
+            }
+        } else {
+            books.forEachIndexed { idx, book ->
+                addGridCell(grid, book, gridSlotOffset + idx)
+            }
         }
     }
 
     /**
-     * 万象书屋: 取一段循环切片, 每次 swap 翻一页
-     * offsetSeed 用于不同 section 之间稍微错开起点, 避免「必读」「完本」内容雷同
+     * 跟 iOS `sectionBooks` 一致: page=0 取榜单前 N 本; page>0 在 rankPool 内循环切片.
      */
-    private fun sliceBooks(
-        all: List<QidianBook>,
+    private fun sectionBooks(
+        type: QidianRepository.RankType,
         page: Int,
-        size: Int,
-        offsetSeed: Int = 0
+        slotOffset: Int,
+        count: Int,
     ): List<QidianBook> {
-        if (all.isEmpty()) return emptyList()
-        val start = ((page * size) + offsetSeed) % all.size
-        return (0 until size).map { all[(start + it) % all.size] }
+        val pool = rankPool(type)
+        if (pool.isEmpty()) return emptyList()
+        if (page == 0) return pool.take(count)
+        val start = ((page * count) + slotOffset + 1) % pool.size
+        return (0 until count).map { pool[(start + it) % pool.size] }
+    }
+
+    private fun rankPool(type: QidianRepository.RankType): List<QidianBook> {
+        extendedRanks[type]?.takeIf { it.isNotEmpty() }?.let { return it }
+        return ranks[type].orEmpty()
     }
 
     private fun setupTopBar() {
@@ -235,16 +334,61 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
     }
 
     private fun setupBanners() {
-        // 万象书屋 D-22.1 / D-22.3: banner 跳 RankDetailActivity 起点完整榜单详情页.
-        //   "热门排行" -> Yuepiao 月票榜 50 本 (起点 m 站只 yuepiaolist majax 接口稳定支持分页)
-        //   "完本书库" -> /finish/ 4 完结榜 + yuepiao 字数过滤补足共 50 本
+        // 保留空壳: 实际 banner 在 bindAllSlots → updateBanners() 里按 channel 动态设置
+    }
+
+    private fun heroType(): QidianRepository.RankType = when (currentChannel) {
+        QidianRepository.Channel.Male -> QidianRepository.RankType.Yuepiao
+        QidianRepository.Channel.Female -> QidianRepository.RankType.Yuepiao
+        QidianRepository.Channel.Publish -> QidianRepository.RankType.FinishClassic
+    }
+
+    private fun mustReadType(): QidianRepository.RankType = when (currentChannel) {
+        QidianRepository.Channel.Male -> QidianRepository.RankType.HotReading
+        QidianRepository.Channel.Female -> QidianRepository.RankType.HotReading
+        QidianRepository.Channel.Publish -> QidianRepository.RankType.FinishBestSell
+    }
+
+    private fun completeType(): QidianRepository.RankType = when (currentChannel) {
+        QidianRepository.Channel.Male -> QidianRepository.RankType.NewBook
+        QidianRepository.Channel.Female -> QidianRepository.RankType.NewBook
+        QidianRepository.Channel.Publish -> QidianRepository.RankType.FinishDs
+    }
+
+    private fun recommendType(): QidianRepository.RankType = when (currentChannel) {
+        QidianRepository.Channel.Male -> QidianRepository.RankType.Recommend
+        QidianRepository.Channel.Female -> QidianRepository.RankType.Recommend
+        QidianRepository.Channel.Publish -> QidianRepository.RankType.FinishMovie
+    }
+
+    private fun updateBanners() {
+        val hero = heroType()
+        val complete = completeType()
+        when (currentChannel) {
+            QidianRepository.Channel.Publish -> {
+                binding.tvBannerRankTitle.text = "经典完本"
+                binding.tvBannerRankSub.text = "${hero.title} TOP 50"
+                binding.tvBannerLibraryTitle.text = "完本精选"
+                binding.tvBannerLibrarySub.text = "${complete.title} TOP 50"
+            }
+            else -> {
+                binding.tvBannerRankTitle.text = getString(R.string.bs_rank)
+                binding.tvBannerRankSub.text = "${hero.title} TOP 50"
+                binding.tvBannerLibraryTitle.text = getString(R.string.bs_library)
+                binding.tvBannerLibrarySub.text = getString(R.string.bs_library_sub)
+            }
+        }
         binding.cardRank.setOnClickListener {
-            RankDetailActivity.startRank(
-                requireContext(), QidianRepository.RankType.Yuepiao, getString(R.string.bs_rank)
-            )
+            WanxiangAnalytics.track("bs_banner_rank", type = hero.name)
+            RankDetailActivity.startRank(requireContext(), hero, hero.title, currentChannel)
         }
         binding.cardLibrary.setOnClickListener {
-            RankDetailActivity.startFinish(requireContext(), getString(R.string.bs_library))
+            WanxiangAnalytics.track("bs_banner_library", type = "click")
+            if (currentChannel == QidianRepository.Channel.Publish) {
+                RankDetailActivity.startRank(requireContext(), complete, complete.title, currentChannel)
+            } else {
+                RankDetailActivity.startFinish(requireContext(), getString(R.string.bs_library), currentChannel)
+            }
         }
     }
 
@@ -285,12 +429,16 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
     }
 
     private fun switchChannel(channel: QidianRepository.Channel) {
-        // 万象书屋: 即使上一次加载还在飞,也允许立刻切换;旧请求会被 loadJob.cancel 丢弃
         if (currentChannel == channel) return
         currentChannel = channel
         upTabIndicator()
-        // 切换 Tab 时把滚动位置重置回顶部, 避免上个 Tab 下拉到中段后切回还停留在「新书首发」
         binding.bookStoreScroll.post { binding.bookStoreScroll.scrollTo(0, 0) }
+        val hit = channelRankCache[channel]
+        if (hit == null || System.currentTimeMillis() - hit.second >= CACHE_TTL_MS) {
+            ranks = emptyMap()
+            extendedRanks.clear()
+            clearAllSlots()
+        }
         reload(forceRefresh = false)
     }
 
@@ -302,38 +450,52 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         if (!forceRefresh) {
             val hit = channelRankCache[ch]
             if (hit != null && System.currentTimeMillis() - hit.second < CACHE_TTL_MS) {
-                binding.tvStatus.isVisible = false
                 binding.refreshLayout.isRefreshing = false
                 bindAllSlots(hit.first)
+                applyFeedCache(forChannel = ch)
+                showContentUi()
                 return
             }
         }
 
         loading = true
         binding.refreshLayout.isRefreshing = true
-        binding.tvStatus.isVisible = true
+        val hadContent = ranks.values.any { it.isNotEmpty() }
+        if (!hadContent || forceRefresh) {
+            showLoadingUi(clearContent = !hadContent)
+        }
         binding.tvStatus.setText(R.string.bs_loading)
-        clearAllSlots()
+        if (!hadContent) {
+            clearAllSlots()
+        }
         loadJob = lifecycleScope.launch {
             try {
                 val ranks = withContext(Dispatchers.IO) {
                     when (ch) {
                         QidianRepository.Channel.Publish -> QidianRepository.fetchFinishRanks()
-                        else -> QidianRepository.fetchAllRanks()
+                        QidianRepository.Channel.Female -> QidianRepository.fetchAllRanks(QidianRepository.Channel.Female)
+                        QidianRepository.Channel.Male -> QidianRepository.fetchAllRanks(QidianRepository.Channel.Male)
                     }
                 }
                 if (!isAdded) return@launch
                 if (currentChannel != ch) return@launch
                 if (ranks.values.all { it.isEmpty() }) {
-                    binding.tvStatus.setText(R.string.bs_load_failed)
+                    showFailedUi()
                 } else {
                     channelRankCache[ch] = Pair(ranks, System.currentTimeMillis())
                     bindAllSlots(ranks)
-                    binding.tvStatus.isVisible = false
+                    loadFeed(forChannel = ch)
+                    showContentUi()
                 }
             } catch (t: Throwable) {
                 LogUtils.d(TAG, "load failed: ${t.message}")
-                if (isAdded) binding.tvStatus.setText(R.string.bs_load_failed)
+                if (isAdded) {
+                    if (ranks.values.any { it.isNotEmpty() }) {
+                        showContentUi()
+                    } else {
+                        showFailedUi()
+                    }
+                }
             } finally {
                 if (isAdded) {
                     loading = false
@@ -381,11 +543,10 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
      */
     private fun bindAllSlots(ranks: Map<QidianRepository.RankType, List<QidianBook>>) {
         clearAllSlots()
+        this.ranks = ranks
+        extendedRanks.clear()
+        extendJob?.cancel()
         var pool = mergeAllRanks(ranks)
-        if (currentChannel == QidianRepository.Channel.Female) {
-            // 女生 tab: 言情/恋爱主题书优先排到前面 (m.qidian 男频热榜本身言情少, 但能挑出几本)
-            pool = pool.sortedByDescending { it.isLikelyFemale() }
-        }
         allBooks = pool
         swapPageMustRead = 0
         swapPageComplete = 0
@@ -396,101 +557,123 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
                 "first=${allBooks.firstOrNull()?.name}"
         )
 
-        val (heroType, mustReadType, completeType, rankedType) = when (currentChannel) {
-            QidianRepository.Channel.Male -> arrayOf(
-                QidianRepository.RankType.Yuepiao,
-                QidianRepository.RankType.HotReading,
-                QidianRepository.RankType.NewBook,
-                QidianRepository.RankType.Recommend,
-            )
-            QidianRepository.Channel.Female -> arrayOf(
-                // 女生用 m.qidian 同一份数据但重新映射 RankType, 让 hero/必读/完本/推荐 的书各不相同
-                QidianRepository.RankType.Bestseller,
-                QidianRepository.RankType.NewAuthor,
-                QidianRepository.RankType.Sign,
-                QidianRepository.RankType.Update,
-            )
-            QidianRepository.Channel.Publish -> arrayOf(
-                // 出版走 /finish/, 4 个真完结榜
-                QidianRepository.RankType.FinishClassic,
-                QidianRepository.RankType.FinishClassic,
-                QidianRepository.RankType.FinishBestSell,
-                QidianRepository.RankType.FinishMovie,
-            )
-        }
+        updateSectionTitles(mustReadType(), completeType(), recommendType())
+        updateBanners()
 
-        // D-22.2: section 标题随 channel 动态显示真实榜名 (跟数据来源一致)
-        updateSectionTitles(mustReadType, completeType, rankedType)
-
-        // hero: heroType 第一本; 退化到 allBooks 第一本
-        val heroBook = ranks[heroType]?.firstOrNull() ?: allBooks.firstOrNull()
+        val heroBook = ranks[heroType()]?.firstOrNull() ?: allBooks.firstOrNull()
         heroBook?.let { bindHero(it) }
 
-        bindGridFromRank(binding.gridMustRead, ranks, mustReadType, MUST_READ_GRID, slotOffset = 0)
-        bindGridFromRank(binding.gridComplete, ranks, completeType, COMPLETE_GRID, slotOffset = MUST_READ_GRID)
-        bindRankedFromRank(binding.gridRanked, ranks, rankedType, RANKED_COUNT)
+        rebindMustRead()
+        rebindComplete()
+        rebindRanked()
+
+        ensureExtendedRanks(listOf(mustReadType(), completeType(), recommendType()))
+        applyFeedCache(forChannel = currentChannel)
     }
 
-    /** 万象书屋 D-22.1: 启发式判断"像女频" — 用 cat/subCat 关键词命中. */
-    private fun QidianBook.isLikelyFemale(): Boolean {
-        val text = "$category $subCategory"
-        val keywords = listOf("言情", "恋爱", "古言", "宫廷", "宅斗", "爱情", "玄幻言情", "现代言情")
-        return keywords.any { it in text }
+    private fun applyFeedCache(forChannel: QidianRepository.Channel) {
+        editorPicks = BookStorePrewarm.feedCache[forChannel].orEmpty()
+        bindEditorPicks()
     }
 
-    /**
-     * 从 ranks[type] 取 [count] 本填充 [grid].
-     * 起点 SSR 每榜只 5 本, 不足 count 时用 allBooks 顺序兜底 (跳过已展示 bookId).
-     */
-    private fun bindGridFromRank(
-        grid: GridLayout,
-        ranks: Map<QidianRepository.RankType, List<QidianBook>>,
-        type: QidianRepository.RankType,
-        count: Int,
-        slotOffset: Int,
-    ) {
-        val primary = ranks[type].orEmpty()
-        val seen = primary.mapTo(HashSet()) { it.bookId }
-        val padding = if (primary.size >= count) emptyList() else {
-            allBooks.asSequence()
-                .filter { seen.add(it.bookId) }
-                .take(count - primary.size)
-                .toList()
+    private fun loadFeed(forChannel: QidianRepository.Channel) {
+        feedJob?.cancel()
+        applyFeedCache(forChannel)
+        val cached = BookStorePrewarm.feedCache[forChannel]
+        if (!cached.isNullOrEmpty()) return
+        val channelKey = when (forChannel) {
+            QidianRepository.Channel.Male -> "male"
+            QidianRepository.Channel.Female -> "female"
+            QidianRepository.Channel.Publish -> "publish"
         }
-        val merged = (primary + padding).take(count)
-        merged.forEachIndexed { idx, book ->
-            addGridCell(grid, book, slotOffset + idx)
+        feedJob = lifecycleScope.launch {
+            val picks = withContext(Dispatchers.IO) {
+                io.legado.app.help.WanxiangBackend.fetchBookstoreFeed(channelKey)
+            }
+            if (!isAdded || currentChannel != forChannel) return@launch
+            if (picks.isNotEmpty()) {
+                BookStorePrewarm.feedCache[forChannel] = picks
+                editorPicks = picks
+                bindEditorPicks()
+            }
         }
     }
 
-    /** 推荐榜 grid: 跟 grid 一样兜底, 但用 addRankedCell 显示真 rank 徽章 */
-    private fun bindRankedFromRank(
-        grid: GridLayout,
-        ranks: Map<QidianRepository.RankType, List<QidianBook>>,
-        type: QidianRepository.RankType,
-        count: Int,
-    ) {
-        val primary = ranks[type].orEmpty()
-        val seen = primary.mapTo(HashSet()) { it.bookId }
-        val padding = if (primary.size >= count) emptyList() else {
-            allBooks.asSequence()
-                .filter { seen.add(it.bookId) }
-                .take(count - primary.size)
-                .toList()
+    private fun bindEditorPicks() {
+        binding.editorPicksSection.isVisible = editorPicks.isNotEmpty()
+        binding.editorPicksContainer.removeAllViews()
+        if (editorPicks.isEmpty()) return
+        for (pick in editorPicks) {
+            val v = inflater.inflate(R.layout.item_book_store_editor_pick, binding.editorPicksContainer, false)
+            v.findViewById<TextView>(R.id.tvName).text = pick.book.name
+            loadCover(v.findViewById(R.id.ivCover), pick.book.coverUrl)
+            v.setOnClickListener { openFeedPick(pick) }
+            binding.editorPicksContainer.addView(v)
         }
-        val merged = (primary + padding).take(count)
-        merged.forEachIndexed { idx, book ->
-            // 优先用 book.rank (真排名); 兜底书没有 rank 时按位置 idx+1
-            val displayRank = book.rank.takeIf { it > 0 } ?: (idx + 1)
-            addRankedCell(grid, displayRank, book)
+    }
+
+    private fun openFeedPick(pick: BookstoreFeedPick) {
+        BookstoreDetailLauncher.open(requireContext(), pick)
+    }
+
+    private fun ensureExtendedRanks(types: List<QidianRepository.RankType>) {
+        extendJob?.cancel()
+        val ch = currentChannel
+        val gender = if (ch == QidianRepository.Channel.Publish) {
+            QidianRepository.Channel.Male
+        } else {
+            ch
+        }
+        extendJob = lifecycleScope.launch {
+            for (type in types) {
+                if ((extendedRanks[type]?.size ?: 0) >= 20) continue
+                val full = withContext(Dispatchers.IO) {
+                    QidianRepository.fetchRankPages(type, target = 50, gender = gender)
+                }
+                if (!isAdded || currentChannel != ch) return@launch
+                if (full.isEmpty()) continue
+                extendedRanks[type] = full
+                when (type) {
+                    mustReadType() -> rebindMustRead()
+                    completeType() -> rebindComplete()
+                    recommendType() -> rebindRanked()
+                    else -> Unit
+                }
+            }
         }
     }
 
     private fun bindHero(book: QidianBook) {
         val v = inflater.inflate(R.layout.item_book_store_book_hero, binding.heroSlot, false)
         v.findViewById<TextView>(R.id.tvName).text = book.name
+        v.findViewById<TextView>(R.id.tvRankName).text = book.rankName.ifBlank { heroType().title }
+        v.findViewById<TextView?>(R.id.tvAuthor)?.let { tv ->
+            if (book.author.isNotBlank()) {
+                tv.text = book.author
+                tv.isVisible = true
+            } else {
+                tv.isVisible = false
+            }
+        }
+        val tagText = book.subCategory.ifBlank { book.category }
+        v.findViewById<TextView?>(R.id.tvTag)?.let { tag ->
+            if (tagText.isNotBlank()) {
+                tag.text = tagText
+                tag.isVisible = true
+            } else {
+                tag.isVisible = false
+            }
+        }
+        v.findViewById<TextView?>(R.id.tvIntro)?.let { intro ->
+            if (book.intro.isNotBlank()) {
+                intro.text = book.intro
+                intro.isVisible = true
+            } else {
+                intro.isVisible = false
+            }
+        }
         loadCover(v.findViewById(R.id.ivCover), book.coverUrl)
-        v.setOnClickListener { jumpSearch(book.name) }
+        v.setOnClickListener { openBookstoreBook(book) }
         binding.heroSlot.addView(v)
     }
 
@@ -510,8 +693,53 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         }
         loadCover(v.findViewById(R.id.ivCover), book.coverUrl)
         applyBadgeAndTag(v, book, index)
-        v.setOnClickListener { jumpSearch(book.name) }
+        applyShelfBadge(v, book)
+        v.setOnClickListener { openBookstoreBook(book) }
         grid.addView(v)
+    }
+
+    private fun addRankedGridCell(grid: GridLayout, displayRank: Int, book: QidianBook) {
+        val v = inflater.inflate(R.layout.item_book_store_book_grid, grid, false)
+        v.layoutParams = gridCellLayoutParams()
+        v.findViewById<TextView>(R.id.tvName).text = book.name
+        v.findViewById<TextView?>(R.id.tvAuthor)?.let {
+            if (book.author.isNotBlank()) {
+                it.text = book.author
+                it.isVisible = true
+            } else {
+                it.isVisible = false
+            }
+        }
+        val tagText = book.subCategory.ifBlank { book.category }
+        v.findViewById<TextView?>(R.id.tvTag)?.let { tag ->
+            if (tagText.isNotBlank()) {
+                tag.text = tagText
+                tag.isVisible = true
+            } else {
+                tag.isVisible = false
+            }
+        }
+        v.findViewById<TextView>(R.id.tvBadge).isVisible = false
+        v.findViewById<TextView>(R.id.tvRankOverlay).let { rank ->
+            rank.text = displayRank.toString()
+            rank.setBackgroundResource(
+                when (displayRank) {
+                    1 -> R.drawable.bs_rank_badge_1
+                    2 -> R.drawable.bs_rank_badge_2
+                    3 -> R.drawable.bs_rank_badge_3
+                    else -> R.drawable.bs_rank_badge_n
+                },
+            )
+            rank.isVisible = true
+        }
+        loadCover(v.findViewById(R.id.ivCover), book.coverUrl)
+        applyShelfBadge(v, book)
+        v.setOnClickListener { openBookstoreBook(book) }
+        grid.addView(v)
+    }
+
+    private fun applyShelfBadge(v: View, book: QidianBook) {
+        v.findViewById<TextView?>(R.id.tvShelfBadge)?.isVisible = book.isOnShelf()
     }
 
     /**
@@ -565,7 +793,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         )
         v.findViewById<TextView>(R.id.tvName).text = book.name
         loadCover(v.findViewById(R.id.ivCover), book.coverUrl)
-        v.setOnClickListener { jumpSearch(book.name) }
+        v.setOnClickListener { openBookstoreBook(book) }
         grid.addView(v)
     }
 
@@ -589,8 +817,8 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
             .into(iv)
     }
 
-    private fun jumpSearch(bookName: String) {
-        SearchActivity.start(requireContext(), bookName)
+    private fun openBookstoreBook(book: QidianBook) {
+        BookstoreDetailLauncher.open(requireContext(), book)
     }
 
     private fun View.offsetInAncestor(ancestor: ViewGroup): Int {

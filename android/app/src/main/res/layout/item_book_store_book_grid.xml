@@ -51,6 +51,41 @@
             tools:text="必读"
             tools:visibility="visible" />
 
+        <!-- 万象书屋: 推荐榜排名角标 (默认隐藏, ranked section 启用) -->
+        <TextView
+            android:id="@+id/tvRankOverlay"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:layout_gravity="start|top"
+            android:layout_margin="4dp"
+            android:background="@drawable/bs_rank_badge_n"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="1"
+            tools:visibility="visible" />
+
+        <!-- 万象书屋: 已在书架角标 (跟 iOS shelfBadge 对齐) -->
+        <TextView
+            android:id="@+id/tvShelfBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|bottom"
+            android:layout_margin="4dp"
+            android:background="@drawable/bs_shelf_badge_bg"
+            android:includeFontPadding="false"
+            android:paddingHorizontal="5dp"
+            android:paddingVertical="2dp"
+            android:text="@string/bs_on_shelf"
+            android:textColor="#FFFFFF"
+            android:textSize="8sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
         <!-- 万象书屋: 封面左下角来源小标签 (类似 QQ 阅读「起点读书」) -->
         <TextView
             android:id="@+id/tvSource"

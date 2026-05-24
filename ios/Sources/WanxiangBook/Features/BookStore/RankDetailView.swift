@@ -52,7 +52,7 @@ struct RankDetailView: View {
                 } else if vm.books.isEmpty {
                     emptyState
                 } else {
-                    ForEach(Array(vm.books.enumerated()), id: \.offset) { idx, book in
+                    ForEach(Array(vm.books.enumerated()), id: \.element.id) { idx, book in
                         Button {
                             detailTarget = BookDetailTarget(book: book.toSearchStub(), source: nil)
                         } label: {
@@ -209,12 +209,12 @@ final class RankDetailViewModel: ObservableObject {
 
     private enum CacheKey: Hashable {
         case rank(QidianChannel, QidianRankType)
-        case finish
+        case finish(QidianChannel)
 
         init(_ mode: RankDetailView.Mode, channel: QidianChannel) {
             switch mode {
             case .rank(let t): self = .rank(channel, t)
-            case .finish: self = .finish
+            case .finish: self = .finish(channel)
             }
         }
     }
@@ -243,10 +243,10 @@ final class RankDetailViewModel: ObservableObject {
                 Self.cache[cacheKey] = (result, Date())
             }
         case .finish:
-            let result = await loadFinishLibrary()
+            let result = await loadFinishLibrary(channel: channel)
             books = result
             if !result.isEmpty {
-                Self.cache[.finish] = (result, Date())
+                Self.cache[.finish(channel)] = (result, Date())
             }
         }
     }
@@ -256,25 +256,28 @@ final class RankDetailViewModel: ObservableObject {
     /// 跟 BookSourceEngine / BookStoreViewModel 预热同步骤, fire-and-forget 失败静默 noop.
     static func prewarmInBackground() {
         Task.detached(priority: .utility) {
-            async let yuepiao: [QidianBook] = await QidianRepository.shared.fetchRankPages(type: .yuepiao, target: 50)
-            async let finish: [QidianBook] = await Self.computeFinishLibrary(target: 50)
-            let yp = await yuepiao
-            let fl = await finish
+            async let yuepiaoMale: [QidianBook] = await QidianRepository.shared.fetchRankPages(
+                type: .yuepiao, target: 50, gender: .male
+            )
+            async let yuepiaoFemale: [QidianBook] = await QidianRepository.shared.fetchRankPages(
+                type: .yuepiao, target: 50, gender: .female
+            )
+            async let finishMale: [QidianBook] = await Self.computeFinishLibrary(target: 50, gender: .male)
+            async let finishFemale: [QidianBook] = await Self.computeFinishLibrary(target: 50, gender: .female)
+            let (ypM, ypF, flM, flF) = await (yuepiaoMale, yuepiaoFemale, finishMale, finishFemale)
             await MainActor.run {
                 let now = Date()
-                if !yp.isEmpty {
-                    RankDetailViewModel.cache[.rank(.male, .yuepiao)] = (yp, now)
-                }
-                if !fl.isEmpty {
-                    RankDetailViewModel.cache[.finish] = (fl, now)
-                }
+                if !ypM.isEmpty { RankDetailViewModel.cache[.rank(.male, .yuepiao)] = (ypM, now) }
+                if !ypF.isEmpty { RankDetailViewModel.cache[.rank(.female, .yuepiao)] = (ypF, now) }
+                if !flM.isEmpty { RankDetailViewModel.cache[.finish(.male)] = (flM, now) }
+                if !flF.isEmpty { RankDetailViewModel.cache[.finish(.female)] = (flF, now) }
             }
         }
     }
 
     /// 万象书屋: 完本书库 50 本算法 (Finish 4 榜合并 + Yuepiao 大字数补足) — 拆成 nonisolated static
-    /// 让 instance 和 prewarm 都可调.
-    nonisolated static func computeFinishLibrary(target: Int) async -> [QidianBook] {
+    /// 让 instance 和 prewarm 都可调. gender 影响月票榜补充 (跟 Android rankGender 对齐).
+    nonisolated static func computeFinishLibrary(target: Int, gender: QidianChannel) async -> [QidianBook] {
         var seen = Set<String>()
         var out: [QidianBook] = []
         if let ranks = try? await QidianRepository.shared.fetchFinishRanks() {
@@ -287,7 +290,9 @@ final class RankDetailViewModel: ObservableObject {
         }
         if out.count < target {
             let need = target - out.count
-            let yuepiao = await QidianRepository.shared.fetchRankPages(type: .yuepiao, target: need * 2)
+            let yuepiao = await QidianRepository.shared.fetchRankPages(
+                type: .yuepiao, target: need * 2, gender: gender
+            )
             let high = yuepiao.filter { parseWordCount($0.wordCount) >= 2_000_000 }
             let mid = yuepiao.filter {
                 let w = parseWordCount($0.wordCount)
@@ -303,8 +308,9 @@ final class RankDetailViewModel: ObservableObject {
     }
 
     /// 万象书屋 D-22.3: 完本书库扩展到 50 本. 实际算法在 `computeFinishLibrary`, prewarm 共用.
-    private func loadFinishLibrary() async -> [QidianBook] {
-        await Self.computeFinishLibrary(target: targetCount)
+    private func loadFinishLibrary(channel: QidianChannel) async -> [QidianBook] {
+        let gender: QidianChannel = channel == .publish ? .male : channel
+        return await Self.computeFinishLibrary(target: targetCount, gender: gender)
     }
 
     /// "569.44万字" → 5_694_400; "27.39万字" → 273_900; 解析失败返 0

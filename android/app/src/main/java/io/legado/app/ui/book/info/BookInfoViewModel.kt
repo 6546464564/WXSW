@@ -32,14 +32,22 @@ import io.legado.app.model.ReadBook
 import io.legado.app.model.ReadManga
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.localBook.LocalBook
-import io.legado.app.model.webBook.WebBook
 import io.legado.app.utils.ArchiveUtils
+import io.legado.app.data.entities.SearchBook
+import io.legado.app.model.webBook.WebBook
 import io.legado.app.utils.UrlUtil
 import io.legado.app.utils.isContentScheme
 import io.legado.app.utils.postEvent
 import io.legado.app.utils.toastOnUi
+import io.legado.app.ui.main.bookstore.BookstoreDetailLauncher
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 
 class BookInfoViewModel(application: Application) : BaseViewModel(application) {
     val bookData = MutableLiveData<Book>()
@@ -50,6 +58,182 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
     private var changeSourceCoroutine: Coroutine<*>? = null
     val waitDialogData = MutableLiveData<Boolean>()
     val actionLive = MutableLiveData<String>()
+
+    /** 万象书屋: 书城 stub 模式 — 先展示元信息, 后台找源 */
+    var bookstoreStubMode = false
+    val resolvingSourceLiveData = MutableLiveData(false)
+    val resolveFailedLiveData = MutableLiveData(false)
+
+    fun initBookstoreStub(intent: Intent) {
+        execute {
+            val name = intent.getStringExtra("name") ?: ""
+            val author = intent.getStringExtra("author") ?: ""
+            appDb.bookDao.getBook(name, author)?.let {
+                inBookshelf = !it.isNotShelf
+                upBook(it)
+                return@execute
+            }
+            val origin = intent.getStringExtra(BookstoreDetailLauncher.EXTRA_ORIGIN).orEmpty()
+            val bookUrl = intent.getStringExtra("bookUrl").orEmpty()
+            val cover = intent.getStringExtra(BookstoreDetailLauncher.EXTRA_COVER)
+            val intro = intent.getStringExtra(BookstoreDetailLauncher.EXTRA_INTRO)
+            val kind = intent.getStringExtra(BookstoreDetailLauncher.EXTRA_KIND)
+            val wordCount = intent.getStringExtra(BookstoreDetailLauncher.EXTRA_WORD_COUNT)
+
+            if (origin.isNotBlank() && bookUrl.isNotBlank()) {
+                appDb.bookSourceDao.getBookSource(origin)?.let { source ->
+                    bookstoreStubMode = false
+                    val book = Book(
+                        bookUrl = bookUrl,
+                        name = name,
+                        author = author,
+                        origin = origin,
+                        originName = source.bookSourceName,
+                        coverUrl = cover,
+                        intro = intro,
+                        kind = kind,
+                        wordCount = wordCount,
+                    )
+                    upBook(book)
+                    return@execute
+                }
+            }
+
+            appDb.searchBookDao.getFirstByNameAuthor(name, author)?.toBook()?.let {
+                upBook(it)
+                return@execute
+            }
+
+            bookstoreStubMode = true
+            val stubUrl = bookUrl.ifBlank {
+                BookstoreDetailLauncher.stubBookUrl(
+                    BookstoreDetailLauncher.extractQidianId(kind),
+                    name,
+                )
+            }
+            val stub = Book(
+                bookUrl = stubUrl,
+                name = name,
+                author = author,
+                origin = "",
+                originName = intent.getStringExtra(BookstoreDetailLauncher.EXTRA_ORIGIN_NAME)
+                    ?: "起点书城",
+                coverUrl = cover,
+                intro = intro,
+                kind = kind,
+                wordCount = wordCount,
+            )
+            inBookshelf = false
+            bookSource = null
+            bookData.postValue(stub)
+            chapterListData.postValue(emptyList())
+            resolveSourceIfNeeded(name, author, stub, kind)
+        }.onError {
+            AppLog.put(it.localizedMessage, it)
+            context.toastOnUi(it.localizedMessage)
+        }
+    }
+
+    private fun resolveSourceIfNeeded(name: String, author: String, stubBook: Book, kind: String?) {
+        execute {
+            resolvingSourceLiveData.postValue(true)
+            resolveFailedLiveData.postValue(false)
+            val qidianId = BookstoreDetailLauncher.extractQidianId(kind)
+            val match = findSourceForBook(name, author, qidianId)
+            resolvingSourceLiveData.postValue(false)
+            if (match == null) {
+                resolveFailedLiveData.postValue(true)
+                return@execute
+            }
+            val (searchBook, source) = match
+            var book = searchBook.toBook()
+            if (book.coverUrl.isNullOrBlank() && !stubBook.coverUrl.isNullOrBlank()) {
+                book.coverUrl = stubBook.coverUrl
+            }
+            if (book.intro.isNullOrBlank() && !stubBook.intro.isNullOrBlank()) {
+                book.intro = stubBook.intro
+            }
+            if (book.kind.isNullOrBlank() && !stubBook.kind.isNullOrBlank()) {
+                book.kind = stubBook.kind
+            }
+            bookstoreStubMode = false
+            bookSource = source
+            upBook(book)
+        }.onError {
+            resolvingSourceLiveData.postValue(false)
+            resolveFailedLiveData.postValue(true)
+            AppLog.put("书城找源失败: ${it.localizedMessage}", it)
+        }
+    }
+
+    /** 跟 iOS resolveSourceIfNeeded: 前 15 高分源, 8 并发, 6s 超时, 三关键词并行 */
+    private suspend fun findSourceForBook(
+        name: String,
+        author: String,
+        qidianId: String?,
+    ): Pair<SearchBook, BookSource>? {
+        val sources = appDb.bookSourceDao.allEnabled
+            .sortedWith(compareByDescending<BookSource> { it.weight }.thenByDescending { it.customOrder })
+            .take(15)
+        if (sources.isEmpty()) return null
+        val keys = buildList {
+            add(name)
+            if (author.isNotBlank()) add("$name $author")
+            if (!qidianId.isNullOrBlank()) add("$name $qidianId")
+        }
+        return coroutineScope {
+            val winner = CompletableDeferred<Pair<SearchBook, BookSource>?>()
+            keys.forEach { key ->
+                launch {
+                    val hit = searchSourcesParallel(sources, name, author, key)
+                    if (hit != null && !winner.isCompleted) {
+                        winner.complete(hit)
+                    }
+                }
+            }
+            try {
+                withTimeout(12_000L) {
+                    winner.await()
+                }
+            } catch (_: TimeoutCancellationException) {
+                null
+            } catch (_: Throwable) {
+                null
+            }
+        }
+    }
+
+    private suspend fun searchSourcesParallel(
+        sources: List<BookSource>,
+        name: String,
+        author: String,
+        key: String,
+    ): Pair<SearchBook, BookSource>? = coroutineScope {
+        val filter: (String, String) -> Boolean = { n, a ->
+            n == name && (author.isBlank() || a == author)
+        }
+        val winner = CompletableDeferred<Pair<SearchBook, BookSource>?>()
+        sources.forEach { source ->
+            launch(IO) {
+                try {
+                    val hit = withTimeout(6000L) {
+                        WebBook.searchBookAwait(source, key, filter = filter).firstOrNull()
+                            ?.let { Pair(it, source) }
+                    }
+                    if (hit != null && !winner.isCompleted) {
+                        winner.complete(hit)
+                    }
+                } catch (_: Throwable) {
+                    // ignore per-source timeout / network errors
+                }
+            }
+        }
+        try {
+            withTimeout(6000L) { winner.await() }
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     fun initData(intent: Intent) {
         execute {

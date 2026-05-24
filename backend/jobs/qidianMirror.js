@@ -27,6 +27,22 @@ const RANK_KEYS = [
 
 const FINISH_KEYS = ['classic', 'movie', 'bestSell', 'ds'];
 
+/** 女频 majax 路径 → SSR 聚合 key (gender=female 时与男频 SSR 榜不同源) */
+const FEMALE_MAJAX_RANKS = [
+  { majax: 'yuepiaolist', ssrPath: 'yuepiao', key: 'fyRank' },
+  { majax: 'hotsalesList', ssrPath: 'hotsales', key: 'hotRank' },
+  { majax: 'updateList', ssrPath: 'update', key: 'updRank' },
+  { majax: 'newauthorList', ssrPath: 'newauthor', key: 'newpRank' },
+  { majax: 'newbookList', ssrPath: 'newbook', key: 'newbRank' },
+  { majax: 'newFansList', ssrPath: 'newFans', key: 'newFans' },
+  { majax: 'recList', ssrPath: 'recom', key: 'recRank' },
+];
+
+/** majax 无女频接口的榜 → 仍用 SSR 聚合 (与男频同源, 仅作占位) */
+const FEMALE_SSR_FALLBACK_KEYS = ['dsRank', 'signRank'];
+
+const HOME_RANK_PREVIEW = 5;
+
 /**
  * 解析 m.qidian.com SSR HTML 中的 vite-plugin-ssr JSON.
  * 起点用 vite-plugin-ssr 把 pageData 写在 <script id="vite-plugin-ssr_pageContext">,
@@ -59,9 +75,9 @@ function parseBook(obj, fallbackRank = 0) {
     author: (obj.bAuth || '').trim(),
     cat: (obj.cat || '').trim(),
     subCat: (obj.subCat || '').trim(),
-    wordCount: (obj.cnt || '').trim(),
+    wordCount: String(obj.cnt ?? '').trim(),
     rank: typeof obj.rankNum === 'number' ? obj.rankNum : fallbackRank,
-    rankCount: (obj.rankCnt || '').trim(),
+    rankCount: String(obj.rankCnt ?? '').trim(),
     intro: (obj.desc || '').trim(),
     coverUrl: COVER_TPL(bid),
   };
@@ -110,45 +126,93 @@ async function fetchFinishRanks() {
   return out;
 }
 
+/** GET 任意 rank SSR 页, 返回 _csrfToken (majax 共用) */
+function parseCsrfFromResponse(ssrResp) {
+  const setCookies = ssrResp.headers.getSetCookie?.() || [];
+  const csrfLine = setCookies.find(c => c.startsWith('_csrfToken='));
+  if (!csrfLine) throw new Error('响应无 _csrfToken Set-Cookie');
+  return csrfLine.split('=')[1].split(';')[0].trim();
+}
+
+async function fetchMajaxCsrf(gender, ssrPath = 'yuepiao') {
+  const ssrResp = await httpGet(`${BASE}/rank/${ssrPath}?gender=${gender}`);
+  return parseCsrfFromResponse(ssrResp);
+}
+
+/** m.qidian majax 单页榜单 (需 csrf + 对应 Referer) */
+async function fetchMajaxRankPage(majaxPath, gender, pageNum, csrf, ssrPath) {
+  const refererPage = `${BASE}/rank/${ssrPath}?gender=${gender}`;
+  const url = `${BASE}/majax/rank/${majaxPath}?_csrfToken=${csrf}&gender=${gender}&pageNum=${pageNum}`;
+  const r = await fetch(url, {
+    headers: {
+      'User-Agent': UA,
+      'Referer': refererPage,
+      'Accept': 'application/json, text/plain, */*',
+      'Cookie': `_csrfToken=${csrf}`,
+    },
+  });
+  if (!r.ok) throw new Error(`majax ${majaxPath} pageNum=${pageNum} HTTP ${r.status}`);
+  const j = await r.json();
+  if (j.code !== 0) throw new Error(`majax ${majaxPath} pageNum=${pageNum} code=${j.code} msg=${j.msg}`);
+  return (j.data?.records || []).map(parseBook).filter(Boolean);
+}
+
+/**
+ * 女频首页 9 榜: 7 榜走 majax (真女频/言情), ds/sign 无女频 majax 则 SSR 占位.
+ * qdmm WAF 不可用时这是可靠数据源 (实测与男频 SSR 仅 20/50 月票重叠).
+ */
+async function fetchFemaleRanksViaMajax() {
+  const csrf = await fetchMajaxCsrf('female', 'yuepiao');
+  const out = {};
+
+  for (const { majax, ssrPath, key } of FEMALE_MAJAX_RANKS) {
+    const books = await fetchMajaxRankPage(majax, 'female', 1, csrf, ssrPath);
+    out[key] = books.slice(0, HOME_RANK_PREVIEW);
+  }
+
+  const ssrFallback = await fetchRanksAggregate('female');
+  for (const key of FEMALE_SSR_FALLBACK_KEYS) {
+    out[key] = (ssrFallback[key] || []).slice(0, HOME_RANK_PREVIEW);
+  }
+
+  return out;
+}
+
+/** 可选: qdmm Playwright 成功时覆盖 majax 中同名 key */
+async function mergeQdmmFemaleRanks(ranksFemale) {
+  let qdmmMirror;
+  try {
+    qdmmMirror = require('./qdmmMirror');
+  } catch {
+    return ranksFemale;
+  }
+  const raw = await qdmmMirror.tryFetchFemaleRanks();
+  if (!raw) return ranksFemale;
+
+  const merged = { ...ranksFemale };
+  for (const key of RANK_KEYS) {
+    const arr = Array.isArray(raw[key]) ? raw[key] : [];
+    const books = arr.map(parseBook).filter(Boolean).slice(0, HOME_RANK_PREVIEW);
+    if (books.length > 0) merged[key] = books;
+  }
+  return merged;
+}
+
 /**
  * 月票榜分页. 起点 m 站只暴露 yuepiao 这一个榜的 majax 分页接口.
  * 必须先 GET SSR 页拿 _csrfToken cookie, 然后带 cookie + query 调 majax.
  */
 async function fetchYuepiao50(gender = 'male') {
-  // 第 1 步: GET SSR 页拿 csrf
   const ssrResp = await httpGet(`${BASE}/rank/yuepiao?gender=${gender}`);
-  const ssrHtml = await ssrResp.text();
-  const setCookies = ssrResp.headers.getSetCookie?.() || [];
-  const csrfLine = setCookies.find(c => c.startsWith('_csrfToken='));
-  if (!csrfLine) throw new Error('响应无 _csrfToken Set-Cookie');
-  const csrf = csrfLine.split('=')[1].split(';')[0].trim();
+  const csrf = parseCsrfFromResponse(ssrResp);
 
-  // SSR 页本身 records 就是第 1 页 20 本
-  const pd = extractPageData(ssrHtml);
-  const page1 = (pd.records || []).map(parseBook).filter(Boolean);
+  // 全走 majax: gender=female 时 SSR records 与男频同源, 仅 majax 为真女频序
+  const [page1, page2, page3] = await Promise.all([
+    fetchMajaxRankPage('yuepiaolist', gender, 1, csrf, 'yuepiao'),
+    fetchMajaxRankPage('yuepiaolist', gender, 2, csrf, 'yuepiao'),
+    fetchMajaxRankPage('yuepiaolist', gender, 3, csrf, 'yuepiao'),
+  ]);
 
-  // 第 2、3 页通过 majax ajax 拿 (需 Cookie + Referer)
-  const cookieHeader = `_csrfToken=${csrf}`;
-  const refererPage = `${BASE}/rank/yuepiao?gender=${gender}`;
-  const fetchPage = async (pageNum) => {
-    const url = `${BASE}/majax/rank/yuepiaolist?_csrfToken=${csrf}&gender=${gender}&pageNum=${pageNum}`;
-    const r = await fetch(url, {
-      headers: {
-        'User-Agent': UA,
-        'Referer': refererPage,
-        'Accept': 'application/json, text/plain, */*',
-        'Cookie': cookieHeader,
-      },
-    });
-    if (!r.ok) throw new Error(`majax pageNum=${pageNum} HTTP ${r.status}`);
-    const j = await r.json();
-    if (j.code !== 0) throw new Error(`majax pageNum=${pageNum} code=${j.code} msg=${j.msg}`);
-    return (j.data?.records || []).map(parseBook).filter(Boolean);
-  };
-
-  const [page2, page3] = await Promise.all([fetchPage(2), fetchPage(3)]);
-
-  // 合并去重 (按 bid)
   const seen = new Set();
   const out = [];
   for (const b of [...page1, ...page2, ...page3]) {
@@ -171,17 +235,11 @@ async function fetchMirrorPayload() {
     fetchFinishRanks(),
   ]);
 
-  // 女频单独抓; 失败不拖垮整包 mirror (男生/出版仍可用)
-  let ranksFemale = null;
-  let yuepiaoTop50Female = null;
-  try {
-    [ranksFemale, yuepiaoTop50Female] = await Promise.all([
-      fetchRanksAggregate('female'),
-      fetchYuepiao50('female'),
-    ]);
-  } catch (e) {
-    console.warn('[qidianMirror] female fetch failed:', e.message);
-  }
+  // 女频: SSR gender=female 与男生榜同源; 用 majax gender=female 拿真女频榜.
+  // 抓取失败时复制男生榜, 保证客户端女频 tab 结构与男频一致且永不空榜.
+  let femaleData = await fetchFemaleMirrorData(ranks, yuepiaoTop50);
+  const ranksFemale = femaleData.ranksFemale;
+  const yuepiaoTop50Female = femaleData.yuepiaoTop50Female;
 
   return {
     version: Date.now(),
@@ -193,6 +251,28 @@ async function fetchMirrorPayload() {
     yuepiaoTop50Female,
     finish,
   };
+}
+
+async function fetchFemaleMirrorData(maleRanks, maleYuepiao50) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const [ranksFemaleRaw, yuepiaoTop50Female] = await Promise.all([
+        fetchFemaleRanksViaMajax(),
+        fetchYuepiao50('female'),
+      ]);
+      const ranksFemale = await mergeQdmmFemaleRanks(ranksFemaleRaw);
+      const majaxBooks = FEMALE_MAJAX_RANKS.reduce((s, { key }) => s + (ranksFemaleRaw[key]?.length || 0), 0);
+      if (majaxBooks >= FEMALE_MAJAX_RANKS.length && yuepiaoTop50Female.length > 0) {
+        console.info(`[qidianMirror] female majax ok (${majaxBooks} books in 6 ranks)`);
+        return { ranksFemale, yuepiaoTop50Female };
+      }
+      console.warn(`[qidianMirror] female fetch attempt ${attempt}: incomplete (majax=${majaxBooks}, yuepiao=${yuepiaoTop50Female.length})`);
+    } catch (e) {
+      console.warn(`[qidianMirror] female fetch attempt ${attempt} failed:`, e.message);
+    }
+  }
+  console.warn('[qidianMirror] female using male ranks fallback');
+  return { ranksFemale: maleRanks, yuepiaoTop50Female: maleYuepiao50 };
 }
 
 /**
@@ -252,5 +332,14 @@ module.exports = {
   fetchMirrorPayload,
   recordFailure,
   // 仅测试导出
-  _internal: { extractPageData, parseBook, fetchRanksAggregate, fetchFinishRanks, fetchYuepiao50 },
+  _internal: {
+    extractPageData,
+    parseBook,
+    fetchRanksAggregate,
+    fetchFinishRanks,
+    fetchYuepiao50,
+    fetchFemaleMirrorData,
+    fetchFemaleRanksViaMajax,
+    fetchMajaxRankPage,
+  },
 };

@@ -69,7 +69,15 @@
     <string name="bs_badge_no1">榜首</string>
     <string name="bs_source_label">起点中文</string>
     <string name="bs_loading">加载中…</string>
+    <string name="bs_resolving_source">找源中…</string>
+    <string name="bs_resolve_source_failed">未找到可用书源，可尝试换源或搜索</string>
     <string name="bs_load_failed">加载失败，下拉重试</string>
+    <string name="bs_retry">重试</string>
+    <string name="bs_on_shelf">已在书架</string>
+    <string name="bs_editor_picks">编辑精选</string>
+    <string name="bs_source_resolving">来源:查找中…</string>
+    <string name="bs_source_resolve_failed">暂未找到此书源，点此换源</string>
+    <string name="bs_try_change_source">尝试换源</string>
     <string name="bs_coming_soon">即将上线</string>
     <string name="bs_hero_badge">今日精选</string>
     <string name="book_source_remote_only">书源由服务端统一管理，请在万象书屋后台维护。</string>

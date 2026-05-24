@@ -67,7 +67,7 @@ struct QidianBook: Hashable, Identifiable {
 
 /// 万象书屋·书城频道 (跟 Android `QidianRepository.Channel` 对齐)
 ///
-/// D-22.1: 起点 m 站女频走 mirror.ranksFemale + gender=female 直抓; 不再复用男频数据.
+/// D-22.1: 女频与男频 UI/数据结构一致; mirror.ranksFemale 空时 fallback ranks.
 /// Publish 走独立 endpoint /finish/ (m.qidian 真完结频道, 4 完结榜).
 enum QidianChannel: String, CaseIterable, Identifiable {
     case male, female, publish
@@ -201,20 +201,32 @@ extension QidianBook {
         )
     }
 
+    /// snake_case (DB) 与 camelCase (listBookstoreFeed API) 双兼容
+    private static func feedString(_ item: [String: Any], _ keys: String...) -> String {
+        for key in keys {
+            if let s = item[key] as? String {
+                let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { return t }
+            }
+        }
+        return ""
+    }
+
     /// 后端 `/bookstore/feed` 条目 → BookstoreFeedPick (编辑精选等).
     static func feedPick(from item: [String: Any]) -> BookstoreFeedPick? {
-        guard let name = item["name"] as? String, !name.isEmpty else { return nil }
+        let name = feedString(item, "name")
+        guard !name.isEmpty else { return nil }
         let book = QidianBook(
             name: name,
-            coverUrl: item["cover_url"] as? String ?? "",
-            author: item["author"] as? String ?? "",
-            category: item["kind"] as? String ?? "",
-            intro: item["intro"] as? String ?? ""
+            coverUrl: feedString(item, "cover_url", "coverUrl"),
+            author: feedString(item, "author"),
+            category: feedString(item, "kind"),
+            intro: feedString(item, "intro")
         )
         return BookstoreFeedPick(
             book: book,
-            targetURL: item["target_url"] as? String ?? "",
-            sourceOrigin: item["source_origin"] as? String ?? ""
+            targetURL: feedString(item, "target_url", "targetUrl", "bookUrl"),
+            sourceOrigin: feedString(item, "source_origin", "sourceOrigin", "origin")
         )
     }
 

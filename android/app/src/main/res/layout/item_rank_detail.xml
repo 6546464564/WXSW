@@ -47,6 +47,23 @@
             android:background="@drawable/bs_cover_placeholder"
             android:contentDescription="@null"
             android:scaleType="centerCrop" />
+
+        <TextView
+            android:id="@+id/tvShelfBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|bottom"
+            android:layout_margin="4dp"
+            android:background="@drawable/bs_shelf_badge_bg"
+            android:includeFontPadding="false"
+            android:paddingHorizontal="5dp"
+            android:paddingVertical="2dp"
+            android:text="@string/bs_on_shelf"
+            android:textColor="#FFFFFF"
+            android:textSize="8sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:visibility="visible" />
     </androidx.cardview.widget.CardView>
 
     <!-- 万象书屋 D-22.3 修复: tvName 必须 start 到 coverEnd guideline (135dp 处) 之后,

@@ -97,12 +97,20 @@ actor QidianRepository {
     /// - returns: 9 个 RankType → [QidianBook] (每榜 ~5 本); 找不到 SSR JSON 时抛异常.
     func fetchAllRanks(gender: QidianChannel = .male) async throws -> [QidianRankType: [QidianBook]] {
         if let mirror = await BookstoreMirror.shared.fetch() {
-            let mirrorKey = gender == .female ? "ranksFemale" : "ranks"
-            if let ranksObj = mirror[mirrorKey] as? [String: Any], !ranksObj.isEmpty {
-                log.debug("\(mirrorKey) from mirror version=\(String(describing: mirror["version"] ?? "?"))")
+            var ranksObj = (gender == .female
+                ? mirror["ranksFemale"] as? [String: Any]
+                : mirror["ranks"] as? [String: Any])
+            // m.qidian gender=female 与 male 同源; mirror 女频缺失时用 ranks 兜底
+            if (ranksObj == nil || ranksObj?.isEmpty == true), gender == .female {
+                ranksObj = mirror["ranks"] as? [String: Any]
+                if ranksObj?.isEmpty == false {
+                    log.debug("ranksFemale empty, fallback mirror ranks")
+                }
+            }
+            if let ranksObj, !ranksObj.isEmpty {
+                log.debug("\(gender == .female ? "ranksFemale" : "ranks") from mirror version=\(String(describing: mirror["version"] ?? "?"))")
                 return parseMirrorRanks(ranksObj)
             }
-            // 女频 mirror 尚未就绪时不偷用男频 cache, 继续直抓 female
             if gender == .male {
                 log.debug("mirror ranks empty, fallback direct")
             }
@@ -132,11 +140,17 @@ actor QidianRepository {
         let genderParam = gender == .female ? "female" : "male"
         // D-23: Yuepiao 优先 mirror.yuepiaoTop50 / yuepiaoTop50Female
         if type == .yuepiao {
-            let topKey = gender == .female ? "yuepiaoTop50Female" : "yuepiaoTop50"
-            if let mirror = await BookstoreMirror.shared.fetch(),
-               let arr = mirror[topKey] as? [[String: Any]], !arr.isEmpty {
-                log.debug("\(topKey) from mirror size=\(arr.count)")
-                return Array(arr.compactMap { mirrorBookToQidian($0, rankType: .yuepiao) }.prefix(target))
+            if let mirror = await BookstoreMirror.shared.fetch() {
+                var arr = (gender == .female
+                    ? mirror["yuepiaoTop50Female"] as? [[String: Any]]
+                    : mirror["yuepiaoTop50"] as? [[String: Any]])
+                if (arr == nil || arr?.isEmpty == true), gender == .female {
+                    arr = mirror["yuepiaoTop50"] as? [[String: Any]]
+                }
+                if let arr, !arr.isEmpty {
+                    log.debug("yuepiao top50 from mirror size=\(arr.count)")
+                    return Array(arr.compactMap { mirrorBookToQidian($0, rankType: .yuepiao) }.prefix(target))
+                }
             }
         }
 
@@ -161,7 +175,8 @@ actor QidianRepository {
                     : try await fetchRankAjax(type: type, pageNum: page, gender: gender)
             } catch {
                 log.debug("page=\(page) failed: \(error.localizedDescription)")
-                break
+                page += 1
+                continue
             }
             if books.isEmpty { break }
             for b in books where seen.insert(b.bookId).inserted {

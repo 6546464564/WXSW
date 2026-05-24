@@ -21,9 +21,8 @@
 //   └──────────────────────────────────────┘
 //
 //  D-22.2 板块映射 (按 channel 决定取哪个 RankType):
-//   Male:    Yuepiao + HotReading + NewBook    + Recommend
-//   Female:  Bestseller + NewAuthor + Sign     + Update
-//   Publish: FinishClassic + FinishClassic + FinishBestSell + FinishMovie
+//   Male/Female: Yuepiao + HotReading + NewBook + Recommend (结构完全一致)
+//   Publish: FinishClassic + FinishBestSell + FinishDs + FinishMovie
 //
 
 import SwiftUI
@@ -690,6 +689,8 @@ final class BookStoreViewModel: ObservableObject {
     /// (即使后端 mirror 已经在 `AppState.bootstrap` 后台预热好).
     /// 改成 static 后, prewarm() 写进的数据所有 View 实例都看得到, 切 Tab 不再闪 loading.
     private static var channelRankCache: [QidianChannel: (ranks: [QidianRankType: [QidianBook]], at: Date)] = [:]
+    /// 跟 Android BookStorePrewarm.feedCache 对齐 — 编辑精选进程级缓存
+    private static var feedCache: [QidianChannel: [BookstoreFeedPick]] = [:]
     private static let cacheTtl: TimeInterval = 5 * 60
 
     /// 「换一批」翻页偏移, 跟 Android swapPageMustRead/Complete/Ranked 对齐
@@ -706,29 +707,25 @@ final class BookStoreViewModel: ObservableObject {
     /// D-22.2 板块映射 (按 channel 决定取哪个 RankType)
     var heroType: QidianRankType {
         switch currentChannel {
-        case .male: return .yuepiao
-        case .female: return .bestseller
+        case .male, .female: return .yuepiao
         case .publish: return .finishClassic
         }
     }
     var mustReadType: QidianRankType {
         switch currentChannel {
-        case .male: return .hotReading
-        case .female: return .newAuthor
-        case .publish: return .finishClassic
+        case .male, .female: return .hotReading
+        case .publish: return .finishBestSell
         }
     }
     var completeType: QidianRankType {
         switch currentChannel {
-        case .male: return .newBook
-        case .female: return .sign
-        case .publish: return .finishBestSell
+        case .male, .female: return .newBook
+        case .publish: return .finishDs
         }
     }
     var recommendType: QidianRankType {
         switch currentChannel {
-        case .male: return .recommend
-        case .female: return .update
+        case .male, .female: return .recommend
         case .publish: return .finishMovie
         }
     }
@@ -803,6 +800,7 @@ final class BookStoreViewModel: ObservableObject {
         if let hit = Self.channelRankCache[ch],
            Date().timeIntervalSince(hit.at) < Self.cacheTtl {
             apply(ranks: hit.ranks, channel: ch)
+            editorPicks = Self.feedCache[ch] ?? []
             return
         }
         // 无 cache: 清掉上一频道数据, 避免女生 tab 短暂显示男生书
@@ -861,9 +859,17 @@ final class BookStoreViewModel: ObservableObject {
     }
 
     private func loadFeed(for channel: QidianChannel) async {
+        if let cached = Self.feedCache[channel], !cached.isEmpty {
+            guard currentChannel == channel else { return }
+            editorPicks = cached
+            return
+        }
         let items = (try? await WanxiangAPI.shared.fetchBookstoreFeed(channel: channel.rawValue)) ?? []
         let picks = items.compactMap { QidianBook.feedPick(from: $0) }
         guard currentChannel == channel else { return }
+        if !picks.isEmpty {
+            Self.feedCache[channel] = picks
+        }
         editorPicks = picks
     }
 
@@ -885,6 +891,8 @@ final class BookStoreViewModel: ObservableObject {
     /// fire-and-forget; 失败 (后端没起来 / 网络断) 静默 noop, 用户切 Tab 时自然走原冷路径.
     static func prewarmInBackground() {
         Task.detached(priority: .utility) {
+            // 跟 Android BookStorePrewarm: 先灌 mirror, 后续 fetchAllRanks 1 跳命中后端
+            _ = await BookstoreMirror.shared.fetch(forceRefresh: false)
             async let male: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchAllRanks(gender: .male)) ?? [:]
             async let female: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchAllRanks(gender: .female)) ?? [:]
             async let finish: [QidianRankType: [QidianBook]] = (try? await QidianRepository.shared.fetchFinishRanks()) ?? [:]
@@ -901,6 +909,15 @@ final class BookStoreViewModel: ObservableObject {
                 }
                 if p.values.contains(where: { !$0.isEmpty }) {
                     BookStoreViewModel.channelRankCache[.publish] = (p, now)
+                }
+            }
+            for ch in QidianChannel.allCases {
+                let items = (try? await WanxiangAPI.shared.fetchBookstoreFeed(channel: ch.rawValue)) ?? []
+                let picks = items.compactMap { QidianBook.feedPick(from: $0) }
+                if !picks.isEmpty {
+                    await MainActor.run {
+                        BookStoreViewModel.feedCache[ch] = picks
+                    }
                 }
             }
         }
@@ -922,10 +939,6 @@ final class BookStoreViewModel: ObservableObject {
         self.ranks = ranks
         extendedRanks = [:]
         var pool = mergeAllRanks(ranks)
-        if channel == .female {
-            // 女生 tab: 言情/恋爱主题书优先排到前面
-            pool.sort { Self.isLikelyFemale($0) && !Self.isLikelyFemale($1) }
-        }
         self.allBooks = pool
         self.swapPageMustRead = 0
         self.swapPageComplete = 0
@@ -949,13 +962,6 @@ final class BookStoreViewModel: ObservableObject {
             }
         }
         return out
-    }
-
-    /// 万象书屋 D-22.1: 启发式判断"像女频" — 用 cat/subCat 关键词命中
-    private static func isLikelyFemale(_ book: QidianBook) -> Bool {
-        let text = "\(book.category) \(book.subCategory)"
-        let keywords = ["言情", "恋爱", "古言", "宫廷", "宅斗", "爱情", "玄幻言情", "现代言情"]
-        return keywords.contains(where: { text.contains($0) })
     }
 }
 

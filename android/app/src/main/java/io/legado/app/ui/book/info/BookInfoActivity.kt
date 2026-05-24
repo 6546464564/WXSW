@@ -151,10 +151,46 @@ class BookInfoActivity :
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
             binding.tvIntro.revealOnFocusHint = false
         }
-        viewModel.bookData.observe(this) { showBook(it) }
+        viewModel.bookData.observe(this) {
+            showBook(it)
+            if (viewModel.bookSource != null && viewModel.resolvingSourceLiveData.value != true) {
+                binding.tvRead.isEnabled = true
+                binding.tvRead.alpha = 1f
+            }
+        }
         viewModel.chapterListData.observe(this) { upLoading(false, it) }
         viewModel.waitDialogData.observe(this) { upWaitDialogStatus(it) }
-        viewModel.initData(intent)
+        viewModel.resolvingSourceLiveData.observe(this) { resolving ->
+            val failed = viewModel.resolveFailedLiveData.value == true
+            val hasSource = viewModel.bookSource != null
+            val canRead = !resolving && hasSource
+            binding.tvRead.isEnabled = canRead || (failed && !hasSource)
+            binding.tvRead.alpha = if (canRead || (failed && !hasSource)) 1f else 0.45f
+            binding.tvRead.text = when {
+                resolving -> getString(R.string.bs_resolving_source)
+                failed && !hasSource -> getString(R.string.bs_try_change_source)
+                else -> getString(R.string.reading)
+            }
+            upBookstoreOriginLine(resolving, failed, hasSource)
+        }
+        viewModel.resolveFailedLiveData.observe(this) { failed ->
+            if (failed && viewModel.bookSource == null) {
+                upBookstoreOriginLine(
+                    resolving = viewModel.resolvingSourceLiveData.value == true,
+                    failed = true,
+                    hasSource = false,
+                )
+            }
+        }
+        if (intent.getBooleanExtra(
+                io.legado.app.ui.main.bookstore.BookstoreDetailLauncher.EXTRA_FROM_BOOKSTORE,
+                false,
+            )
+        ) {
+            viewModel.initBookstoreStub(intent)
+        } else {
+            viewModel.initData(intent)
+        }
         initViewEvent()
     }
 
@@ -281,6 +317,22 @@ class BookInfoActivity :
         }
     }
 
+    private fun upBookstoreOriginLine(resolving: Boolean, failed: Boolean, hasSource: Boolean) {
+        if (!intent.getBooleanExtra(
+                io.legado.app.ui.main.bookstore.BookstoreDetailLauncher.EXTRA_FROM_BOOKSTORE,
+                false,
+            )
+        ) {
+            return
+        }
+        binding.tvOrigin.text = when {
+            resolving && !hasSource -> getString(R.string.bs_source_resolving)
+            failed && !hasSource -> getString(R.string.bs_source_resolve_failed)
+            else -> viewModel.getBook()?.let { getString(R.string.origin_show, it.originName) }
+                ?: binding.tvOrigin.text
+        }
+    }
+
     private fun showBook(book: Book) = binding.run {
         showCover(book)
         tvName.text = book.name
@@ -389,6 +441,10 @@ class BookInfoActivity :
         }
         tvRead.setOnClickListener {
             viewModel.getBook()?.let { book ->
+                if (viewModel.resolveFailedLiveData.value == true && viewModel.bookSource == null) {
+                    showDialogFragment(ChangeBookSourceDialog(book.name, book.author))
+                    return@setOnClickListener
+                }
                 if (book.isWebFile) {
                     showWebFileDownloadAlert {
                         readBook(it)
@@ -414,7 +470,13 @@ class BookInfoActivity :
             }
         }
         tvOrigin.setOnClickListener {
-            toastOnUi(R.string.book_source_remote_only)
+            if (viewModel.resolveFailedLiveData.value == true && viewModel.bookSource == null) {
+                viewModel.getBook()?.let { book ->
+                    showDialogFragment(ChangeBookSourceDialog(book.name, book.author))
+                }
+            } else {
+                toastOnUi(R.string.book_source_remote_only)
+            }
         }
         tvChangeSource.setOnClickListener {
             viewModel.getBook()?.let { book ->

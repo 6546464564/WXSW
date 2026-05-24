@@ -1,6 +1,7 @@
 package io.legado.app.help
 
 import android.provider.Settings
+import com.google.gson.JsonParser
 import io.legado.app.BuildConfig
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSource
@@ -10,6 +11,8 @@ import io.legado.app.help.http.okHttpClient
 import io.legado.app.utils.GSON
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.fromJsonArray
+import io.legado.app.ui.main.bookstore.BookstoreFeedPick
+import io.legado.app.ui.main.bookstore.feedPickFromJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -185,8 +188,144 @@ object WanxiangBackend {
             // 1) 拉取远端书源覆盖本地
             runCatching { fetchAndApplySources(url) }
                 .onFailure { LogUtils.d(TAG, "fetch sources failed: ${it.message}") }
+            // 2) 后台预热书城 mirror + 榜单 + feed (跟 iOS bootstrap prewarm 对齐)
+            runCatching { io.legado.app.ui.main.bookstore.BookStorePrewarm.prewarm() }
+                .onFailure { LogUtils.d(TAG, "bookstore prewarm failed: ${it.message}") }
         }
         startHeartbeatLoop(url)
+    }
+
+    /** 供 mirror 等模块带齐 X-Device-Id header (跟 iOS WanxiangAPI.request 对齐) */
+    internal val backendDeviceId: String get() = deviceId
+
+    /** mirror / feed 请求前确保已 register (token 空则拉一次) */
+    internal suspend fun ensureDeviceRegistered() {
+        val url = baseUrl ?: return
+        if (deviceToken.isNullOrBlank()) {
+            runCatching { registerDeviceIfNeeded(url) }
+        }
+    }
+
+    /** 401 时 reissue token — 跟 iOS WanxiangAPI.reissueToken 对齐 */
+    internal suspend fun reissueDeviceToken(): Boolean = withContext(Dispatchers.IO) {
+        val url = baseUrl ?: return@withContext false
+        val body = """{"device_id":"$deviceId"}""".toRequestBody("application/json".toMediaType())
+        val resp = runCatching {
+            okHttpClient.newCallStrResponse(retry = 0) {
+                url("$url/api/device/register?reissue=1")
+                header("X-Platform", PLATFORM)
+                post(body)
+            }
+        }.getOrNull() ?: return@withContext false
+        if (resp.raw.code != 200) {
+            LogUtils.d(TAG, "reissue token http ${resp.raw.code}")
+            return@withContext false
+        }
+        val raw = resp.body ?: return@withContext false
+        val token = runCatching {
+            GSON.fromJson(raw, com.google.gson.JsonObject::class.java)
+                ?.get("token")?.takeIf { !it.isJsonNull }?.asString
+        }.getOrNull()
+        if (token.isNullOrBlank()) return@withContext false
+        saveDeviceToken(token)
+        LogUtils.d(TAG, "device token reissued, token=${token.take(8)}***")
+        true
+    }
+
+    /**
+     * 拉书城运营 feed (/api/bookstore/feed) — 跟 iOS WanxiangAPI.fetchBookstoreFeed 对齐.
+     * ETag/304: 命中时用磁盘 cache, 冷启动 304 无 cache 时清 etag 重拉 200.
+     * @param channel male / female / publish
+     */
+    suspend fun fetchBookstoreFeed(channel: String): List<io.legado.app.ui.main.bookstore.BookstoreFeedPick> =
+        withContext(Dispatchers.IO) {
+            val url = baseUrl ?: return@withContext emptyList()
+            ensureDeviceRegistered()
+            val cachedEtag = readFeedEtag(channel)
+            var resp = requestBookstoreFeed(url, channel, cachedEtag)
+            if (resp?.raw?.code == 401 && reissueDeviceToken()) {
+                resp = requestBookstoreFeed(url, channel, cachedEtag)
+            }
+            var picks = parseFeedResponse(channel, resp)
+            if (picks == null && resp?.raw?.code == 304) {
+                clearFeedEtag(channel)
+                resp = requestBookstoreFeed(url, channel, null)
+                if (resp?.raw?.code == 401 && reissueDeviceToken()) {
+                    resp = requestBookstoreFeed(url, channel, null)
+                }
+                picks = parseFeedResponse(channel, resp)
+            }
+            picks ?: emptyList()
+        }
+
+    private suspend fun requestBookstoreFeed(url: String, channel: String, ifNoneMatch: String? = null) =
+        runCatching {
+            okHttpClient.newCallStrResponse(retry = 1) {
+                url("$url/api/bookstore/feed?channel=$channel")
+                header("Accept", "application/json")
+                header("X-Platform", PLATFORM)
+                header("X-Device-Id", deviceId)
+                deviceToken?.let { header("X-Device-Token", it) }
+                ifNoneMatch?.let { header("If-None-Match", it) }
+            }
+        }.getOrNull()
+
+    /** @return null = 304 但磁盘无 cache, 需清 etag 重试 */
+    private fun parseFeedResponse(
+        channel: String,
+        resp: io.legado.app.help.http.StrResponse?,
+    ): List<io.legado.app.ui.main.bookstore.BookstoreFeedPick>? {
+        if (resp == null) return emptyList()
+        when (resp.raw.code) {
+            304 -> return loadFeedItems(channel) ?: run {
+                LogUtils.d(TAG, "fetchBookstoreFeed 304 cold start channel=$channel")
+                null
+            }
+            !in 200..299 -> {
+                LogUtils.d(TAG, "fetchBookstoreFeed code=${resp.raw.code} channel=$channel")
+                return emptyList()
+            }
+        }
+        val body = resp.body ?: return emptyList()
+        persistFeedCache(channel, resp.raw.header("ETag"), body)
+        return parseFeedBody(body)
+    }
+
+    private fun parseFeedBody(body: String): List<io.legado.app.ui.main.bookstore.BookstoreFeedPick> {
+        val root = runCatching { JsonParser.parseString(body).asJsonObject }.getOrNull()
+            ?: return emptyList()
+        val arr = root.getAsJsonArray("items") ?: return emptyList()
+        return arr.mapNotNull { el ->
+            runCatching { feedPickFromJson(el.asJsonObject) }.getOrNull()
+        }
+    }
+
+    private const val FEED_CACHE_SP = "wanxiang_bookstore_feed"
+
+    private fun readFeedEtag(channel: String): String? =
+        appCtx.getSharedPreferences(FEED_CACHE_SP, android.content.Context.MODE_PRIVATE)
+            .getString("etag_$channel", null)?.takeIf { it.isNotBlank() }
+
+    private fun clearFeedEtag(channel: String) {
+        appCtx.getSharedPreferences(FEED_CACHE_SP, android.content.Context.MODE_PRIVATE)
+            .edit().remove("etag_$channel").apply()
+    }
+
+    private fun persistFeedCache(channel: String, etag: String?, body: String) {
+        val sp = appCtx.getSharedPreferences(FEED_CACHE_SP, android.content.Context.MODE_PRIVATE)
+        val editor = sp.edit().putString("items_$channel", body)
+        if (!etag.isNullOrBlank()) {
+            editor.putString("etag_$channel", etag)
+        }
+        editor.apply()
+    }
+
+    private fun loadFeedItems(channel: String): List<io.legado.app.ui.main.bookstore.BookstoreFeedPick>? {
+        val body = appCtx.getSharedPreferences(FEED_CACHE_SP, android.content.Context.MODE_PRIVATE)
+            .getString("items_$channel", null)?.takeIf { it.isNotBlank() }
+            ?: return null
+        val picks = parseFeedBody(body)
+        return picks.takeIf { it.isNotEmpty() || body.contains("\"items\":[]") }
     }
 
     // ===== 万象书屋 (方案 G' 客户端): X-Sources-Etag 被动同步 =====

@@ -33,3 +33,42 @@ data class QidianBook(
     /** 简介 (起点字段 desc) */
     val intro: String = "",
 )
+
+/** 后端 feed 条目 + 可选直达书源 */
+data class BookstoreFeedPick(
+    val book: QidianBook,
+    val targetURL: String,
+    val sourceOrigin: String,
+)
+
+/** 后端 feed JSON 字段: snake_case (DB) 与 camelCase (listBookstoreFeed API) 双兼容 */
+private fun com.google.gson.JsonObject.feedStringField(vararg keys: String): String {
+    for (key in keys) {
+        val el = get(key) ?: continue
+        if (el.isJsonNull || !el.isJsonPrimitive) continue
+        val s = el.asString.trim()
+        if (s.isNotEmpty()) return s
+    }
+    return ""
+}
+
+/** 跟 iOS QidianBook.feedPick 对齐 */
+fun feedPickFromJson(obj: com.google.gson.JsonObject): BookstoreFeedPick? {
+    val name = obj.feedStringField("name")
+    if (name.isBlank()) return null
+    val book = QidianBook(
+        name = name,
+        coverUrl = obj.feedStringField("cover_url", "coverUrl"),
+        author = obj.feedStringField("author"),
+        category = obj.feedStringField("kind"),
+        intro = obj.feedStringField("intro"),
+    )
+    return BookstoreFeedPick(
+        book = book,
+        targetURL = obj.feedStringField("target_url", "targetUrl", "bookUrl"),
+        sourceOrigin = obj.feedStringField("source_origin", "sourceOrigin", "origin"),
+    )
+}
+
+fun QidianBook.toSearchQuery(): String =
+    listOf(name, author).filter { it.isNotBlank() }.joinToString(" ").ifBlank { name }

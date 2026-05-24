@@ -344,29 +344,43 @@ actor WanxiangAPI {
     }
 
     /// 拉书城 feed (M2.3.1, M2.3 真实接口)
-    /// 跟后端 `/api/bookstore/feed?channel=male` 对齐
+    /// 跟后端 `/api/bookstore/feed?channel=male` 对齐; ETag/304 命中时用磁盘 cache.
     func fetchBookstoreFeed(channel: String) async throws -> [[String: Any]] {
-        // 万象书屋: 后端要求 verifyDeviceToken, 没 token 时先注册
         if deviceToken == nil {
             try? await registerDeviceIfNeeded()
         }
-        var (data, http) = try await sendFeedRequest(channel: channel)
-        // 健壮性: 401 (token 无效/Keychain 读到老 token) → reissue 重试一次
+        let cachedEtag = Self.loadFeedEtag(channel: channel)
+        var (data, http) = try await sendFeedRequest(channel: channel, ifNoneMatch: cachedEtag)
         if http.statusCode == 401 {
             try? await reissueToken()
-            (data, http) = try await sendFeedRequest(channel: channel)
+            (data, http) = try await sendFeedRequest(channel: channel, ifNoneMatch: cachedEtag)
+        }
+        if http.statusCode == 304 {
+            if let disk = Self.loadFeedItems(channel: channel) {
+                return disk
+            }
+            Self.clearFeedEtag(channel: channel)
+            (data, http) = try await sendFeedRequest(channel: channel, ifNoneMatch: nil)
+            if http.statusCode == 401 {
+                try? await reissueToken()
+                (data, http) = try await sendFeedRequest(channel: channel, ifNoneMatch: nil)
+            }
+        }
+        if http.statusCode == 304 {
+            return Self.loadFeedItems(channel: channel) ?? []
         }
         guard (200..<300).contains(http.statusCode) else {
             throw APIError.httpStatus(http.statusCode, body: "")
         }
         guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let items = dict["items"] as? [[String: Any]] else {
-            return []
+            return Self.loadFeedItems(channel: channel) ?? []
         }
+        Self.persistFeedCache(channel: channel, etag: http.value(forHTTPHeaderField: "ETag"), items: items)
         return items
     }
 
-    private func sendFeedRequest(channel: String) async throws -> (Data, HTTPURLResponse) {
+    private func sendFeedRequest(channel: String, ifNoneMatch: String? = nil) async throws -> (Data, HTTPURLResponse) {
         var comps = URLComponents(url: Self.baseURL.appendingPathComponent("/api/bookstore/feed"),
                                   resolvingAgainstBaseURL: false) ?? URLComponents()
         comps.queryItems = [URLQueryItem(name: "channel", value: channel)]
@@ -377,7 +391,40 @@ actor WanxiangAPI {
         r.setValue(Self.platform, forHTTPHeaderField: "X-Platform")
         r.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
         if let tok = deviceToken { r.setValue(tok, forHTTPHeaderField: "X-Device-Token") }
+        if let etag = ifNoneMatch, !etag.isEmpty {
+            r.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
         return try await httpData(for: r)
+    }
+
+    private static func feedEtagKey(_ channel: String) -> String { "wx.bookstoreFeed.etag.\(channel)" }
+    private static func feedItemsKey(_ channel: String) -> String { "wx.bookstoreFeed.items.\(channel)" }
+
+    private static func loadFeedEtag(channel: String) -> String? {
+        guard let etag = UserDefaults.standard.string(forKey: feedEtagKey(channel)),
+              !etag.isEmpty else { return nil }
+        return etag
+    }
+
+    private static func clearFeedEtag(channel: String) {
+        UserDefaults.standard.removeObject(forKey: feedEtagKey(channel))
+    }
+
+    private static func loadFeedItems(channel: String) -> [[String: Any]]? {
+        guard let data = UserDefaults.standard.data(forKey: feedItemsKey(channel)),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return nil
+        }
+        return arr
+    }
+
+    private static func persistFeedCache(channel: String, etag: String?, items: [[String: Any]]) {
+        if let data = try? JSONSerialization.data(withJSONObject: items) {
+            UserDefaults.standard.set(data, forKey: feedItemsKey(channel))
+        }
+        if let etag, !etag.isEmpty {
+            UserDefaults.standard.set(etag, forKey: feedEtagKey(channel))
+        }
     }
 
     /// 提交反馈 (M2.10.7)

@@ -9,8 +9,8 @@
     android:layout_marginTop="4dp"
     android:layout_marginBottom="6dp"
     app:cardBackgroundColor="@color/wanxiang_card"
-    app:cardCornerRadius="14dp"
-    app:cardElevation="8dp">
+    app:cardCornerRadius="18dp"
+    app:cardElevation="4dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -20,8 +20,8 @@
         android:padding="14dp">
 
         <androidx.cardview.widget.CardView
-            android:layout_width="92dp"
-            android:layout_height="124dp"
+            android:layout_width="96dp"
+            android:layout_height="128dp"
             app:cardCornerRadius="6dp"
             app:cardElevation="0dp">
 
@@ -41,28 +41,98 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bs_badge_hot"
+                    android:includeFontPadding="false"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="2dp"
+                    android:text="@string/bs_badge_no1"
+                    android:textColor="#FFFFFF"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvRankName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:textColor="@color/wanxiang_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    tools:text="月票榜" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/tvName"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
                 android:ellipsize="end"
                 android:maxLines="2"
                 android:textColor="@color/wanxiang_text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                tools:text="活人深处" />
+                tools:text="玄鉴仙族" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/tvAuthor"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/wanxiang_text_secondary"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    tools:text="季越人"
+                    tools:visibility="visible" />
+
+                <TextView
+                    android:id="@+id/tvTag"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/bs_tag_chip"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="2dp"
+                    android:textColor="@color/wanxiang_primary"
+                    android:textSize="10sp"
+                    android:visibility="gone"
+                    tools:text="修真文明"
+                    tools:visibility="visible" />
+            </LinearLayout>
 
             <TextView
-                android:layout_width="wrap_content"
+                android:id="@+id/tvIntro"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:background="@drawable/bs_section_indicator"
-                android:paddingHorizontal="6dp"
-                android:paddingVertical="2dp"
-                android:text="@string/bs_hero_badge"
-                android:textColor="#FFFFFF"
-                android:textSize="11sp"
-                tools:ignore="HardcodedText" />
+                android:ellipsize="end"
+                android:lineSpacingExtra="2dp"
+                android:maxLines="3"
+                android:textColor="@color/wanxiang_text_secondary"
+                android:textSize="12sp"
+                android:visibility="gone"
+                tools:text="陆江仙熬夜猝死，残魂却附在了一面满是裂痕的青灰色铜镜上..."
+                tools:visibility="visible" />
         </LinearLayout>
     </LinearLayout>
 </androidx.cardview.widget.CardView>

@@ -113,13 +113,70 @@
                 android:orientation="vertical"
                 android:paddingBottom="24dp">
 
-                <!-- 2 个宣传卡 -->
+                <include
+                    android:id="@+id/loadFailedSection"
+                    layout="@layout/book_store_load_failed" />
+
+                <include
+                    android:id="@+id/skeletonSection"
+                    layout="@layout/book_store_skeleton" />
+
                 <LinearLayout
+                    android:id="@+id/bookStoreContent"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginHorizontal="12dp"
-                    android:layout_marginTop="14dp"
-                    android:orientation="horizontal">
+                    android:orientation="vertical">
+
+                    <!-- Hero 头条 (跟 iOS: hero → editorPicks → banner) -->
+                    <FrameLayout
+                        android:id="@+id/heroSlot"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp" />
+
+                    <!-- 编辑精选 (后端 /api/bookstore/feed) -->
+                    <LinearLayout
+                        android:id="@+id/editorPicksSection"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="12dp"
+                        android:layout_marginTop="14dp"
+                        android:background="@color/wanxiang_card"
+                        android:orientation="vertical"
+                        android:padding="12dp"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/bs_editor_picks"
+                            android:textColor="@color/wanxiang_text_primary"
+                            android:textSize="20sp"
+                            android:textStyle="bold" />
+
+                        <HorizontalScrollView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:overScrollMode="never"
+                            android:scrollbars="none">
+
+                            <LinearLayout
+                                android:id="@+id/editorPicksContainer"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal" />
+                        </HorizontalScrollView>
+                    </LinearLayout>
+
+                    <!-- Banner: 热门排行 / 完本书库 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="12dp"
+                        android:layout_marginTop="14dp"
+                        android:orientation="horizontal">
 
                     <androidx.cardview.widget.CardView
                         android:id="@+id/cardRank"
@@ -142,6 +199,7 @@
                             android:paddingHorizontal="16dp">
 
                             <TextView
+                                android:id="@+id/tvBannerRankTitle"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="@string/bs_rank"
@@ -150,6 +208,7 @@
                                 android:textStyle="bold" />
 
                             <TextView
+                                android:id="@+id/tvBannerRankSub"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
@@ -180,6 +239,7 @@
                             android:paddingHorizontal="16dp">
 
                             <TextView
+                                android:id="@+id/tvBannerLibraryTitle"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="@string/bs_library"
@@ -188,6 +248,7 @@
                                 android:textStyle="bold" />
 
                             <TextView
+                                android:id="@+id/tvBannerLibrarySub"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
@@ -202,11 +263,6 @@
                 <include
                     android:id="@+id/sectionMustRead"
                     layout="@layout/item_book_store_section_header" />
-
-                <FrameLayout
-                    android:id="@+id/heroSlot"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
 
                 <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
@@ -265,9 +321,11 @@
                         android:id="@+id/gridRanked"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:columnCount="2"
+                        android:columnCount="4"
                         android:padding="8dp" />
                 </androidx.cardview.widget.CardView>
+
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/tvStatus"

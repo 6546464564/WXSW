@@ -158,7 +158,11 @@ actor BookstoreMirror {
             return
         }
         cachedPayload = obj
-        cachedAt = Date()
+        if let mod = (try? FileManager.default.attributesOfItem(atPath: Self.diskURL.path))?[.modificationDate] as? Date {
+            cachedAt = mod
+        } else {
+            cachedAt = Date()
+        }
         cachedEtag = UserDefaults.standard.string(forKey: Self.etagDefaultsKey)
     }
 

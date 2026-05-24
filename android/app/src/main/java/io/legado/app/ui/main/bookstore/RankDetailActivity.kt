@@ -9,12 +9,14 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import io.legado.app.R
 import io.legado.app.base.BaseActivity
+import io.legado.app.data.appDb
 import io.legado.app.databinding.ActivityRankDetailBinding
-import io.legado.app.ui.book.search.SearchActivity
+import io.legado.app.help.book.isNotShelf
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -36,6 +38,7 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
 
     private lateinit var adapter: RankDetailAdapter
     private var loadJob: Job? = null
+    private var shelfDedupeKeys: Set<String> = emptySet()
 
     /** 当前 mode: rank | finish */
     private val mode: String by lazy { intent.getStringExtra(EXTRA_MODE) ?: "rank" }
@@ -54,13 +57,53 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
         }
     }
 
+    /** 跟 iOS RankDetailView.channel 对齐 */
+    private val channel: QidianRepository.Channel by lazy {
+        intent.getStringExtra(EXTRA_CHANNEL)
+            ?.let { runCatching { QidianRepository.Channel.valueOf(it) }.getOrNull() }
+            ?: QidianRepository.Channel.Male
+    }
+
+    private val rankGender: QidianRepository.Channel
+        get() = if (channel == QidianRepository.Channel.Publish) {
+            QidianRepository.Channel.Male
+        } else {
+            channel
+        }
+
     override fun onActivityCreated(savedInstanceState: Bundle?) {
         binding.titleBar.title = titleText
-        adapter = RankDetailAdapter(this) { book -> SearchActivity.start(this, book.name) }
+        adapter = RankDetailAdapter(
+            this,
+            onBookClick = { book -> BookstoreDetailLauncher.open(this, book) },
+            isOnShelf = { book -> shelfDedupeKeys.contains(shelfKey(book.name, book.author)) },
+        )
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
         binding.recyclerView.adapter = adapter
         binding.refreshLayout.setOnRefreshListener { loadData() }
+        refreshShelfKeys()
         loadData()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshShelfKeys()
+    }
+
+    private fun shelfKey(name: String, author: String) = "$name\u0000$author"
+
+    private fun refreshShelfKeys() {
+        lifecycleScope.launch {
+            shelfDedupeKeys = withContext(Dispatchers.IO) {
+                appDb.bookDao.flowAll().first()
+                    .filterNot { it.isNotShelf }
+                    .map { shelfKey(it.name, it.author) }
+                    .toSet()
+            }
+            if (!isFinishing) {
+                adapter.notifyDataSetChanged()
+            }
+        }
     }
 
     private fun loadData() {
@@ -70,10 +113,27 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
         binding.refreshLayout.isRefreshing = true
         loadJob = lifecycleScope.launch {
             try {
-                val books = withContext(Dispatchers.IO) {
-                    when (mode) {
-                        "finish" -> loadFinishLibrary()
-                        else -> QidianRepository.fetchRankPages(rankType, target = TARGET_COUNT)
+                val cacheKey = when (mode) {
+                    "finish" -> BookStorePrewarm.rankCacheKey("finish", channel)
+                    else -> BookStorePrewarm.rankCacheKey("rank", channel, rankType)
+                }
+                val cached = BookStorePrewarm.getRankDetailCached(cacheKey)
+                val books = if (cached != null) {
+                    cached
+                } else {
+                    withContext(Dispatchers.IO) {
+                        when (mode) {
+                            "finish" -> loadFinishLibrary()
+                            else -> QidianRepository.fetchRankPages(
+                                rankType,
+                                target = TARGET_COUNT,
+                                gender = rankGender,
+                            )
+                        }
+                    }.also { loaded ->
+                        if (loaded.isNotEmpty()) {
+                            BookStorePrewarm.putRankDetailCache(cacheKey, loaded)
+                        }
                     }
                 }
                 if (isFinishing) return@launch
@@ -131,7 +191,8 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
             runCatching {
                 QidianRepository.fetchRankPages(
                     QidianRepository.RankType.Yuepiao,
-                    target = need * 2,  // 多拉一倍, 留过滤空间
+                    target = need * 2,
+                    gender = rankGender,
                 )
             }.getOrNull()?.let { yuepiaoBooks ->
                 // 优先字数 ≥ 200 万 (完本概率高), 然后字数 ≥ 100 万, 最后兜底
@@ -162,23 +223,33 @@ class RankDetailActivity : BaseActivity<ActivityRankDetailBinding>() {
         private const val EXTRA_MODE = "mode"            // "rank" | "finish"
         private const val EXTRA_RANK_TYPE = "rankType"   // RankType enum name
         private const val EXTRA_TITLE = "title"
+        private const val EXTRA_CHANNEL = "channel"
 
         /** 万象书屋 D-22.3: 目标加载本数. 50 本是起点 m 站 majax 3 页能稳拉的量. */
         private const val TARGET_COUNT = 50
 
-        /** 启动: 显示某个 RankType 的完整 20+ 本 (调单榜分页接口) */
-        fun startRank(ctx: Context, rankType: QidianRepository.RankType, title: String? = null) {
+        fun startRank(
+            ctx: Context,
+            rankType: QidianRepository.RankType,
+            title: String? = null,
+            channel: QidianRepository.Channel = QidianRepository.Channel.Male,
+        ) {
             ctx.startActivity(Intent(ctx, RankDetailActivity::class.java).apply {
                 putExtra(EXTRA_MODE, "rank")
                 putExtra(EXTRA_RANK_TYPE, rankType.name)
+                putExtra(EXTRA_CHANNEL, channel.name)
                 title?.let { putExtra(EXTRA_TITLE, it) }
             })
         }
 
-        /** 启动: 显示完本书库 (合并 /finish/ 4 个完结榜) */
-        fun startFinish(ctx: Context, title: String? = null) {
+        fun startFinish(
+            ctx: Context,
+            title: String? = null,
+            channel: QidianRepository.Channel = QidianRepository.Channel.Male,
+        ) {
             ctx.startActivity(Intent(ctx, RankDetailActivity::class.java).apply {
                 putExtra(EXTRA_MODE, "finish")
+                putExtra(EXTRA_CHANNEL, channel.name)
                 title?.let { putExtra(EXTRA_TITLE, it) }
             })
         }

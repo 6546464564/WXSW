@@ -54,10 +54,8 @@ object QidianRepository {
     /**
      * 万象书屋·书城 频道.
      *
-     * D-22.1 (2026-05-08): 修正起点 m 站对 ?gender=female 实际 ignore 直接返男频的问题:
-     *   - Male / Female 都使用 /rank/?gender=male (起点 m 站对 female 反爬挡 + 数据 fallback male)
-     *     在客户端用「不同 RankType 映射」做差异化, 让女生 tab 至少看到不同书目
-     *   - Publish 改走独立 endpoint /finish/ (m.qidian 真完结频道), 数据是 4 完结榜
+     * D-22.1: m.qidian gender=female 与 male 榜单同源 (服务端/客户端均 mirror.ranks 兜底).
+     * Publish 走 /finish/ 完结频道 (4 完结榜).
      */
     enum class Channel {
         Male,
@@ -89,6 +87,26 @@ object QidianRepository {
         FinishDs("ds", "电视剧改编"),
         ;
 
+        /** /finish/ 完结频道 4 榜 */
+        val isFinishRank: Boolean
+            get() = when (this) {
+                FinishClassic, FinishMovie, FinishBestSell, FinishDs -> true
+                else -> false
+            }
+
+        /** mirror finish JSON 内的 key */
+        val finishMirrorKey: String get() = ssrKey
+
+        /** /finish/<path> 单榜详情 path */
+        val finishDetailPath: String?
+            get() = when (this) {
+                FinishClassic -> "classic"
+                FinishMovie -> "movie"
+                FinishBestSell -> "bestSell"
+                FinishDs -> "ds"
+                else -> null
+            }
+
         companion object {
             /** 全部榜单的 ssrKey → RankType 反查表 */
             val byKey: Map<String, RankType> by lazy { entries.associateBy { it.ssrKey } }
@@ -102,23 +120,38 @@ object QidianRepository {
      *   1. 后端 mirror (/api/bookstore/mirror) — 后端定时抓的 cache, 1 跳到我们 server
      *   2. 直抓 m.qidian.com/rank/ — 后端 503 / 网络故障时降级
      *
-     * D-22.1: 起点 m 站对 ?gender=female 反爬挡 + fallback male, 实测无差异. 这里始终请求 male
-     * 路径, 频道差异在客户端 BookStoreFragment 里通过 RankType 映射做差异化.
+     * D-22.1 / iOS 对齐: 女频优先 mirror.ranksFemale; 空则 fallback ranks + gender=female 直抓.
      *
+     * @param gender male / female (Publish 走 fetchFinishRanks, 不调此方法)
      * @return 9 个 RankType → List<QidianBook> (每榜 ~5 本); 找不到 SSR JSON 时抛异常
      */
-    suspend fun fetchAllRanks(): Map<RankType, List<QidianBook>> {
+    suspend fun fetchAllRanks(gender: Channel = Channel.Male): Map<RankType, List<QidianBook>> {
         // 1. 优先后端 mirror
         WanxiangBookstoreMirror.fetch()?.let { mirror ->
-            val ranksObj = mirror.getAsJsonObject("ranks")
+            var ranksObj = if (gender == Channel.Female) {
+                mirror.getAsJsonObject("ranksFemale")
+            } else {
+                mirror.getAsJsonObject("ranks")
+            }
+            // m.qidian gender=female 与 male 榜单同源; mirror 女频抓取失败时用 ranks 兜底, 避免女频 tab 空榜
+            if ((ranksObj == null || ranksObj.size() == 0) && gender == Channel.Female) {
+                ranksObj = mirror.getAsJsonObject("ranks")
+                if (ranksObj != null && ranksObj.size() > 0) {
+                    LogUtils.d(TAG, "ranksFemale empty, fallback mirror ranks")
+                }
+            }
             if (ranksObj != null && ranksObj.size() > 0) {
-                LogUtils.d(TAG, "ranks from mirror version=${mirror.get("version")?.asLong}")
+                LogUtils.d(TAG, "${if (gender == Channel.Female) "ranksFemale" else "ranks"} from mirror version=${mirror.get("version")?.asLong}")
                 return parseMirrorRanks(ranksObj)
+            }
+            if (gender == Channel.Male) {
+                LogUtils.d(TAG, "mirror ranks empty, fallback direct")
             }
         }
         // 2. 后端没有 / 失败 → 直抓 m.qidian
-        LogUtils.d(TAG, "ranks fallback to direct fetch")
-        val url = "$BASE/rank/?gender=male"
+        val genderParam = if (gender == Channel.Female) "female" else "male"
+        LogUtils.d(TAG, "ranks fallback to direct fetch gender=$genderParam")
+        val url = "$BASE/rank/?gender=$genderParam"
         return fetchPageWithSSR(url) { pageData -> parseRanksFromPageData(pageData) }
     }
 
@@ -142,20 +175,38 @@ object QidianRepository {
      * mirror 字段 (来自后端 jobs/qidianMirror.js parseBook):
      *   bid / name / author / cat / subCat / wordCount / rank / rankCount / intro / coverUrl
      */
-    private fun mirrorBookToQidian(obj: JsonObject, rankType: RankType): QidianBook {
+    private fun mirrorBookToQidian(obj: JsonObject, rankType: RankType): QidianBook? {
+        val name = obj.get("name")?.asString?.trim().orEmpty()
+        if (name.isBlank()) return null
+        val bid = mirrorBidString(obj) ?: return null
+        val cover = obj.get("coverUrl")?.asString?.trim().orEmpty()
+            .ifBlank { COVER_CDN_TEMPLATE.format(bid) }
         return QidianBook(
-            name = obj.get("name").asString,
-            coverUrl = obj.get("coverUrl")?.asString.orEmpty(),
-            author = obj.get("author")?.asString.orEmpty(),
-            category = obj.get("cat")?.asString.orEmpty(),
-            subCategory = obj.get("subCat")?.asString.orEmpty(),
-            wordCount = obj.get("wordCount")?.asString.orEmpty(),
-            bookId = obj.get("bid")?.asString.orEmpty(),
+            name = name,
+            coverUrl = cover,
+            author = obj.get("author")?.asString?.trim().orEmpty(),
+            category = obj.get("cat")?.asString?.trim().orEmpty(),
+            subCategory = obj.get("subCat")?.asString?.trim().orEmpty(),
+            wordCount = obj.get("wordCount")?.asString?.trim().orEmpty(),
+            bookId = bid,
             rank = obj.get("rank")?.asInt ?: 0,
             rankName = rankType.title,
-            rankCount = obj.get("rankCount")?.asString.orEmpty(),
-            intro = obj.get("intro")?.asString.orEmpty(),
+            rankCount = obj.get("rankCount")?.asString?.trim().orEmpty(),
+            intro = obj.get("intro")?.asString?.trim().orEmpty(),
         )
+    }
+
+    /** mirror bid 可能是 String 或 Number — 跟 iOS stringNumber 对齐 */
+    private fun mirrorBidString(obj: JsonObject): String? {
+        val bidEl = obj.get("bid") ?: return null
+        if (!bidEl.isJsonPrimitive) return null
+        val p = bidEl.asJsonPrimitive
+        val bid = when {
+            p.isString -> p.asString.trim()
+            p.isNumber -> p.asLong.toString()
+            else -> return null
+        }
+        return bid.takeIf { it.isNotBlank() }
     }
 
     /**
@@ -213,18 +264,21 @@ object QidianRepository {
      * @param type     当前 RankType
      * @param pageNum  1-based 页码 (1=#1-20, 2=#21-40, 3=#41-60)
      */
-    suspend fun fetchRankDetail(type: RankType, pageNum: Int = 1): List<QidianBook> {
-        // pageNum=1 走 SSR (一次拉 20 本 + 不需 csrf), 性能与可靠性最佳
-        if (pageNum == 1) return fetchRankSsr(type)
-        // pageNum>=2 走 majax ajax (需要 csrf)
-        return fetchRankAjax(type, pageNum)
+    suspend fun fetchRankDetail(
+        type: RankType,
+        pageNum: Int = 1,
+        gender: Channel = Channel.Male,
+    ): List<QidianBook> {
+        if (pageNum == 1) return fetchRankSsr(type, gender)
+        return fetchRankAjax(type, pageNum, gender)
     }
 
     /** SSR 拉第一页 (无需 csrf token, 永远稳定) */
-    private suspend fun fetchRankSsr(type: RankType): List<QidianBook> {
+    private suspend fun fetchRankSsr(type: RankType, gender: Channel = Channel.Male): List<QidianBook> {
         val path = rankDetailPath(type)
             ?: throw IllegalArgumentException("RankType ${type.name} 无单榜分页 path")
-        val url = "$BASE/rank/$path?gender=male"
+        val genderParam = if (gender == Channel.Female) "female" else "male"
+        val url = "$BASE/rank/$path?gender=$genderParam"
         LogUtils.d(TAG, "fetch detail SSR $url")
         val resp = okHttpClient.newCallStrResponse(retry = 1) {
             url(url)
@@ -251,19 +305,22 @@ object QidianRepository {
      * D-22.3: ajax 拉第 N 页 (N>=2). 需要 _csrfToken.
      * majax 接口路径模式: /majax/rank/<path>List (注意 path 后缀 "List")
      */
-    private suspend fun fetchRankAjax(type: RankType, pageNum: Int): List<QidianBook> {
+    private suspend fun fetchRankAjax(
+        type: RankType,
+        pageNum: Int,
+        gender: Channel = Channel.Male,
+    ): List<QidianBook> {
         val path = rankAjaxPath(type)
             ?: throw IllegalArgumentException("RankType ${type.name} 无 majax path")
-        val csrf = ensureCsrfToken()
-        val url = "$BASE/majax/rank/$path?_csrfToken=$csrf&gender=male&pageNum=$pageNum"
+        val genderParam = if (gender == Channel.Female) "female" else "male"
+        val csrf = ensureCsrfToken(gender)
+        val url = "$BASE/majax/rank/$path?_csrfToken=$csrf&gender=$genderParam&pageNum=$pageNum"
         LogUtils.d(TAG, "fetch detail ajax $url")
         val resp = okHttpClient.newCallStrResponse(retry = 1) {
             url(url)
             header("User-Agent", UA)
-            header("Referer", "$BASE/rank/${rankDetailPath(type)}?gender=male")
+            header("Referer", "$BASE/rank/${rankDetailPath(type)}?gender=$genderParam")
             header("Accept", "application/json, text/plain, */*")
-            // 万象书屋 D-22.3: 起点 majax 服务端校验 cookie._csrfToken == query._csrfToken,
-            // 仅 query 不行 (实测返 code=1 失败). cookie 也带上保证一致性.
             header("Cookie", "_csrfToken=$csrf")
         }
         val raw = resp.body ?: return emptyList()
@@ -280,17 +337,28 @@ object QidianRepository {
     /**
      * 拉多页凑够 [target] 本; 失败的页跳过, 已拿到的不浪费.
      *
-     * 起点 m.qidian 实测: 只 Yuepiao 同时支持 SSR + majax 分页 (能拉到 1000 本);
-     * 其他 RankType 仅 /rank/ 聚合页内的 5 本可用 (无独立 SSR/majax).
-     * 这里对非 Yuepiao 的 RankType, 直接返回聚合页中该榜的 5 本.
+     * iOS 对齐: 非完结榜走 SSR + majax 分页; 完结榜走 fetchFinishRankPages;
+     * Yuepiao 优先 mirror yuepiaoTop50 / yuepiaoTop50Female.
      */
-    suspend fun fetchRankPages(type: RankType, target: Int = 50): List<QidianBook> {
-        // D-23: Yuepiao 优先 mirror.yuepiaoTop50 (50 本现成的)
+    suspend fun fetchRankPages(
+        type: RankType,
+        target: Int = 50,
+        gender: Channel = Channel.Male,
+    ): List<QidianBook> {
+        val genderParam = if (gender == Channel.Female) "female" else "male"
+        // D-23: Yuepiao 优先 mirror top50
         if (type == RankType.Yuepiao) {
             WanxiangBookstoreMirror.fetch()?.let { mirror ->
-                val arr = mirror.getAsJsonArray("yuepiaoTop50")
+                var arr = if (gender == Channel.Female) {
+                    mirror.getAsJsonArray("yuepiaoTop50Female")
+                } else {
+                    mirror.getAsJsonArray("yuepiaoTop50")
+                }
+                if ((arr == null || arr.size() == 0) && gender == Channel.Female) {
+                    arr = mirror.getAsJsonArray("yuepiaoTop50")
+                }
                 if (arr != null && arr.size() > 0) {
-                    LogUtils.d(TAG, "yuepiao 50 from mirror size=${arr.size()}")
+                    LogUtils.d(TAG, "yuepiao top50 from mirror size=${arr.size()}")
                     return arr.mapNotNull {
                         runCatching { mirrorBookToQidian(it.asJsonObject, RankType.Yuepiao) }.getOrNull()
                     }.take(target)
@@ -298,16 +366,20 @@ object QidianRepository {
             }
             LogUtils.d(TAG, "yuepiao 50 fallback to direct fetch (SSR + majax)")
         }
-        if (type != RankType.Yuepiao) {
-            val all = runCatching { fetchAllRanks() }.getOrNull() ?: return emptyList()
+        if (type.isFinishRank) {
+            return fetchFinishRankPages(type, target)
+        }
+        if (rankDetailPath(type) == null) {
+            val all = runCatching { fetchAllRanks(gender) }.getOrNull() ?: return emptyList()
             return (all[type] ?: emptyList()).take(target)
         }
+        LogUtils.d(TAG, "rank pages paginated type=${type.name} gender=$genderParam target=$target")
         val out = ArrayList<QidianBook>(target + 20)
         val seen = HashSet<String>()
         var page = 1
         while (out.size < target && page <= 5) {
             val books = try {
-                fetchRankDetail(type, page)
+                if (page == 1) fetchRankSsr(type, gender) else fetchRankAjax(type, page, gender)
             } catch (t: Throwable) {
                 LogUtils.d(TAG, "page=$page failed: ${t.javaClass.simpleName}: ${t.message}")
                 emptyList()
@@ -320,6 +392,39 @@ object QidianRepository {
         return out.take(target)
     }
 
+    /** 完结频道单榜扩展到 target 本 (mirror → /finish/<path> SSR → 4 完结榜兜底) */
+    private suspend fun fetchFinishRankPages(type: RankType, target: Int): List<QidianBook> {
+        val out = ArrayList<QidianBook>(target + 10)
+        val seen = HashSet<String>()
+        WanxiangBookstoreMirror.fetch()?.let { mirror ->
+            val finishObj = mirror.getAsJsonObject("finish")
+            val arr = finishObj?.getAsJsonArray(type.finishMirrorKey)
+            arr?.forEach { el ->
+                runCatching { mirrorBookToQidian(el.asJsonObject, type) }.getOrNull()?.let { b ->
+                    if (seen.add(b.bookId)) out.add(b)
+                }
+            }
+        }
+        if (out.size < target) {
+            val path = type.finishDetailPath
+            if (path != null) {
+                runCatching {
+                    fetchPageData("$BASE/finish/$path").getAsJsonArray("records")
+                        ?.mapNotNull { runCatching { parseBook(it.asJsonObject, type) }.getOrNull() }
+                        .orEmpty()
+                }.getOrNull()?.forEach { b ->
+                    if (seen.add(b.bookId)) out.add(b)
+                }
+            }
+        }
+        if (out.size < target) {
+            runCatching { fetchFinishRanks() }.getOrNull()?.get(type).orEmpty().forEach { b ->
+                if (seen.add(b.bookId)) out.add(b)
+            }
+        }
+        return out.take(target)
+    }
+
     /**
      * 万象书屋 D-22.3: 拉 csrf token. 起点 m 站在响应的 Set-Cookie header 设置 _csrfToken=<uuid>.
      *
@@ -327,12 +432,15 @@ object QidianRepository {
      * 所以 cookie 不会自动持久化. 我们手动从 Set-Cookie response header 解析 + 内存缓存.
      * 一次拿到后整个 App 进程都复用 (csrf cookie 寿命 1 年, 起点 server 接受任意 csrf 配对当前 session).
      */
-    private suspend fun ensureCsrfToken(): String {
-        val cached = cachedCsrfToken
-        if (cached != null) return cached
-        // 万象书屋: 起点 m 站只在 /rank/yuepiao 等具体路径设 _csrfToken cookie, 根 / 不设.
+    private suspend fun ensureCsrfToken(gender: Channel = Channel.Male): String {
+        if (gender == Channel.Female) {
+            cachedCsrfTokenFemale?.let { return it }
+        } else {
+            cachedCsrfTokenMale?.let { return it }
+        }
+        val genderParam = if (gender == Channel.Female) "female" else "male"
         val resp = okHttpClient.newCallStrResponse(retry = 1) {
-            url("$BASE/rank/yuepiao?gender=male")
+            url("$BASE/rank/yuepiao?gender=$genderParam")
             header("User-Agent", UA)
             header("Accept", "text/html")
         }
@@ -341,13 +449,20 @@ object QidianRepository {
             ?: throw IllegalStateException("响应未带 _csrfToken Set-Cookie (起点改了协议?)")
         val token = csrfLine.removePrefix("_csrfToken=").substringBefore(";").trim()
         if (token.isEmpty()) throw IllegalStateException("_csrfToken 空值")
-        cachedCsrfToken = token
-        LogUtils.d(TAG, "csrf token cached")
+        if (gender == Channel.Female) {
+            cachedCsrfTokenFemale = token
+        } else {
+            cachedCsrfTokenMale = token
+        }
+        LogUtils.d(TAG, "csrf token cached gender=$genderParam")
         return token
     }
 
     @Volatile
-    private var cachedCsrfToken: String? = null
+    private var cachedCsrfTokenMale: String? = null
+
+    @Volatile
+    private var cachedCsrfTokenFemale: String? = null
 
     /** RankType → /rank/<path>?pageNum=N 的 SSR path. */
     private fun rankDetailPath(type: RankType): String? = when (type) {
@@ -377,11 +492,8 @@ object QidianRepository {
         else                -> null
     }
 
-    /** 万象书屋: 通用抓 vite-ssr 页 + parse helper, 给 fetchAllRanks/fetchFinishRanks 复用 */
-    private suspend fun fetchPageWithSSR(
-        url: String,
-        parse: (com.google.gson.JsonObject) -> Map<RankType, List<QidianBook>>,
-    ): Map<RankType, List<QidianBook>> {
+    /** 通用抓 vite-ssr 页 pageData, 给 fetchAllRanks/fetchFinishRanks/fetchFinishRankPages 复用 */
+    private suspend fun fetchPageData(url: String): com.google.gson.JsonObject {
         LogUtils.d(TAG, "fetch $url")
         val resp = okHttpClient.newCallStrResponse(retry = 1) {
             url(url)
@@ -396,12 +508,19 @@ object QidianRepository {
             ?: throw IllegalStateException("vite-ssr script 不存在")
         val root = JsonParser.parseString(script.data())
             ?: throw IllegalStateException("vite-ssr JSON 解析失败")
-        val pageData = root.asJsonObject
+        return root.asJsonObject
             .getAsJsonObject("pageContext")
             ?.getAsJsonObject("pageProps")
             ?.getAsJsonObject("pageData")
             ?: throw IllegalStateException("pageData 缺失")
-        return parse(pageData)
+    }
+
+    /** 万象书屋: 通用抓 vite-ssr 页 + parse helper, 给 fetchAllRanks/fetchFinishRanks 复用 */
+    private suspend fun fetchPageWithSSR(
+        url: String,
+        parse: (com.google.gson.JsonObject) -> Map<RankType, List<QidianBook>>,
+    ): Map<RankType, List<QidianBook>> {
+        return parse(fetchPageData(url))
     }
 
     /**
