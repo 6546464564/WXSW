@@ -22,7 +22,6 @@ import io.legado.app.ui.book.search.SearchActivity
 import io.legado.app.ui.main.MainFragmentInterface
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.applyStatusBarPadding
-import io.legado.app.utils.dpToPx
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -329,10 +328,6 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         upTabIndicator()
     }
 
-    private fun setupBanners() {
-        // 保留空壳: 实际 banner 在 bindAllSlots → updateBanners() 里按 channel 动态设置
-    }
-
     private fun heroType(): QidianRepository.RankType = when (currentChannel) {
         QidianRepository.Channel.Male, QidianRepository.Channel.Female -> QidianRepository.RankType.Yuepiao
         QidianRepository.Channel.Publish -> QidianRepository.RankType.Yuepiao
@@ -382,16 +377,6 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
                 getString(R.string.bs_library)
             }
             RankDetailActivity.startFinish(requireContext(), libraryTitle, currentChannel)
-        }
-    }
-
-    /** 将栏目标题滚入可视区域（顶部留白） */
-    private fun scrollSectionIntoView(target: View) {
-        val scroll = binding.bookStoreScroll
-        val content = scroll.getChildAt(0) as? ViewGroup ?: return
-        scroll.post {
-            val y = target.offsetInAncestor(content) - 8.dpToPx()
-            scroll.smoothScrollTo(0, y.coerceAtLeast(0))
         }
     }
 
@@ -536,9 +521,6 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
      *   gridMustRead  = hotRank   top 8     (阅读榜)
      *   gridComplete  = newbRank  top 8     (新书榜, 起点无纯完结榜替代用)
      *   gridRanked    = recRank   top 8     (推荐榜, 带真排名 1-5+)
-     *
-     * Publish 频道复用 male 数据但板块顺序换一下 (用 dsRank 畅销榜替 hotRank, 让 tab 视觉有别).
-     * (已废弃: 出版现走 PublishBookstore / mirror.ranksPublish)
      */
     private fun bindAllSlots(ranks: Map<QidianRepository.RankType, List<QidianBook>>) {
         clearAllSlots()
@@ -806,15 +788,5 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
 
     private fun openBookstoreBook(book: QidianBook) {
         BookstoreDetailLauncher.open(requireContext(), book)
-    }
-
-    private fun View.offsetInAncestor(ancestor: ViewGroup): Int {
-        var d = 0
-        var v: View? = this
-        while (v != null && v !== ancestor) {
-            d += v.top
-            v = v.parent as? View
-        }
-        return d
     }
 }

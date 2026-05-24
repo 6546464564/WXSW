@@ -305,19 +305,7 @@ object QidianRepository {
      *      (legado okHttpClient 自动管理 cookie)
      *   2. GET /majax/rank/<path>List?_csrfToken=<token>&gender=male&pageNum=N
      *   3. 返回 JSON {code:0, data:{records:[20 本]}}
-     *
-     * @param type     当前 RankType
-     * @param pageNum  1-based 页码 (1=#1-20, 2=#21-40, 3=#41-60)
      */
-    suspend fun fetchRankDetail(
-        type: RankType,
-        pageNum: Int = 1,
-        gender: Channel = Channel.Male,
-    ): List<QidianBook> {
-        if (pageNum == 1 && gender == Channel.Male) return fetchRankSsr(type, gender)
-        return fetchRankAjax(type, pageNum, gender)
-    }
-
     /** SSR 拉第一页 (无需 csrf token, 永远稳定) */
     private suspend fun fetchRankSsr(type: RankType, gender: Channel = Channel.Male): List<QidianBook> {
         val path = rankDetailPath(type)

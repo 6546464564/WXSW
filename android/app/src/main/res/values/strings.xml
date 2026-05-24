@@ -20,8 +20,6 @@
     <string name="bs_library_sub">经典完结 50 本</string>
     <string name="bs_library_publish">出版书库</string>
     <string name="bs_library_publish_sub">阅读 · 新书 · 推荐</string>
-    <string name="bs_banner_rank_keyword">热门</string>
-    <string name="bs_banner_library_keyword">完本</string>
 
     <!-- Ads -->
     <string name="ad_consent_title">Personalized Ads</string>

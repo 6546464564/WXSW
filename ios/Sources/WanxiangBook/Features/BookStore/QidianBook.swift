@@ -220,7 +220,7 @@ extension QidianBook {
         return ""
     }
 
-    /// 后端 `/bookstore/feed` 条目 → BookstoreFeedPick (编辑精选等).
+    /// 后端 `/bookstore/feed` 条目 → BookstoreFeedPick (出版频道 mirror 兜底).
     static func feedPick(from item: [String: Any]) -> BookstoreFeedPick? {
         let name = feedString(item, "name")
         guard !name.isEmpty else { return nil }
