@@ -47,7 +47,7 @@ public struct SearchContentView: View {
                     TextField("搜索内容", text: $keyword)
                         .textFieldStyle(.plain)
                         .submitLabel(.search)
-                        .onChange(of: keyword) { _, _ in scheduleSearch() }
+                        .onChange(of: keyword) { _ in scheduleSearch() }
                     if !keyword.isEmpty {
                         Button { keyword = ""; vm.reset() } label: {
                             Image(systemName: "xmark.circle.fill")
@@ -67,7 +67,7 @@ public struct SearchContentView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
                 .padding(.top, 8)
-                .onChange(of: scope) { _, _ in scheduleSearch() }
+                .onChange(of: scope) { _ in scheduleSearch() }
 
                 Divider().padding(.top, 8)
 

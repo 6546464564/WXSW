@@ -23,8 +23,8 @@ struct CacheView: View {
     var body: some View {
         List {
             if vm.books.isEmpty {
-                ContentUnavailableView("书架空", systemImage: "tray",
-                    description: Text("先从书城或搜索加书"))
+                EmptyStateView(title: "书架空", systemImage: "tray",
+                               description: "先从书城或搜索加书")
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(vm.books) { row in

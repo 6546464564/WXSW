@@ -113,7 +113,7 @@ struct BookshelfView: View {
                 guard autoRefreshShelf, didInitialTask else { return }
                 Task { await vm.refresh(sort: sort, groupId: selectedGroupId) }
             }
-            .onChange(of: selectedGroupIdRaw) { _, _ in
+            .onChange(of: selectedGroupIdRaw) { _ in
                 Task { await vm.refresh(sort: sort, groupId: selectedGroupId) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .wanxiangBookshelfChanged)) { _ in

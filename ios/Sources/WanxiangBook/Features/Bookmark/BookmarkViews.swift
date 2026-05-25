@@ -13,8 +13,8 @@ struct AllBookmarkView: View {
     var body: some View {
         Group {
             if bookmarks.isEmpty {
-                ContentUnavailableView("没有书签", systemImage: "bookmark",
-                    description: Text("阅读时长按选中文本可添加书签"))
+                EmptyStateView(title: "没有书签", systemImage: "bookmark",
+                    description: "阅读时长按选中文本可添加书签")
             } else {
                 List {
                     ForEach(bookmarks) { b in

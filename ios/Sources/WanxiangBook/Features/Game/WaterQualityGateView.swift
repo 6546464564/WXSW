@@ -21,7 +21,7 @@ private enum QRSheetType: Identifiable {
 
 struct WaterQualityGateView: View {
     let onUnlock: () -> Void
-    @State private var vm = QRViewModel()
+    @StateObject private var vm = QRViewModel()
     @State private var autoDemo = ProcessInfo.processInfo.arguments.contains("--GateAutoDemo")
 
     var body: some View {
@@ -560,17 +560,16 @@ struct WaterQualityGateView: View {
 // MARK: - ViewModel
 
 @MainActor
-@Observable
-private final class QRViewModel {
-    var selectedTab: BottomTab = .generate
-    var inputText: String = "https://cli.im"
-    var codeType: String = "QR Code"
-    var errorLevel: String = "30%"
-    var sizeLabel: String = "400×400"
-    var activeSheet: QRSheetType? = nil
-    var history: [QRHistoryItem] = []
-    var flashOn = false
-    var showAlbumToast = false
+private final class QRViewModel: ObservableObject {
+    @Published var selectedTab: BottomTab = .generate
+    @Published var inputText: String = "https://cli.im"
+    @Published var codeType: String = "QR Code"
+    @Published var errorLevel: String = "30%"
+    @Published var sizeLabel: String = "400×400"
+    @Published var activeSheet: QRSheetType? = nil
+    @Published var history: [QRHistoryItem] = []
+    @Published var flashOn = false
+    @Published var showAlbumToast = false
 
     enum BottomTab: String, CaseIterable {
         case generate = "生成"

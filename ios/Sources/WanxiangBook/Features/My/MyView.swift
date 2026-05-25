@@ -146,7 +146,7 @@ struct MyView: View {
             .background(WanxiangColors.background.ignoresSafeArea())
             .navigationTitle("tab.my")
             .navigationBarTitleDisplayMode(.inline)
-            .listSectionSpacing(.compact)
+            .environment(\.defaultMinListRowHeight, 10)
             .fileImporter(
                 isPresented: $showBookSourceImporter,
                 allowedContentTypes: [UTType.json],

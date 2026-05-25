@@ -57,11 +57,15 @@ public final class SourceHealthChecker: ObservableObject {
 
     /// App 切到前台时调用. 如距上次 ≥ 2h, 则后台启动健康检测.
     public func scheduleIfNeeded() {
+        #if TESTLAB
+        return
+        #else
         let last = JSEngine.jsDefaults.double(forKey: Self.lastCheckKey)
         let now = Date().timeIntervalSince1970
         guard now - last >= checkInterval else { return }
         guard !isChecking else { return }
         startHealthCheck()
+        #endif
     }
 
     /// 手动立即触发健康检测（给设置页的「立即检测」按钮用）

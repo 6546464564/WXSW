@@ -36,14 +36,14 @@ struct ChangeSourceCandidatesList<Row: View>: View {
                     }
                 }
             }
-            .onChange(of: scrollToken) { _, _ in
+            .onChange(of: scrollToken) { _ in
                 guard let cur = currentOrigin,
                       let hit = display.first(where: { $0.book.origin == cur }) else { return }
                 withAnimation(.easeInOut(duration: 0.25)) {
                     proxy.scrollTo(hit.stableId, anchor: .center)
                 }
             }
-            .onChange(of: jumpEdgeToken) { _, tok in
+            .onChange(of: jumpEdgeToken) { tok in
                 let ids = display.map(\.stableId)
                 guard !ids.isEmpty else { return }
                 withAnimation {

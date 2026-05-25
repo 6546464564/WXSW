@@ -93,7 +93,7 @@ struct WanxiangBookApp: App {
             .task {
                 await appState.bootstrap()
             }
-            .onChange(of: scenePhase) { _, newPhase in
+            .onChange(of: scenePhase) { newPhase in
                 Task { await appState.handleScenePhase(newPhase) }
             }
             .onOpenURL { url in
@@ -142,6 +142,11 @@ final class AppState: ObservableObject {
     func bootstrap() async {
         guard !isBootstrapped else { return }
         // UI 测试模式：跳过耗时的网络初始化，让主界面立即显示
+        #if TESTLAB
+        isBootstrapped = true
+        await BookSourceRegistry.shared.bootstrap()
+        return
+        #endif
         if CommandLine.arguments.contains("-uitest") {
             isBootstrapped = true
             await PromoCodeManager.shared.bootstrap()

@@ -54,7 +54,7 @@ public struct DownloadRangeSheet: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
-                .onChange(of: preset) { _, new in applyPreset(new) }
+                .onChange(of: preset) { new in applyPreset(new) }
 
                 // 范围摘要
                 VStack(spacing: 8) {

@@ -21,8 +21,8 @@ struct ReplaceRuleListView: View {
     var body: some View {
         List {
             if rules.isEmpty {
-                ContentUnavailableView("还没有替换规则", systemImage: "arrow.triangle.2.circlepath",
-                                       description: Text("点右上 + 添加,可用正则去广告 / 替换错别字"))
+                EmptyStateView(title: "还没有替换规则", systemImage: "arrow.triangle.2.circlepath",
+                               description: "点右上 + 添加,可用正则去广告 / 替换错别字")
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(rules) { r in
@@ -155,8 +155,8 @@ struct DictRuleListView: View {
     var body: some View {
         List {
             if rules.isEmpty {
-                ContentUnavailableView("没有词典", systemImage: "character.book.closed",
-                                       description: Text("点右上 + 添加,可在选词时弹出查词"))
+                EmptyStateView(title: "没有词典", systemImage: "character.book.closed",
+                               description: "点右上 + 添加,可在选词时弹出查词")
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(rules) { r in
@@ -260,8 +260,8 @@ struct TxtTocRuleListView: View {
     var body: some View {
         List {
             if rules.isEmpty {
-                ContentUnavailableView("没有规则", systemImage: "list.bullet.rectangle",
-                                       description: Text("打开本地 TXT 时用来识别章节"))
+                EmptyStateView(title: "没有规则", systemImage: "list.bullet.rectangle",
+                               description: "打开本地 TXT 时用来识别章节")
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(rules) { r in

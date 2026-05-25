@@ -84,12 +84,17 @@ struct RankDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .wanxiangBookshelfChanged)) { _ in
             Task { await refreshShelfKeys() }
         }
-        .onChange(of: detailTarget) { _, new in
+        .onChange(of: detailTarget) { new in
             if new == nil { Task { await refreshShelfKeys() } }
         }
         // 万象书屋 (UX): 与书城首页一致 — push BookDetailView, 内部 resolveSourceIfNeeded 找源.
-        .navigationDestination(item: $detailTarget) { t in
-            BookDetailView(book: t.book, source: t.source)
+        .navigationDestination(isPresented: Binding(
+            get: { detailTarget != nil },
+            set: { if !$0 { detailTarget = nil } }
+        )) {
+            if let t = detailTarget {
+                BookDetailView(book: t.book, source: t.source)
+            }
         }
     }
 

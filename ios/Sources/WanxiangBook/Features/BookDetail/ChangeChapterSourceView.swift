@@ -90,10 +90,10 @@ public struct ChangeChapterSourceView: View {
             .onDisappear {
                 vm.shutdown()
             }
-            .onChange(of: vm.screenFilter) { _, _ in
+            .onChange(of: vm.screenFilter) { _ in
                 vm.rebuildDisplayList(currentOrigin: target.currentOrigin)
             }
-            .onChange(of: vm.groupFilter) { _, _ in
+            .onChange(of: vm.groupFilter) { _ in
                 vm.rebuildDisplayList(currentOrigin: target.currentOrigin)
             }
         }
@@ -127,7 +127,7 @@ public struct ChangeChapterSourceView: View {
                 TextField("过滤 + 精准搜索 (如作者名)", text: $vm.screenFilter)
                     .textFieldStyle(.plain)
                     .submitLabel(.search)
-                    .onChange(of: vm.screenFilter) { _, new in
+                    .onChange(of: vm.screenFilter) { new in
                         scheduleSecondaryRound(extraKeyword: new)
                     }
                 if !vm.screenFilter.isEmpty {

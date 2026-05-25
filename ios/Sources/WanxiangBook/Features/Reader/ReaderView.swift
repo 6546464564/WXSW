@@ -1015,7 +1015,7 @@ public struct ReaderView: View {
                                         contentCanvasSize = contentGeo.size
                                         debouncedRepaginate()
                                     }
-                                    .onChange(of: contentGeo.size) { _, newSize in
+                                    .onChange(of: contentGeo.size) { newSize in
                                         contentCanvasSize = newSize
                                         debouncedRepaginate()
                                     }
@@ -1054,20 +1054,20 @@ public struct ReaderView: View {
         }
         .onAppear { handleAppear(geoSize: geo.size) }
         .onDisappear { handleDisappear() }
-        .onChange(of: readerScenePhase) { _, phase in handleScenePhaseChange(phase) }
-        .onChange(of: config.brightness) { _, _ in applyBrightness() }
-        .onChange(of: config.autoBrightness) { _, _ in applyBrightness() }
-        .onChange(of: geo.size) { _, newSize in
+        .onChange(of: readerScenePhase) { phase in handleScenePhaseChange(phase) }
+        .onChange(of: config.brightness) { _ in applyBrightness() }
+        .onChange(of: config.autoBrightness) { _ in applyBrightness() }
+        .onChange(of: geo.size) { newSize in
             screenSize = newSize
             debouncedRepaginate()
         }
-        .onChange(of: config.keepScreenOn) { _, on in
+        .onChange(of: config.keepScreenOn) { on in
             UIApplication.shared.isIdleTimerDisabled = on
         }
-        .onChange(of: currentPageId) { _, newId in
+        .onChange(of: currentPageId) { newId in
             if let id = newId { saveReadingPosition(pageId: id) }
         }
-        .onChange(of: engine.currentChapterIndex) { _, newIdx in
+        .onChange(of: engine.currentChapterIndex) { newIdx in
             let target = crossChapterTargetPageId
             crossChapterTargetPageId = nil
             repaginateCurrent(targetPageId: target)
@@ -1075,10 +1075,10 @@ public struct ReaderView: View {
             PurifiedReadingState.shared.markChapterOpened(uniqueKey: key)
             checkChapterPaywall()
         }
-        .onChange(of: engine.loadingChapter) { _, _ in debouncedRepaginate() }
-        .onChange(of: engine.chapterContentRevision) { _, _ in debouncedRepaginate() }
-        .onChange(of: engine.adjacentCacheRevision) { _, _ in debouncedRepaginate() }
-        .onChange(of: config.textSize) { _, _ in
+        .onChange(of: engine.loadingChapter) { _ in debouncedRepaginate() }
+        .onChange(of: engine.chapterContentRevision) { _ in debouncedRepaginate() }
+        .onChange(of: engine.adjacentCacheRevision) { _ in debouncedRepaginate() }
+        .onChange(of: config.textSize) { _ in
             sizeDebounceTask?.cancel()
             sizeDebounceTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 50_000_000)

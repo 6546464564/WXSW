@@ -39,9 +39,8 @@ struct DictLookupSheet: View {
                     InAppBrowserView(url: url)
                         .ignoresSafeArea(edges: .bottom)
                 } else {
-                    ContentUnavailableView("未配置词典",
-                        systemImage: "character.book.closed",
-                        description: Text("我的→词典规则 添加"))
+                    EmptyStateView(title: "未配置词典", systemImage: "character.book.closed",
+                                   description: "我的→词典规则 添加")
                 }
             }
             .navigationTitle("查词:「\(keyword)」")

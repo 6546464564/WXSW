@@ -43,23 +43,38 @@ struct BookStoreView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar(.hidden, for: .navigationBar)
                 // 万象书屋 (UX): 搜索改成 NavigationStack push 的全屏单独页, 不再用 sheet 弹框.
-                .navigationDestination(item: $searchSeed) { seed in
-                    SearchView(initialKeyword: seed.keyword, embedded: true)
-                }
-                .navigationDestination(item: $navTarget) { target in
-                    switch target {
-                    case .rank(let type, let title):
-                        RankDetailView(mode: .rank(type), title: title, channel: vm.currentChannel)
-                    case .finish(let title):
-                        RankDetailView(mode: .finish, title: title, channel: vm.currentChannel)
+                .navigationDestination(isPresented: Binding(
+                    get: { searchSeed != nil },
+                    set: { if !$0 { searchSeed = nil } }
+                )) {
+                    if let seed = searchSeed {
+                        SearchView(initialKeyword: seed.keyword, embedded: true)
                     }
                 }
-                .navigationDestination(item: $detailTarget) { t in
-                    BookDetailView(book: t.book, source: t.source)
+                .navigationDestination(isPresented: Binding(
+                    get: { navTarget != nil },
+                    set: { if !$0 { navTarget = nil } }
+                )) {
+                    if let target = navTarget {
+                        switch target {
+                        case .rank(let type, let title):
+                            RankDetailView(mode: .rank(type), title: title, channel: vm.currentChannel)
+                        case .finish(let title):
+                            RankDetailView(mode: .finish, title: title, channel: vm.currentChannel)
+                        }
+                    }
+                }
+                .navigationDestination(isPresented: Binding(
+                    get: { detailTarget != nil },
+                    set: { if !$0 { detailTarget = nil } }
+                )) {
+                    if let t = detailTarget {
+                        BookDetailView(book: t.book, source: t.source)
+                    }
                 }
                 .task(id: vm.currentChannel) { await vm.loadIfNeeded(force: false) }
                 .task { await vm.refreshShelfKeys() }
-                .onChange(of: detailTarget) { _, new in
+                .onChange(of: detailTarget) { new in
                     if new == nil { Task { await vm.refreshShelfKeys() } }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .wanxiangBookshelfChanged)) { _ in

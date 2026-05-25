@@ -135,8 +135,13 @@ struct SearchView: View {
                 }
             }
         }
-        .navigationDestination(item: $autoNavBook) { book in
-            BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
+        .navigationDestination(isPresented: Binding(
+            get: { autoNavBook != nil },
+            set: { if !$0 { autoNavBook = nil } }
+        )) {
+            if let book = autoNavBook {
+                BookDetailView(book: book, source: BookSourceRegistry.shared.find(origin: book.origin))
+            }
         }
     }
 
@@ -185,12 +190,12 @@ struct SearchView: View {
                 Task { await vm.search(key: initialKeyword, precisionSearch: precisionSearch) }
             }
         }
-        .onChange(of: precisionSearch) { _, _ in
+        .onChange(of: precisionSearch) { _ in
             guard !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             Task { await vm.search(key: keyword, precisionSearch: precisionSearch) }
         }
         // 万象书屋 (debug arg `--OpenSearchTopHit`): 搜索结束 + 有结果时, 自动 push 到 #1
-        .onChange(of: vm.isSearching) { _, isSearching in
+        .onChange(of: vm.isSearching) { isSearching in
             guard !isSearching, !autoNavigatedOnce else { return }
             let args = ProcessInfo.processInfo.arguments
             let wants = args.contains("--OpenSearchTopHit") || args.contains("-OpenSearchTopHit")
@@ -215,7 +220,7 @@ struct SearchView: View {
                 .focused($inputFocused)
                 .submitLabel(.search)
                 .accessibilityIdentifier("search.keyword")
-                .onChange(of: keyword) { _, new in
+                .onChange(of: keyword) { new in
                     debounce(new)
                 }
                 .onSubmit {
