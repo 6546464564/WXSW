@@ -43,7 +43,12 @@ struct TocView: View {
 
                 ScrollViewReader { proxy in
                     List {
-                        ForEach(filtered, id: \.chapterIndex) { ch in
+                        // 万象书屋 (2026-05-25): 用稳定的组合 id 而不是 enumerated().offset.
+                        // .offset 在 filter 关键词变化时会让所有 row 的 id 漂移, 导致 SwiftUI
+                        // 全量重建 + ScrollViewReader 锚点失效, 性能差且偶尔状态错乱.
+                        // 组合 id 既能去重 (跟 ChangeChapterSourceView.pickRowId 同思路),
+                        // 又在 filter 后保持稳定.
+                        ForEach(filtered, id: \.tocRowId) { ch in
                             Button {
                                 onSelect(ch.chapterIndex)
                             } label: {
@@ -122,4 +127,9 @@ struct TocView: View {
         let set = (try? await ChapterRepository.shared.cachedContentIndexes(bookUrl: bookUrl)) ?? []
         await MainActor.run { cachedIndexes = set }
     }
+}
+
+// MARK: - 稳定 row id (filter 后不漂移, 同时去重不同源 toc 的偶发重复 chapterIndex)
+private extension BookChapter {
+    var tocRowId: String { "\(chapterIndex)::\(chapterUrl ?? title)::\(title)" }
 }

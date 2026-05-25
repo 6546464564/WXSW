@@ -64,7 +64,7 @@ struct BookshelfView: View {
     @AppStorage("wanxiang.shelf.style") private var styleRaw: Int = 1       // 0=列表 1=网格 (默认网格)
     @AppStorage("wanxiang.shelf.cols") private var cols: Int = 3
     @AppStorage("wanxiang.shelf.sort") private var sortRaw: Int = ShelfSort.latestRead.rawValue
-    @AppStorage("wanxiang.shelf.show_unread") private var showUnread: Bool = true
+    @AppStorage("wanxiang.shelf.show_unread") private var showUnread: Bool = false
     @AppStorage("wanxiang.shelf.show_last_update") private var showLastUpdateTime: Bool = true
     @AppStorage("wanxiang.shelf.show_fast_scroller") private var showFastScroller: Bool = false
     @AppStorage("wanxiang.startup.refreshShelf") private var autoRefreshShelf: Bool = true

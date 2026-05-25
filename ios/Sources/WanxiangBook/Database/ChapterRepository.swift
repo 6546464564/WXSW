@@ -142,22 +142,41 @@ public actor ChapterRepository {
     }
 
     /// 下载器写入（同时设 downloaded_at）：表示章节已完整离线，供 cachedContentIndexes 判断跳过
-    public func saveDownloadedContent(bookUrl: String, chapterIndex: Int, content: String) async throws {
+    /// - Returns: 是否成功写入（UPDATE 命中行或 INSERT 新行）
+    @discardableResult
+    public func saveDownloadedContent(bookUrl: String, chapterIndex: Int, content: String) async throws -> Bool {
         try await DB.shared.openIfNeeded()
         let now = Int64(Date().timeIntervalSince1970 * 1000)
-        try await DB.shared.execQuery { handle in
-            var stmt: OpaquePointer?
-            defer { sqlite3_finalize(stmt) }
+        return try await DB.shared.execQuery { handle in
+            var updateStmt: OpaquePointer?
+            defer { sqlite3_finalize(updateStmt) }
             sqlite3_prepare_v2(handle, """
                 UPDATE book_chapters SET content = ?, updated_at = ?, downloaded_at = ?
                 WHERE book_url = ? AND chapter_index = ?
-            """, -1, &stmt, nil)
-            sqlite3_bind_text(stmt, 1, content, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_int64(stmt, 2, now)
-            sqlite3_bind_int64(stmt, 3, now)
-            sqlite3_bind_text(stmt, 4, bookUrl, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_int(stmt, 5, Int32(chapterIndex))
-            _ = sqlite3_step(stmt)
+            """, -1, &updateStmt, nil)
+            sqlite3_bind_text(updateStmt, 1, content, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(updateStmt, 2, now)
+            sqlite3_bind_int64(updateStmt, 3, now)
+            sqlite3_bind_text(updateStmt, 4, bookUrl, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int(updateStmt, 5, Int32(chapterIndex))
+            _ = sqlite3_step(updateStmt)
+            if sqlite3_changes(handle) > 0 { return true }
+
+            var insertStmt: OpaquePointer?
+            defer { sqlite3_finalize(insertStmt) }
+            sqlite3_prepare_v2(handle, """
+                INSERT INTO book_chapters(
+                  book_url, chapter_index, chapter_url, title,
+                  content, tag, start_fragment, end_fragment,
+                  is_volume, is_paid, updated_at, downloaded_at
+                ) VALUES (?, ?, NULL, '', ?, NULL, NULL, NULL, 0, 0, ?, ?)
+            """, -1, &insertStmt, nil)
+            sqlite3_bind_text(insertStmt, 1, bookUrl, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int(insertStmt, 2, Int32(chapterIndex))
+            sqlite3_bind_text(insertStmt, 3, content, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int64(insertStmt, 4, now)
+            sqlite3_bind_int64(insertStmt, 5, now)
+            return sqlite3_step(insertStmt) == SQLITE_DONE
         }
     }
 
@@ -193,6 +212,25 @@ public actor ChapterRepository {
             var result = Set<Int>()
             while sqlite3_step(stmt) == SQLITE_ROW {
                 result.insert(Int(sqlite3_column_int(stmt, 0)))
+            }
+            return result
+        }
+    }
+
+    /// 各章正文字节长度 — 用于下载时识别「只有一页」的残缺缓存并强制重拉
+    public func cachedContentLengths(bookUrl: String) async throws -> [Int: Int] {
+        try await DB.shared.openIfNeeded()
+        return try await DB.shared.execQuery { handle in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_prepare_v2(handle, """
+                SELECT chapter_index, LENGTH(content) FROM book_chapters
+                WHERE book_url = ? AND content IS NOT NULL AND LENGTH(content) > 0
+            """, -1, &stmt, nil)
+            sqlite3_bind_text(stmt, 1, bookUrl, -1, SQLITE_TRANSIENT)
+            var result: [Int: Int] = [:]
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                result[Int(sqlite3_column_int(stmt, 0))] = Int(sqlite3_column_int(stmt, 1))
             }
             return result
         }

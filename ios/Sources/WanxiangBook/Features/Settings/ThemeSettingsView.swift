@@ -75,7 +75,6 @@ struct OtherSettingsView: View {
     @AppStorage("wanxiang.startup.openLastBook") private var openLastBook: Bool = false
     @AppStorage("wanxiang.startup.refreshShelf") private var autoRefreshShelf: Bool = true
     @AppStorage("wanxiang.shelf.preloadCovers") private var preloadCovers: Bool = false
-    @AppStorage("wanxiang.shelf.wifiOnlyCovers") private var wifiOnlyCovers: Bool = true
     @AppStorage("wanxiang.cache.maxImages") private var maxImages: Int = 200
     @AppStorage("wanxiang.cache.preDownloadChapters") private var preDownloadChapters: Int = 3
     @AppStorage("wanxiang.cache.expireDays") private var expireDays: Int = 90
@@ -100,7 +99,6 @@ struct OtherSettingsView: View {
             }
             Section("书架") {
                 Toggle("预加载封面", isOn: $preloadCovers)
-                Toggle("仅 WiFi 加载封面", isOn: $wifiOnlyCovers)
             }
             Section("缓存") {
                 Stepper("最大图片缓存:\(maxImages) 张", value: $maxImages, in: 50...1000, step: 50)

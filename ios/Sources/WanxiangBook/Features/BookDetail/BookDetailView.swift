@@ -671,7 +671,8 @@ struct BookDetailView: View {
             group.addTask {
                 let stream = await BookSourceEngine.shared.searchAll(
                     in: candidates, key: bookName,
-                    maxConcurrency: 8, perSourceTimeoutSec: 6
+                    maxConcurrency: BookSourceEngine.adaptiveResolveSearchConcurrency,
+                    perSourceTimeoutSec: 6
                 )
                 for await (src, r) in stream {
                     if Task.isCancelled { return nil }
@@ -690,7 +691,8 @@ struct BookDetailView: View {
                     let combined = "\(bookName) \(bookAuthor)"
                     let stream = await BookSourceEngine.shared.searchAll(
                         in: candidates, key: combined,
-                        maxConcurrency: 8, perSourceTimeoutSec: 6
+                        maxConcurrency: BookSourceEngine.adaptiveResolveSearchConcurrency,
+                        perSourceTimeoutSec: 6
                     )
                     for await (src, r) in stream {
                         if Task.isCancelled { return nil }
@@ -709,7 +711,8 @@ struct BookDetailView: View {
                 group.addTask {
                     let stream = await BookSourceEngine.shared.searchAll(
                         in: candidates, key: "\(bookName) \(qid)",
-                        maxConcurrency: 8, perSourceTimeoutSec: 6
+                        maxConcurrency: BookSourceEngine.adaptiveResolveSearchConcurrency,
+                        perSourceTimeoutSec: 6
                     )
                     for await (src, r) in stream {
                         if Task.isCancelled { return nil }

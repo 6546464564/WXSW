@@ -30,7 +30,7 @@ public struct ExploreShowView: View {
                 columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                 spacing: 16
             ) {
-                ForEach(vm.books, id: \.bookUrl) { book in
+                ForEach(vm.books, id: \.listRowId) { book in
                     NavigationLink {
                         BookDetailView(book: book, source: source)
                     } label: {

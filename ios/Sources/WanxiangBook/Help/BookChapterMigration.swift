@@ -33,6 +33,25 @@ enum BookChapterMigration {
         let minBound = max(0, min(oldDurChapterIndex, durIndex) - 10)
         let maxBound = min(newChapterSize - 1, max(oldDurChapterIndex, durIndex) + 10)
 
+        // 万象书屋 (crash fix): 新目录比旧进度短很多时 minBound > maxBound,
+        // `minBound...maxBound` 会 Fatal error: Range requires lowerBound <= upperBound.
+        guard minBound <= maxBound else {
+            // #region agent log
+            DebugSessionLog.log(
+                location: "BookChapterMigration.mappedDurChapterIndex",
+                message: "illegal range guard",
+                hypothesisId: "H3",
+                data: [
+                    "oldIdx": oldDurChapterIndex,
+                    "newSize": newChapterSize,
+                    "minBound": minBound,
+                    "maxBound": maxBound,
+                ]
+            )
+            // #endregion
+            return min(max(0, newChapterSize - 1), oldDurChapterIndex)
+        }
+
         var nameSim = 0.0
         var newIndex = 0
         var newNum = 0

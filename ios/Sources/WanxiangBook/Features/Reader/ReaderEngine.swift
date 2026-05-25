@@ -29,6 +29,8 @@ public final class ReaderEngine: ObservableObject {
     @Published public private(set) var autoFallbackInProgress: Bool = false
     /// 本章正文被「本章换源」覆盖或写入 cache 后递增, 驱动 ReaderView 重新分页.
     @Published public private(set) var chapterContentRevision: Int = 0
+    /// 相邻章 (±1) 预加载进 cache 后递增 — 驱动 ReaderView 扩展三章分页缓冲.
+    @Published public private(set) var adjacentCacheRevision: Int = 0
 
     /// 章节正文内存缓存 (key=chapterIndex, val=正文)
     private var contentCache: [Int: String] = [:]
@@ -36,8 +38,27 @@ public final class ReaderEngine: ObservableObject {
     private var cacheAccessOrder: [Int] = []
     /// 内存中最多保留 N 章正文, 超出时淘汰最久未访问的 (SQLite 仍有, 翻回时重新读)
     private static let maxCachedChapters = 30
-    /// 进行中的拉取任务, 防止重复
-    private var inflight: [Int: Task<String, Error>] = [:]
+    /// 本章换源 sheet 打开时暂停后台预拉, 避免 prefetch + searchAll 双负载 OOM.
+    private var backgroundLoadsSuspended = false
+
+    /// 换源 / 本章换源 sheet 弹出时调用 — 取消非当前章 in-flight 预拉.
+    public func suspendBackgroundLoads() {
+        backgroundLoadsSuspended = true
+        for (idx, task) in inflight where idx != currentChapterIndex {
+            task.cancel()
+            inflight.removeValue(forKey: idx)
+            loadingIndices.remove(idx)
+        }
+        updateLoadingState()
+    }
+
+    /// sheet 关闭后恢复预拉.
+    public func resumeBackgroundLoads() {
+        guard backgroundLoadsSuspended else { return }
+        backgroundLoadsSuspended = false
+        prefetchAround(currentChapterIndex)
+    }
+
 
     /// 万象书屋 (P0 fix): source 必须可改 — 换源场景需要换 source 引用,
     /// 否则后续 fetchContent 还会用旧源
@@ -45,6 +66,8 @@ public final class ReaderEngine: ObservableObject {
     /// 万象书屋 (P1 fix bug 3): loadingChapter 用 currentChapterIndex 一致性而非全局
     /// 避免 prefetch 任务干扰主章 loading 状态
     private var loadingIndices: Set<Int> = []
+    /// 进行中的拉取任务, 防止重复
+    private var inflight: [Int: Task<String, Error>] = [:]
 
     private var memoryWarningObserver: Any?
 
@@ -68,7 +91,10 @@ public final class ReaderEngine: ObservableObject {
     }
 
     private func handleMemoryWarning() {
-        let keepRange = max(0, currentChapterIndex - 1)...min(chapters.count - 1, currentChapterIndex + 1)
+        guard !chapters.isEmpty else { return }
+        let upper = chapters.count - 1
+        let keepRange = max(0, currentChapterIndex - 1)...min(upper, currentChapterIndex + 1)
+        guard keepRange.lowerBound <= keepRange.upperBound else { return }
         var evicted = 0
         for key in contentCache.keys where !keepRange.contains(key) {
             contentCache.removeValue(forKey: key)
@@ -317,14 +343,23 @@ public final class ReaderEngine: ObservableObject {
 
     // MARK: - 内部加载
 
+    /// 万象书屋: 正文字数低于此阈值视为「残缺缓存」(下载器/并发 bug 写入的一页正文), 阅读时改走远端重拉
+    private static let minTrustedContentLength = 1500
+
     /// - Parameter silent: 万象书屋 (M2.8 A2): prefetch 路径传 true, fail 不写 lastError —
     ///   避免后台预拉前后章失败把用户当前正在读的章节屏幕替换成 errorState.
     private func loadChapter(index: Int, silent: Bool = false) async {
         guard index >= 0 else { return }
-        if contentCache[index] != nil {
-            loadingIndices.remove(index)
-            updateLoadingState()
-            return
+        if backgroundLoadsSuspended, silent, index != currentChapterIndex { return }
+        if let cached = contentCache[index] {
+            let isVolume = chapters[safe: index]?.isVolume ?? false
+            if isVolume || cached.count >= Self.minTrustedContentLength {
+                loadingIndices.remove(index)
+                updateLoadingState()
+                touchCacheAccess(index)
+                return
+            }
+            contentCache.removeValue(forKey: index)
         }
         // 万象书屋 (bug 2 fix): 已被 cancel 的 task 不复用, 直接清掉新建
         if let task = inflight[index] {
@@ -337,15 +372,21 @@ public final class ReaderEngine: ObservableObject {
         }
         loadingIndices.insert(index)
         updateLoadingState()
+        if !silent, let title = chapters[safe: index]?.title {
+            CrashBreadcrumb.leave("reader.ch\(index):\(title.prefix(16))")
+        }
         defer {
             loadingIndices.remove(index)
             updateLoadingState()
         }
         do {
             let task = Task<String, Error> { [book, source, chapters] in
-                // 1. 本地 SQLite
+                // 1. 本地 SQLite — 过短正文视为残缺, 忽略并走远端 (修复下载污染后无法在线读)
                 if let local = try await ChapterRepository.shared.loadContent(bookUrl: book.bookUrl, chapterIndex: index) {
-                    return local
+                    let isVolume = chapters[safe: index]?.isVolume ?? false
+                    if isVolume || local.count >= Self.minTrustedContentLength {
+                        return local
+                    }
                 }
                 // 2. 远端 — 没源/没章就报真错, 不返伪正文 (P1 fix)
                 guard let s = source else {
@@ -356,7 +397,14 @@ public final class ReaderEngine: ObservableObject {
                     throw NSError(domain: "Reader", code: 12,
                         userInfo: [NSLocalizedDescriptionKey: "目录还没加载, 下拉刷新试试"])
                 }
-                let cont = try await BookSourceEngine.shared.fetchContent(of: chapter, in: s)
+                let info = BookInfo(
+                    bookUrl: book.bookUrl, name: book.name, author: book.author,
+                    coverUrl: book.coverUrl, tocUrl: book.tocUrl ?? book.bookUrl
+                )
+                let nextChapterUrl = chapters[safe: index + 1]?.chapterUrl
+                let cont = try await BookSourceEngine.shared.fetchContent(
+                    of: chapter, in: s, book: info, nextChapterUrl: nextChapterUrl
+                )
                 // 3. 写回缓存
                 try? await ChapterRepository.shared.saveContent(
                     bookUrl: book.bookUrl,
@@ -373,6 +421,9 @@ public final class ReaderEngine: ObservableObject {
             touchCacheAccess(index)
             evictOldCacheIfNeeded()
             self.lastError = nil
+            if silent, abs(index - currentChapterIndex) == 1 {
+                adjacentCacheRevision &+= 1
+            }
         } catch is CancellationError {
             // 用户切走了, 忽略 (defer 已清 inflight)
         } catch {
@@ -408,7 +459,9 @@ public final class ReaderEngine: ObservableObject {
         let candidates = Array(sorted.prefix(candidateCap))
 
         let stream = await BookSourceEngine.shared.searchAll(
-            in: candidates, key: bookName, maxConcurrency: 5, perSourceTimeoutSec: 8
+            in: candidates, key: bookName,
+            maxConcurrency: BookSourceEngine.adaptiveResolveSearchConcurrency,
+            perSourceTimeoutSec: 8
         )
         for await (src, result) in stream {
             if Task.isCancelled { break }
@@ -470,6 +523,7 @@ public final class ReaderEngine: ObservableObject {
     private static let preDownloadBehind = 5
 
     private func prefetchAround(_ index: Int) {
+        guard !backgroundLoadsSuspended else { return }
         // 1. 优先邻近 (±1) — 用户大概率下一秒就翻到, 高优先级
         for offset in [1, -1] {
             let target = index + offset

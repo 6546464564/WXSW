@@ -176,13 +176,16 @@ struct RootView: View {
             // --AddDemoBook: 注入一本 mock 离线书 + 5 章, 给 reader/TTS 测试用
             if args.contains("--AddDemoBook") || args.contains("-AddDemoBook") {
                 await Self.injectDemoBook()
-                if args.contains("--OpenDemoReader") {
+                if args.contains("-SeedChangeSourceDupCache") || args.contains("--SeedChangeSourceDupCache") {
+                    Self.seedDuplicateChangeSourceCache()
+                }
+                if args.contains("--OpenDemoReader") || args.contains("-OpenDemoReader") {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     if let book = try? await BookshelfRepository.shared.get(bookUrl: "demo://wanxiang/test-book") {
                         await MainActor.run { deepLinkBook = book }
                     }
                 }
-                if args.contains("--OpenDemoTts") {
+                if args.contains("--OpenDemoTts") || args.contains("-OpenDemoTts") {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     if let book = try? await BookshelfRepository.shared.get(bookUrl: "demo://wanxiang/test-book") {
                         await MainActor.run { deepLinkTtsBook = book }
@@ -250,6 +253,26 @@ struct RootView: View {
                 content: String(repeating: bodies[i] + "\n\n", count: 6)
             )
         }
+    }
+
+    /// UI 回归: 注入 30 条「不同源 / 相同 bookUrl」换源 cache, 复现 ForEach duplicate id 闪退.
+    private static func seedDuplicateChangeSourceCache() {
+        let name = "测试小说·万象之旅"
+        let author = "万象书屋"
+        let brokenUrl = "https://broken.example/book?id="
+        let cands = (0..<30).map { i in
+            ChangeSourceCandidateCache.CachedCandidate(
+                book: SearchBook(
+                    origin: "https://dup-source-\(i).example",
+                    originName: "重复URL源\(i)",
+                    name: name,
+                    author: author,
+                    bookUrl: brokenUrl
+                ),
+                respondTimeMs: i * 10
+            )
+        }
+        ChangeSourceCandidateCache.shared.put(name: name, author: author, candidates: cands)
     }
 }
 

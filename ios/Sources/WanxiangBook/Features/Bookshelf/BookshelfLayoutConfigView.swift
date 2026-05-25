@@ -30,7 +30,7 @@ struct BookshelfLayoutConfigView: View {
     @AppStorage("wanxiang.shelf.sort")
     private var sortRaw: Int = ShelfSort.latestRead.rawValue
     @AppStorage("wanxiang.shelf.show_unread")
-    private var showUnread: Bool = true
+    private var showUnread: Bool = false
     @AppStorage("wanxiang.shelf.show_last_update")
     private var showLastUpdateTime: Bool = true
     @AppStorage("wanxiang.shelf.show_fast_scroller")

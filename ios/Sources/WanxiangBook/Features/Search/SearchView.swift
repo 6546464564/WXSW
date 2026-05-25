@@ -774,6 +774,8 @@ final class SearchViewModel: ObservableObject {
         errors = []
         dedupeRowIndex.removeAll()
         isSearching = true
+        SourceHealthChecker.shared.cancelHealthCheck()
+        CrashBreadcrumb.leave("search:\(key.prefix(20))")
         let rawSources = await waitForSources(timeoutSec: 3)
         // 万象书屋 (M2.8): 按历史成功率 + 平均响应时间排序源, 让稳定快的源先返结果.
         // 84 源里很多反爬/死站, 没排序时用户得等所有源 timeout. 排序后头几条结果
@@ -812,30 +814,22 @@ final class SearchViewModel: ObservableObject {
                 switch result {
                 case .success(let books):
                     self.recordSuccess(source.bookSourceUrl)
+                    var batchResults = self.results
+                    var batchDedupe = self.dedupeRowIndex
+                    var batchVariants = self.rowVariants
                     for b in books {
                         if Task.isCancelled || generation != self.searchGeneration { break }
                         if self.activePrecision,
                            SearchLegadoOrdering.relevanceTier(book: b, key: self.activeSearchKey) >= 2 {
                             continue
                         }
-                        // 万象书屋 (2026-05-11): 合并 key 从 `androidStrictMergeKey` (严格 ==)
-                        // 改成 `dedupeKey` (normalized: trim + 半角化 + lowercase + 去"作者:"前缀
-                        // + 只留字母数字汉字). 1800+ 源里同一本书的 name/author 经常因为
-                        // `\u3000` 全角空格 / " 著"后缀 / 标点不同 等原因不能 byte-相等, 导致
-                        // 多源命中无法合并, "源数" 永远是 1. dedupeKey 容错后, 同名同作者的不同源
-                        // 才能真正合并成"N 源" — 用户看到的多源徽章才有意义.
                         let dk = b.dedupeKey
-                        // 万象书屋 (best-source pick): 把这本书的当前源变体存进 rowVariants,
-                        // 用户点 row 时 pickBestSource 从所有变体里挑数据最完整的源.
                         var bForVariant = b
                         bForVariant.mergedSourceURLs = []
                         bForVariant.mergedSourceNames = []
-                        self.rowVariants[dk, default: []].append(bForVariant)
-                        // 万象书屋 (2026-05-11): 同时落进程级 cache, 让 BookDetailView 在 TOC fallback
-                        // 时能拿到每个备用源**自己的 bookUrl**, 而不是用主 row 的 bookUrl 跨源乱用.
-                        SearchVariantsCache.shared.set(key: dk, variants: self.rowVariants[dk] ?? [])
-                        if let idx = self.dedupeRowIndex[dk], idx < self.results.count {
-                            var row = self.results[idx]
+                        batchVariants[dk, default: []].append(bForVariant)
+                        if let idx = batchDedupe[dk], idx < batchResults.count {
+                            var row = batchResults[idx]
                             var seen = Set<String>([row.origin])
                             seen.formUnion(row.mergedSourceURLs)
                             if !seen.contains(b.origin) {
@@ -865,19 +859,21 @@ final class SearchViewModel: ObservableObject {
                                let u = b.updateTime?.trimmingCharacters(in: .whitespacesAndNewlines), !u.isEmpty {
                                 row.updateTime = b.updateTime
                             }
-                            self.results[idx] = row
+                            batchResults[idx] = row
                         } else {
                             var first = b
                             first.mergedSourceURLs = []
                             first.mergedSourceNames = []
-                            self.dedupeRowIndex[dk] = self.results.count
-                            self.results.append(first)
+                            batchDedupe[dk] = batchResults.count
+                            batchResults.append(first)
                         }
                     }
-                    // 万象书屋: 对齐 Android SearchModel.mergeItems 的最终展示顺序 —
-                    // 先「书名或作者完全等于关键词」, 再「包含关键词」, 其余按非精准模式保留.
-                    // iOS 之前按 AsyncStream 完成顺序追加, 导致同一关键词下与安卓列表顺序差很多
-                    // (用户体感「搜青山两边不一样」).
+                    self.results = batchResults
+                    self.dedupeRowIndex = batchDedupe
+                    self.rowVariants = batchVariants
+                    for (dk, variants) in batchVariants {
+                        SearchVariantsCache.shared.set(key: dk, variants: variants)
+                    }
                     self.applyLegadoStyleOrdering()
                     if !books.isEmpty { hitSourceCount += 1 }
                     // 快源 (SourcePerformanceTracker 排序) 先返, 累积足够结果后提前结束,

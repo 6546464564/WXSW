@@ -8,7 +8,6 @@
 
 import SwiftUI
 import UIKit
-import Network
 
 public struct BookCover: View {
     public let url: String?
@@ -119,11 +118,6 @@ public struct BookCover: View {
             isLoading = false
             return
         }
-        // 仅 WiFi 加载封面 (设置页 wanxiang.shelf.wifiOnlyCovers, 默认开)
-        if BookCoverNetworkPolicy.shouldSkipNetworkDownload {
-            isLoading = false
-            return
-        }
         isLoading = true
         do {
             let (data, resp) = try await BookCoverImageSession.shared.data(for: request)
@@ -203,8 +197,9 @@ private final class BookCoverImageCache {
     private let cache = NSCache<NSString, UIImage>()
 
     private init() {
-        cache.countLimit = 200
-        cache.totalCostLimit = 32 * 1024 * 1024
+        let mem = ProcessInfo.processInfo.physicalMemory
+        cache.countLimit = mem <= 3_000_000_000 ? 80 : 200
+        cache.totalCostLimit = mem <= 3_000_000_000 ? 12 * 1024 * 1024 : 32 * 1024 * 1024
         NotificationCenter.default.addObserver(
             forName: .wanxiangMemoryWarning, object: nil, queue: .main
         ) { [weak self] _ in
@@ -277,31 +272,6 @@ private enum BookCoverImageSession {
     }()
 }
 
-/// 封面网络策略 — 读取设置 `wanxiang.shelf.wifiOnlyCovers`
-enum BookCoverNetworkPolicy {
-    private static let monitor = NWPathMonitor()
-    private static let queue = DispatchQueue(label: "wx.bookcover.network")
-    private static var isExpensive = false
-
-    static func start() {
-        monitor.pathUpdateHandler = { path in
-            isExpensive = path.status == .satisfied
-                && !path.usesInterfaceType(.wifi)
-                && !path.usesInterfaceType(.wiredEthernet)
-        }
-        monitor.start(queue: queue)
-        let current = monitor.currentPath
-        isExpensive = current.status == .satisfied
-            && !current.usesInterfaceType(.wifi)
-            && !current.usesInterfaceType(.wiredEthernet)
-    }
-
-    static var shouldSkipNetworkDownload: Bool {
-        let wifiOnly = UserDefaults.standard.object(forKey: "wanxiang.shelf.wifiOnlyCovers") as? Bool ?? true
-        return wifiOnly && isExpensive
-    }
-}
-
 /// 预加载封面 (设置页 `wanxiang.shelf.preloadCovers` 开启时, 书架加载后后台拉封面进磁盘缓存)
 enum BookCoverPreloader {
     static func preload(urls: [String]) async {
@@ -310,7 +280,6 @@ enum BookCoverPreloader {
             let cacheKey = request.url?.absoluteString ?? raw
             if BookCoverImageCache.shared.image(for: cacheKey) != nil { continue }
             if await BookCoverDiskCache.shared.load(key: cacheKey) != nil { continue }
-            if BookCoverNetworkPolicy.shouldSkipNetworkDownload { continue }
             _ = try? await BookCoverImageSession.shared.data(for: request)
         }
     }

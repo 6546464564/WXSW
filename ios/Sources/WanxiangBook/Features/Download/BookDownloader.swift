@@ -78,14 +78,15 @@ public final class BookDownloader: ObservableObject {
     /// 开始下载. 已有任务直接 noop (不重复跑)
     /// - Parameter range: 万象书屋 (M2.8 Gap 2): 可选章节范围 (1-based 索引), nil = 全本.
     ///   跟 Android `CacheBook.start(book, start, end)` 等价, 让用户选"下载第 100-200 章".
-    public func startDownload(book: ShelfBook, source: BookSource?, range: ClosedRange<Int>? = nil) {
-        if tasks[book.bookUrl] != nil { return }
+    /// - Parameter force: true = 忽略已有缓存, 全量重拉 (重新下载 / 修复残缺正文)
+    public func startDownload(book: ShelfBook, source: BookSource?, range: ClosedRange<Int>? = nil, force: Bool = false) {
+        if !force, tasks[book.bookUrl] != nil { return }
         // 万象书屋: 不在下载开始时弹系统通知授权框 — 与安卓一致直接开下.
         // 完成横幅仅在用户已在「设置」里开过通知时投递 (见 postFinishNotification).
         beginBackgroundTaskIfNeeded()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.runDownload(book: book, source: source, range: range)
+            await self.runDownload(book: book, source: source, range: range, force: force)
             self.endBackgroundTaskIfNoJobs()
         }
         tasks[book.bookUrl] = task
@@ -175,16 +176,25 @@ public final class BookDownloader: ObservableObject {
 
     // MARK: - 实际下载
 
-    private func runDownload(book: ShelfBook, source: BookSource?, range: ClosedRange<Int>? = nil) async {
+    private func runDownload(book: ShelfBook, source: BookSource?, range: ClosedRange<Int>? = nil, force: Bool = false) async {
         // 1. 拿 chapters (优先本地 toc, 没就从 source 拉)
         var chapters: [BookChapter] = []
         if let local = try? await ChapterRepository.shared.loadToc(bookUrl: book.bookUrl), !local.isEmpty {
             chapters = local
         } else if let s = source {
-            let info = BookInfo(
+            let searchBook = SearchBook(
+                origin: book.origin, originName: book.originName,
+                name: book.name, author: book.author, bookUrl: book.bookUrl,
+                coverUrl: book.coverUrl, intro: book.intro, kind: book.kind
+            )
+            var info = BookInfo(
                 bookUrl: book.bookUrl, name: book.name, author: book.author,
                 coverUrl: book.coverUrl, tocUrl: book.tocUrl ?? book.bookUrl
             )
+            // 跟 BookDetailView / ReaderEngine 对齐: 先 fetchInfo 解出真 tocUrl 再拉目录
+            if let detail = try? await BookSourceEngine.shared.fetchInfo(of: searchBook, in: s) {
+                info = detail
+            }
             if let toc = try? await BookSourceEngine.shared.fetchToc(of: info, in: s), !toc.isEmpty {
                 try? await ChapterRepository.shared.saveToc(bookUrl: book.bookUrl, chapters: toc)
                 chapters = toc
@@ -216,8 +226,12 @@ public final class BookDownloader: ObservableObject {
         )
         jobs[book.bookUrl] = job
 
-        // 3. 检测哪些章节已 cache → skip
-        let pending: [BookChapter] = await checkPending(bookUrl: book.bookUrl, chapters: chapters)
+        if force {
+            try? await ChapterRepository.shared.clearContent(bookUrl: book.bookUrl)
+        }
+
+        // 3. 检测哪些章节已 cache → skip (force 时全量重拉, 修复「每章只有一页」的残缺缓存)
+        let pending: [BookChapter] = await checkPending(bookUrl: book.bookUrl, chapters: chapters, force: force)
         let alreadyDone = chapters.count - pending.count
         job.completed = alreadyDone
         jobs[book.bookUrl] = job
@@ -230,7 +244,8 @@ public final class BookDownloader: ObservableObject {
             tasks.removeValue(forKey: book.bookUrl)
             return
         }
-        await downloadConcurrent(book: book, source: s, pending: pending, baseJob: &job)
+        await downloadConcurrent(book: book, source: s, chapters: chapters,
+                                 pending: pending, baseJob: &job)
 
         // 5. 收尾 — 必须从 jobs dict 重读最新 job (recordResult 一直写 jobs[bookUrl])
         // bug fix: 局部变量 job 已经过期, 用 dict 里的最新值判 status
@@ -246,18 +261,24 @@ public final class BookDownloader: ObservableObject {
 
     /// 万象书屋 (M2.8 perf): 一次 SQL 拉所有已 cache 章节 index, 比之前 "N 次串行
     /// loadContent" 快 ~100x. 之前 500 章 ≈ 3-5s 卡顿, 现在 < 50ms.
-    private func checkPending(bookUrl: String, chapters: [BookChapter]) async -> [BookChapter] {
+    private func checkPending(bookUrl: String, chapters: [BookChapter], force: Bool = false) async -> [BookChapter] {
+        if force { return chapters }
         let cached = (try? await ChapterRepository.shared.cachedContentIndexes(bookUrl: bookUrl)) ?? []
-        return chapters.filter { !cached.contains($0.chapterIndex) }
+        let lengths = (try? await ChapterRepository.shared.cachedContentLengths(bookUrl: bookUrl)) ?? [:]
+        // 对齐 Android: 已有缓存但正文过短视为残缺 (一页 ≈ 500–2000 字, 阈值取 1500)
+        let minCompleteLength = 1500
+        return chapters.filter { ch in
+            guard cached.contains(ch.chapterIndex) else { return true }
+            return (lengths[ch.chapterIndex] ?? 0) < minCompleteLength
+        }
     }
 
-    private func downloadConcurrent(book: ShelfBook, source: BookSource,
+    private func downloadConcurrent(book: ShelfBook, source: BookSource, chapters: [BookChapter],
                                      pending: [BookChapter], baseJob: inout Job) async {
-        // 万象书屋 (perf 优化): 动态 per-book 并发 = globalConcurrency / 同时下载书数.
-        // 若只下 1 本 → 8 slot; 下 2 本 → 各 4 slot (共 8); 下 3 本 → 各 2~3 slot (共 6~9).
-        // 对齐 Android CacheBookService 共享 FixedThreadPool(min(threadCount,9)) 的行为.
-        // 原来固定 8/book: 2 本同时下 = 16 并发, URLSession/host 限制 6 → 10 个连接排队浪费.
-        let localConcurrency = effectiveConcurrency
+        // 对齐 Android CacheBookModel: 同一本书**逐章串行**下载.
+        // Android 每本书 waitDownloadSet 一次只取 1 章; iOS 之前 8 章并发 →
+        // 源站反爬/RateLimit 导致后面章节 HTML 残缺 → 「每章只下一页」+ 污染 SQLite 无法在线读.
+        let localConcurrency = 1
         await withTaskGroup(of: Bool.self) { group in
             var inflight = 0
             var iterator = pending.makeIterator()
@@ -273,7 +294,10 @@ public final class BookDownloader: ObservableObject {
                 let bookUrl = book.bookUrl
                 group.addTask { [weak self] in
                     guard let self else { return false }
-                    return await self.downloadOne(bookUrl: bookUrl, chapter: chapter, source: source)
+                    return await self.downloadOne(
+                        bookUrl: bookUrl, chapter: chapter, source: source,
+                        book: book, chapters: chapters
+                    )
                 }
             }
             for await ok in group {
@@ -292,7 +316,8 @@ public final class BookDownloader: ObservableObject {
         jobs[bookUrl] = job
     }
 
-    private func downloadOne(bookUrl: String, chapter: BookChapter, source: BookSource) async -> Bool {
+    private func downloadOne(bookUrl: String, chapter: BookChapter, source: BookSource,
+                             book: ShelfBook, chapters: [BookChapter]) async -> Bool {
         // 万象书屋 (M2.8 perf v2): 跟 Android `errorDownloadMap < 3` 对齐 retry 3 次.
         // 单层 retry — ContentParser 内层 retries: 1, 这里外层 retry 3, 总共最多 3 次拉,
         // 单章最坏 25s × 3 + backoff = 76s. 之前双层 (内 3 × 外 2 = 6 次) 最坏 156s,
@@ -300,13 +325,30 @@ public final class BookDownloader: ObservableObject {
         let maxAttempts = 3
         for attempt in 0..<maxAttempts {
             if Task.isCancelled { return false }
+            // 卷首/卷末目录行 — 对齐 Android CacheBook 跳过拉正文
+            if chapter.isVolume { return true }
             do {
-                let cont = try await BookSourceEngine.shared.fetchContent(of: chapter, in: source)
-                // 下载器用 saveDownloadedContent（设 downloaded_at），
-                // 区分阅读器的临时缓存（无 downloaded_at）
-                try? await ChapterRepository.shared.saveDownloadedContent(
-                    bookUrl: bookUrl, chapterIndex: chapter.chapterIndex, content: cont.content
+                let info = BookInfo(
+                    bookUrl: book.bookUrl, name: book.name, author: book.author,
+                    coverUrl: book.coverUrl, tocUrl: book.tocUrl ?? book.bookUrl
                 )
+                let nextChapterUrl = chapters.first(where: {
+                    $0.chapterIndex == chapter.chapterIndex + 1
+                })?.chapterUrl
+                let cont = try await BookSourceEngine.shared.fetchContent(
+                    of: chapter, in: source, book: info, nextChapterUrl: nextChapterUrl
+                )
+                guard try await ChapterRepository.shared.saveDownloadedContent(
+                    bookUrl: bookUrl, chapterIndex: chapter.chapterIndex, content: cont.content
+                ) else {
+                    throw NSError(domain: "BookDownloader", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: "章节正文写入 SQLite 失败"])
+                }
+                // 对齐 Android BookHelp.saveText: 空正文不算下载成功
+                guard cont.content.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10 else {
+                    throw NSError(domain: "BookDownloader", code: 2,
+                                  userInfo: [NSLocalizedDescriptionKey: "正文过短, 可能未拉全"])
+                }
                 // 万象书屋 (M2.8 perf): 图片下载 fire-and-forget, 不阻塞章节 worker 槽位.
                 // 之前 N 张图 × ~1s/张 = N 秒阻塞 worker, 6 worker 全被图章卡死. 现在章节
                 // 正文 save 完立即 return true 让 worker 抓下一章, 图片在 detached task 里

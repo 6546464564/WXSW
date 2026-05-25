@@ -116,12 +116,19 @@ public struct ReaderView: View {
         } message: {
             Text("会重新拉取本章正文并按当前替换规则处理")
         }
-        .sheet(isPresented: $showChangeSource) {
+        .sheet(isPresented: $showChangeSource, onDismiss: {
+            engine.resumeBackgroundLoads()
+            debouncedRepaginate()
+        }) {
             ChangeSourceView(originalBook: engine.book) { newBook, newSource in
                 Task { await engine.changeSource(to: newBook, source: newSource) }
             }
+            .onAppear { engine.suspendBackgroundLoads() }
         }
-        .sheet(isPresented: $showChangeChapterSource) {
+        .sheet(isPresented: $showChangeChapterSource, onDismiss: {
+            engine.resumeBackgroundLoads()
+            debouncedRepaginate()
+        }) {
             ChangeChapterSourceView(
                 originalBook: engine.book,
                 chapterIndex: engine.currentChapterIndex,
@@ -132,6 +139,7 @@ public struct ReaderView: View {
                     await MainActor.run { showChangeChapterSource = false }
                 }
             }
+            .onAppear { engine.suspendBackgroundLoads() }
         }
         .sheet(isPresented: $showAutoReadConfig) {
             AutoReadConfigSheet()
@@ -184,6 +192,24 @@ public struct ReaderView: View {
     private func nextPageId() -> String? {
         guard let cur = currentPageId, let i = pages.firstIndex(where: { $0.id == cur }), i + 1 < pages.count else { return nil }
         return pages[i + 1].id
+    }
+
+    /// 当前页是否为本章在 TabView 缓冲中的最后一页 (含相邻章预览截断).
+    private func isLastPageInBuffer(_ pageId: String?) -> Bool {
+        guard let pageId,
+              let i = pages.firstIndex(where: { $0.id == pageId }) else { return false }
+        let chapterIdx = pages[i].chapterIndex
+        guard let lastInChapter = pages.last(where: { $0.chapterIndex == chapterIdx }) else { return false }
+        return pages[i].id == lastInChapter.id
+    }
+
+    /// 当前页是否为本章在 TabView 缓冲中的第一页 (含相邻章预览截断).
+    private func isFirstPageInBuffer(_ pageId: String?) -> Bool {
+        guard let pageId,
+              let i = pages.firstIndex(where: { $0.id == pageId }) else { return false }
+        let chapterIdx = pages[i].chapterIndex
+        guard let firstInChapter = pages.first(where: { $0.chapterIndex == chapterIdx }) else { return false }
+        return pages[i].id == firstInChapter.id
     }
 
     // MARK: - Content (按翻页方式分发)
@@ -410,11 +436,11 @@ public struct ReaderView: View {
                 }
                 .onEnded { value in
                     let dx = value.translation.width
-                    let startPage = pages.first(where: { $0.id == dragStartPageId })
-                    // 只在 pages 缓冲中没有更多页时才手动切章，避免与 handlePageJump 双重触发
-                    if dx < -40, startPage?.isLastPage == true, nextPageId() == nil {
+                    // 相邻章只缓冲边界页 — 用 TabView 缓冲边界判断, 不能用 page.isLastPage
+                    // (预览页 pageIndex=3 但整章有 100 页时 isLastPage=false, 会导致滑不动).
+                    if dx < -40, isLastPageInBuffer(dragStartPageId), nextPageId() == nil {
                         Task { await engine.nextChapter() }
-                    } else if dx > 40, startPage?.isFirstPage == true, prevPageId() == nil {
+                    } else if dx > 40, isFirstPageInBuffer(dragStartPageId), prevPageId() == nil {
                         Task { await engine.goToChapter(max(0, engine.currentChapterIndex - 1)) }
                     }
                 }
@@ -641,6 +667,20 @@ public struct ReaderView: View {
                             .foregroundStyle(.white)
                     }
                     .padding(.horizontal)
+                    .onAppear {
+                        // #region agent log
+                        DebugSessionLog.log(
+                            location: "ReaderView.menuOverlay.slider",
+                            message: "slider range",
+                            hypothesisId: "H4",
+                            data: [
+                                "chapters": engine.chapters.count,
+                                "currentIdx": engine.currentChapterIndex,
+                                "upper": engine.chapters.count - 1,
+                            ]
+                        )
+                        // #endregion
+                    }
                 } else if engine.chapters.count == 1 {
                     HStack {
                         Text("1 / 1")
@@ -722,14 +762,14 @@ public struct ReaderView: View {
             }
         } else if let job = job, job.status == .finished {
             Button {
-                triggerDownloadFromReader()
+                triggerDownloadFromReader(force: true)
             } label: {
                 Label("已下载 \(job.completed) 章 · 重新下载",
                       systemImage: "checkmark.circle")
             }
         } else if let job = job, job.status == .error {
             Button {
-                triggerDownloadFromReader()
+                triggerDownloadFromReader(force: true)
             } label: {
                 Label("下载失败 · 重试", systemImage: "exclamationmark.triangle")
             }
@@ -749,9 +789,9 @@ public struct ReaderView: View {
     }
 
     /// 阅读器内触发整本下载. 用 engine.book + engine 内部 source.
-    private func triggerDownloadFromReader() {
+    private func triggerDownloadFromReader(force: Bool = false) {
         let source = BookSourceRegistry.shared.find(origin: engine.book.origin)
-        downloader.startDownload(book: engine.book, source: source)
+        downloader.startDownload(book: engine.book, source: source, force: force)
     }
 
     /// menuOverlay 顶部下方的下载进度条 (仅 running 时显示).
@@ -922,6 +962,9 @@ public struct ReaderView: View {
     /// 避免先分出"底部大片空白"的页面再闪烁修正.
     @State private var viewAppearDate: Date = .distantFuture
     @State private var sizeDebounceTask: Task<Void, Never>? = nil
+    @State private var repaginateTask: Task<Void, Never>? = nil
+    /// 异步分页代数 — 防止快速切章时旧任务结果覆盖新章节
+    @State private var repaginateGeneration: Int = 0
 
     /// push 动画期间 (~0.7s), canvas size 连续变化 (tab bar 隐藏 + nav bar 隐藏).
     /// 在动画窗口内用 debounce 合并所有 repaginate 请求, 确保只在 viewport 稳定后
@@ -929,12 +972,15 @@ public struct ReaderView: View {
     /// 动画结束后的后续请求立即执行, 不引入感知延迟.
     private func debouncedRepaginate(targetPageId: String? = nil) {
         sizeDebounceTask?.cancel()
+        // 相邻章预取 / 正文刷新触发的 debounce 必须保留当前阅读位置,
+        // 否则异步重排会把用户从后面章节跳回章首 (体感"分页又坏了").
+        let preserveTarget = targetPageId ?? crossChapterTargetPageId ?? currentPageId
         let elapsed = Date().timeIntervalSince(viewAppearDate)
-        let delay: UInt64 = elapsed > 1.0 ? 150_000_000 : 600_000_000
+        let delay: UInt64 = elapsed > 1.0 ? 150_000_000 : 900_000_000
         sizeDebounceTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
-            repaginateCurrent(targetPageId: targetPageId)
+            repaginateCurrent(targetPageId: preserveTarget)
         }
     }
 
@@ -1031,6 +1077,7 @@ public struct ReaderView: View {
         }
         .onChange(of: engine.loadingChapter) { _, _ in debouncedRepaginate() }
         .onChange(of: engine.chapterContentRevision) { _, _ in debouncedRepaginate() }
+        .onChange(of: engine.adjacentCacheRevision) { _, _ in debouncedRepaginate() }
         .onChange(of: config.textSize) { _, _ in
             sizeDebounceTask?.cancel()
             sizeDebounceTask = Task { @MainActor in
@@ -1103,13 +1150,13 @@ public struct ReaderView: View {
         }
         if args.contains("--ReaderShowChangeSource") || args.contains("-ReaderShowChangeSource") {
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                try? await Task.sleep(nanoseconds: 3_500_000_000)
                 showChangeSource = true
             }
         }
         if args.contains("--ReaderShowChangeChapterSource") || args.contains("-ReaderShowChangeChapterSource") {
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                try? await Task.sleep(nanoseconds: 3_500_000_000)
                 showChangeChapterSource = true
             }
         }
@@ -1184,55 +1231,134 @@ public struct ReaderView: View {
               "curPageId=\(currentPageId ?? "nil") targetPageId=\(targetPageId ?? "nil")")
         #endif
 
-        // 页脚: 11pt 字体 + 8pt 顶部间距 ≈ 22pt
         let footerHeight: CGFloat = 22
-        // 页眉: 11pt 字体 + 8pt 底部间距 ≈ 22pt
         let headerHeight: CGFloat = 22
         let canvasSize = CGSize(
             width: max(0, viewport.width - config.paddingHorizontal * 2),
             height: max(0, viewport.height - config.paddingTop - config.paddingBottom - footerHeight - headerHeight)
         )
-        // #region agent log
         _dbg63Log("buildPages viewport=\(String(format: "%.0fx%.0f", viewport.width, viewport.height)) padTop=\(config.paddingTop) padBot=\(config.paddingBottom) headerH=\(headerHeight) footerH=\(footerHeight) canvas=\(String(format: "%.1fx%.1f", canvasSize.width, canvasSize.height)) textSize=\(config.textSize)")
-        // #endregion
-        let snapshot = ReadConfigSnapshot.current(from: config)
 
-        // 万象书屋 (跨章翻页): 把当前章 ± 1 章 (如果内容已在 contentCache 中) 一起分页并合并.
-        // 这样 PageCurlContainer / TabView 的 pages 数组里包含相邻章节的页面,
-        // viewControllerAfter/Before 不会在章节边界返回 nil, 用户可以用相同手势滑过章节边界.
+        let snapshot = ReadConfigSnapshot.current(from: config)
         let themeColor = UIColor(config.theme.textColor)
-        var newAttrCache: [Int: NSAttributedString] = [:]
-        func paginateIfCached(_ i: Int) -> [ReaderPage] {
-            guard i >= 0, i < engine.chapters.count,
-                  let body = engine.content(for: i) else { return [] }
-            let title = engine.chapters[safe: i]?.title ?? engine.book.name
-            newAttrCache[i] = PaginationEngine.buildChapterAttrString(
-                text: body, chapterTitle: title, config: snapshot, textColor: themeColor)
-            return PaginationEngine.paginate(text: body, chapterIndex: i,
-                                             chapterTitle: title, canvasSize: canvasSize, config: snapshot)
+        let bookName = engine.book.name
+        let chapterBodies: [(index: Int, title: String, body: String)] = [idx - 1, idx, idx + 1].compactMap { i in
+            guard i >= 0, i < engine.chapters.count, let body = engine.content(for: i) else { return nil }
+            let title = engine.chapters[safe: i]?.title ?? bookName
+            return (i, title, body)
         }
 
-        let prevPages = paginateIfCached(idx - 1)
-        let currPages = paginateIfCached(idx)
-        let nextPages = paginateIfCached(idx + 1)
-        let combined = prevPages + currPages + nextPages
-        self.chapterAttrCache = newAttrCache
-
         let oldPages = self.pages
-        self.pages = combined
+        let oldCurrentPageId = self.currentPageId
+        let savedPos = engine.book.durChapterPos
+        let savedDurIdx = engine.book.durChapterIndex
+        let posSnapshot = preciseCharPos
+        let hasRestored = hasRestoredPagePosition
 
-        // 确定 currentPageId:
-        // - 字号变更: 保持章内 pageIndex 不变 (id 如 3-5 不变 → TabView 不播翻页动画)
-        // - 跨章翻页时保持 targetPageId (已在相邻章节的页里) 不回跳
-        // - 首次分页 (冷启恢复): 用 book.durChapterPos 精确恢复到上次读到的页
-        // - 重新分页 (canvas 尺寸变化): 按字符偏移量定位, 而非 page ID (因为同一 ID 在
-        //   不同 canvas 下对应不同文本)
-        // - 普通跳章: 跳到当前章第一页
+        let apply: (RepaginateWorkResult) -> Void = { work in
+            self.chapterAttrCache = work.attrCache
+            self.pages = work.combined
+            self.applyRepaginatePageSelection(
+                work: work,
+                idx: idx,
+                targetPageId: targetPageId,
+                preservePageIndexInChapter: preservePageIndexInChapter,
+                oldPages: oldPages,
+                oldCurrentPageId: oldCurrentPageId,
+                savedPos: savedPos,
+                savedDurIdx: savedDurIdx,
+                posSnapshot: posSnapshot,
+                hasRestored: hasRestored
+            )
+        }
+
+        // 字号变更需同步重排，避免 TabView 在分页完成前播放翻页动画
+        if preservePageIndexInChapter != nil {
+            repaginateTask?.cancel()
+            apply(computeRepaginateWork(
+                idx: idx, chapterBodies: chapterBodies,
+                canvasSize: canvasSize, snapshot: snapshot, themeColor: themeColor
+            ))
+            return
+        }
+
+        repaginateTask?.cancel()
+        repaginateGeneration += 1
+        let generation = repaginateGeneration
+        repaginateTask = Task {
+            let work = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let result = computeRepaginateWork(
+                        idx: idx, chapterBodies: chapterBodies,
+                        canvasSize: canvasSize, snapshot: snapshot, themeColor: themeColor
+                    )
+                    continuation.resume(returning: result)
+                }
+            }
+            guard !Task.isCancelled, generation == repaginateGeneration else { return }
+            apply(work)
+        }
+    }
+
+    private struct RepaginateWorkResult {
+        let attrCache: [Int: NSAttributedString]
+        let prevPages: [ReaderPage]
+        let currPages: [ReaderPage]
+        let nextPages: [ReaderPage]
+        var combined: [ReaderPage] { prevPages + currPages + nextPages }
+    }
+
+    /// 相邻章只保留边界页 (完整三章分页在长章会堆出数百 TabView 页 → 后面章节翻页错乱)
+    private static let adjacentChapterPageCap = 4
+
+    private func computeRepaginateWork(
+        idx: Int,
+        chapterBodies: [(index: Int, title: String, body: String)],
+        canvasSize: CGSize,
+        snapshot: ReadConfigSnapshot,
+        themeColor: UIColor
+    ) -> RepaginateWorkResult {
+        var newAttrCache: [Int: NSAttributedString] = [:]
+        var prevPages: [ReaderPage] = []
+        var currPages: [ReaderPage] = []
+        var nextPages: [ReaderPage] = []
+        for item in chapterBodies {
+            newAttrCache[item.index] = PaginationEngine.buildChapterAttrString(
+                text: item.body, chapterTitle: item.title, config: snapshot, textColor: themeColor)
+            let pages = PaginationEngine.paginate(
+                text: item.body, chapterIndex: item.index,
+                chapterTitle: item.title, canvasSize: canvasSize, config: snapshot)
+            if item.index == idx - 1 {
+                prevPages = Array(pages.suffix(Self.adjacentChapterPageCap))
+            } else if item.index == idx {
+                currPages = pages
+            } else if item.index == idx + 1 {
+                nextPages = Array(pages.prefix(Self.adjacentChapterPageCap))
+            }
+        }
+        return RepaginateWorkResult(
+            attrCache: newAttrCache, prevPages: prevPages, currPages: currPages, nextPages: nextPages)
+    }
+
+    private func applyRepaginatePageSelection(
+        work: RepaginateWorkResult,
+        idx: Int,
+        targetPageId: String?,
+        preservePageIndexInChapter: Int?,
+        oldPages: [ReaderPage],
+        oldCurrentPageId: String?,
+        savedPos: Int,
+        savedDurIdx: Int,
+        posSnapshot: Int,
+        hasRestored: Bool
+    ) {
+        let combined = work.combined
+        let currPages = work.currPages
+
         if let pi = preservePageIndexInChapter {
-            let chapterPages = currPages
-            let maxPi = chapterPages.map(\.pageIndex).max() ?? pi
+            let maxPi = currPages.map(\.pageIndex).max() ?? pi
             let clamped = min(pi, maxPi)
-            let restored = chapterPages.first(where: { $0.pageIndex == clamped }) ?? currPages.first
+            let restored = currPages.first(where: { $0.pageIndex == clamped }) ?? currPages.first
             self.currentPageId = restored?.id ?? combined.first?.id
             if let p = restored { preciseCharPos = p.charOffset }
         } else if let target = targetPageId, combined.contains(where: { $0.id == target }) {
@@ -1241,10 +1367,9 @@ public struct ReaderView: View {
             #if DEBUG
             print("[REPAG] -> targetPageId=\(target)")
             #endif
-        } else if !hasRestoredPagePosition {
+        } else if !hasRestored {
             hasRestoredPagePosition = true
-            let savedPos = engine.book.durChapterPos
-            if savedPos > 0, idx == engine.book.durChapterIndex {
+            if savedPos > 0, idx == savedDurIdx {
                 preciseCharPos = savedPos
                 let restoredPage = currPages.first(where: { $0.containsPos(savedPos) }) ?? currPages.first
                 self.currentPageId = restoredPage?.id ?? combined.first?.id
@@ -1254,19 +1379,19 @@ public struct ReaderView: View {
             } else {
                 self.currentPageId = currPages.first?.id ?? combined.first?.id
                 #if DEBUG
-                print("[REPAG] -> FIRST PAGE (no match: savedPos=\(savedPos) durIdx=\(engine.book.durChapterIndex) idx=\(idx))")
+                print("[REPAG] -> FIRST PAGE (no match: savedPos=\(savedPos) durIdx=\(savedDurIdx) idx=\(idx))")
                 #endif
             }
         } else {
-            let posToRestore = preciseCharPos >= 0 ? preciseCharPos : {
-                if let cur = currentPageId,
+            let posToRestore = posSnapshot >= 0 ? posSnapshot : {
+                if let cur = oldCurrentPageId,
                    let oldPage = oldPages.first(where: { $0.id == cur }) {
                     return oldPage.charOffset
                 }
                 return -1
             }()
             if posToRestore >= 0 {
-                let chapterIdx = oldPages.first(where: { $0.id == currentPageId })?.chapterIndex ?? idx
+                let chapterIdx = oldPages.first(where: { $0.id == oldCurrentPageId })?.chapterIndex ?? idx
                 let restored = combined.first(where: {
                     $0.chapterIndex == chapterIdx && $0.containsPos(posToRestore)
                 })

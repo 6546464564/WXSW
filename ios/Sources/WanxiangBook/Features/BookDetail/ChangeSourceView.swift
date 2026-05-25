@@ -34,7 +34,7 @@ public struct ChangeSourceView: View {
     public let onSelect: (SearchBook, BookSource) -> Void
 
     @StateObject private var vm = ChangeSourceViewModel()
-    @StateObject private var scoreStore = SourceScoreStore.shared
+    @ObservedObject private var scoreStore = SourceScoreStore.shared
     @Environment(\.dismiss) private var dismiss
 
     /// 顶栏二次过滤是否展开 (Android menu_screen SearchView 同样是按需展开)
@@ -88,6 +88,7 @@ public struct ChangeSourceView: View {
                 Divider()
                 bottomBar
             }
+            .accessibilityIdentifier("change-source-sheet")
             .navigationTitle("换源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -107,15 +108,20 @@ public struct ChangeSourceView: View {
                 if vm.candidates.isEmpty {
                     await vm.startSearch(target: target)
                 }
-                // 万象书屋 (perf 2026-05-11): 对话框打开同时自动起一轮"name + 作者"精准搜索,
-                // 跟主搜并行跑 — 很多源 (番茄/晋江/起点系) 对 "name + 作者" 命中率比 "name" 高,
-                // 能秒补一批主搜静默掉的真候选. author 为空时跳过.
+                // 主搜结果不足时才自动二轮 (避免默认双倍全源扫描 OOM)
                 let author = target.author.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !author.isEmpty {
-                    Task { await vm.startSecondaryRound(target: target, extraKeyword: author) }
+                if !author.isEmpty, vm.candidates.count < 3 {
+                    await vm.startSecondaryRound(target: target, extraKeyword: author)
                 }
                 runDebugAutoPick()
             }
+            .onChange(of: vm.screenFilter) { _, _ in
+                vm.rebuildDisplayList(currentOrigin: target.currentOrigin)
+            }
+            .onChange(of: vm.groupFilter) { _, _ in
+                vm.rebuildDisplayList(currentOrigin: target.currentOrigin)
+            }
+            .onDisappear { vm.shutdown() }
         }
     }
 
@@ -207,7 +213,7 @@ public struct ChangeSourceView: View {
     // MARK: - 候选列表 (Android RecyclerView)
 
     private var candidatesList: some View {
-        let display = vm.displayCandidates(score: { scoreStore.score(for: $0) })
+        let display = vm.displayList
         return Group {
             if display.isEmpty && !vm.isSearching {
                 VStack(spacing: 6) {
@@ -219,50 +225,31 @@ public struct ChangeSourceView: View {
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    List {
-                        Section {
-                            ForEach(display, id: \.book.bookUrl) { item in
-                                Button {
-                                    handlePick(item)
-                                } label: {
-                                    ChangeSourceCandidateRow(
-                                        candidate: item,
-                                        isCurrent: target.currentOrigin == item.book.origin,
-                                        showWordCountAndRespond: vm.showWordCountAndRespond,
-                                        onTop: { vm.topSource(item) },
-                                        onBottom: { vm.bottomSource(item) },
-                                        onScoreChanged: { newScore in
-                                            scoreStore.set(score: newScore, for: item.book)
-                                        },
-                                        score: scoreStore.score(for: item.book)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                .id(rowAnchor(for: item))
-                            }
-                        } header: {
-                            Text("找到 \(vm.candidates.count) 个候选源 (显示 \(display.count))")
-                                .font(.caption)
-                        }
+                ChangeSourceCandidatesList(
+                    display: display,
+                    header: "找到 \(vm.candidates.count) 个候选源 (显示 \(display.count))",
+                    currentOrigin: target.currentOrigin,
+                    scrollToken: scrollToken,
+                    jumpEdgeToken: jumpEdgeToken
+                ) { item in
+                    Button {
+                        handlePick(item)
+                    } label: {
+                        ChangeSourceCandidateRow(
+                            candidate: item,
+                            isCurrent: target.currentOrigin == item.book.origin,
+                            showWordCountAndRespond: vm.showWordCountAndRespond,
+                            onTop: { vm.topSource(item) },
+                            onBottom: { vm.bottomSource(item) },
+                            onScoreChanged: { newScore in
+                                scoreStore.set(score: newScore, for: item.book)
+                            },
+                            score: scoreStore.score(for: item.book)
+                        )
                     }
-                    .listStyle(.plain)
-                    .onChange(of: scrollToken) { _, _ in
-                        if let target = currentRowAnchor() {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                proxy.scrollTo(target, anchor: .center)
-                            }
-                        }
-                    }
-                    .onChange(of: jumpEdgeToken) { _, tok in
-                        let anchors = display.map { rowAnchor(for: $0) }
-                        guard !anchors.isEmpty else { return }
-                        if tok.kind == .top, let first = anchors.first {
-                            withAnimation { proxy.scrollTo(first, anchor: .top) }
-                        } else if tok.kind == .bottom, let last = anchors.last {
-                            withAnimation { proxy.scrollTo(last, anchor: .bottom) }
-                        }
-                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
                 }
             }
         }
@@ -275,28 +262,9 @@ public struct ChangeSourceView: View {
         return "没找到此书的其它源"
     }
 
-    private func rowAnchor(for item: ChangeSourceViewModel.Candidate) -> String {
-        "row::\(item.book.origin)::\(item.book.bookUrl)"
-    }
-
-    private func currentRowAnchor() -> String? {
-        guard let cur = target.currentOrigin else { return nil }
-        if let hit = vm.candidates.first(where: { $0.book.origin == cur }) {
-            return rowAnchor(for: hit)
-        }
-        return nil
-    }
-
     // MARK: - 底栏 (Android tvDur / ivTop / ivBottom / progress text)
 
-    @State private var jumpEdgeToken: JumpToken = JumpToken(kind: .none)
-
-    private struct JumpToken: Equatable {
-        enum Kind { case none, top, bottom }
-        let kind: Kind
-        let id = UUID()
-        static func == (l: JumpToken, r: JumpToken) -> Bool { l.id == r.id }
-    }
+    @State private var jumpEdgeToken: ChangeSourceJumpToken = ChangeSourceJumpToken(kind: .none)
 
     private var bottomBar: some View {
         HStack(spacing: 10) {
@@ -331,7 +299,7 @@ public struct ChangeSourceView: View {
             Spacer(minLength: 6)
 
             Button {
-                jumpEdgeToken = JumpToken(kind: .top)
+                jumpEdgeToken = ChangeSourceJumpToken(kind: .top)
             } label: {
                 Image(systemName: "arrow.up.to.line")
                     .font(.callout)
@@ -339,7 +307,7 @@ public struct ChangeSourceView: View {
             }
             .buttonStyle(.borderless)
             Button {
-                jumpEdgeToken = JumpToken(kind: .bottom)
+                jumpEdgeToken = ChangeSourceJumpToken(kind: .bottom)
             } label: {
                 Image(systemName: "arrow.down.to.line")
                     .font(.callout)
@@ -470,16 +438,32 @@ public struct ChangeSourceView: View {
 final class ChangeSourceViewModel: ObservableObject {
 
     struct Candidate: Sendable, Equatable {
+        /// 万象书屋 (crash fix): ForEach 唯一 id — 永不复用, 彻底规避 duplicate id 闪退.
+        let stableId: UUID
         var book: SearchBook
         var isLoadingInfo: Bool = false
         var infoFailed: Bool = false
         /// 万象书屋: 该源 search 响应时间 (ms); < 0 表示未知 / 未到.
-        /// 跟 Android `tvRespondTime` 等价.
         var respondTimeMs: Int = -1
         var bookUrl: String { book.bookUrl }
+
+        init(book: SearchBook, isLoadingInfo: Bool = false, infoFailed: Bool = false, respondTimeMs: Int = -1) {
+            self.stableId = UUID()
+            self.book = book
+            self.isLoadingInfo = isLoadingInfo
+            self.infoFailed = infoFailed
+            self.respondTimeMs = respondTimeMs
+        }
+
+        /// 展示 / 去重用 (非 ForEach id)
+        var listRowId: String {
+            "\(book.origin)::\(book.bookUrl)::\(book.name)::\(book.author)"
+        }
     }
 
     @Published var candidates: [Candidate] = []
+    /// 过滤后的展示列表 (仅 candidates/筛选变化时更新, 与搜索进度解耦避免 graph 风暴)
+    @Published private(set) var displayList: [Candidate] = []
     @Published var isSearching = false
     /// 顶栏关键词二次过滤 (Android `menu_screen` SearchView)
     @Published var screenFilter: String = ""
@@ -496,26 +480,55 @@ final class ChangeSourceViewModel: ObservableObject {
 
     private var searchTask: Task<Void, Never>? = nil
     private var infoFillTasks: [Task<Void, Never>] = []
-    /// 万象书屋 (perf 2026-05-11): fetchInfo 并发提到 8 (原 4). info-fill 单源 8s timeout,
-    /// 串行 4 个 slot 时 80 个候选最坏 160s. 提到 8 后基本能跟上 search stream.
-    /// BookSourceEngine 有 4 个 infoParser pool, 8 个 in-flight 会 2:1 排队, 仍比之前快 2x.
-    private let fetchInfoConcurrency = 8
+    /// 搜索进行中暂缓 info-fill, 避免 search+fetchInfo 双负载 OOM / SwiftUI 频繁刷新闪退
+    private var pendingInfoFillKeys: Set<String> = []
+    /// merge 合并队列: 200ms 内多源命中只触发一次 @Published
+    private var pendingMergeItems: [(book: SearchBook, respondTimeMs: Int)] = []
+    private var pendingMergeTarget: ChangeSourceView.Target?
+    private var mergeCoalesceTask: Task<Void, Never>?
+    private static let maxCandidates = 80
+    private static let mergeCoalesceNanos: UInt64 = 500_000_000
+    private static let maxInfoFillAfterSearch = 24
+    /// 进度节流: 内部计数 + 400ms 合并一次 @Published, 避免每搜完一个源就刷新整页 List
+    private var progressSearchedCount = 0
+    private var progressSearchingName = ""
+    private var progressCoalesceTask: Task<Void, Never>?
+    /// 搜索期间 cache 写入先入队, 结束后再批量落盘
+    private var pendingCacheUpserts: [ChangeSourceCandidateCache.CachedCandidate] = []
+    private var pendingCacheTarget: ChangeSourceView.Target?
+    private var listCurrentOrigin: String?
+    /// 万象书屋 (perf 2026-05-11): fetchInfo 并发按设备内存自适应, SE 等设备避免 OOM.
+    private var fetchInfoConcurrency: Int {
+        min(BookSourceEngine.adaptiveFetchInfoConcurrency, 3)
+    }
     private var infoFillInflight = 0
-    /// 万象书屋 (perf 2026-05-11): 提到 12. SearchView 已用 9, 但换源是单本场景, 用户更
-    /// 期望"秒出多个源", 且 BookSourceEngine 已用 4 个 JSEngine pool + InfoCache, 12 不爆.
-    private let searchConcurrency = 12
+    /// 换源搜索并发 — 专用低并发, 禁止跟全站搜索一样开到 9.
+    private var searchConcurrency: Int { BookSourceEngine.changeSourceSearchConcurrency }
 
     /// 万象书屋 (perf 2026-05-11): 跨"主搜索"+"二轮精准搜索"共享的去重 key 集.
     /// 主搜 keyword=name, 二轮 keyword=name+作者 / name+screenFilter, 两端可能返同一本书,
     /// 用统一集合保证 candidates 不会出现重复.
     private var seenCandidateKeys: Set<String> = []
 
-    /// 万象书屋: 二轮精准搜索任务 (跟主搜索独立, 并行跑)
+    /// 万象书屋: 二轮精准搜索 (必须在主搜结束后串行跑, 不可与主搜并行 — 否则双倍并发 OOM)
     private var secondaryRoundTask: Task<Void, Never>? = nil
     /// 已经发过的二轮关键词, 同 key 不再重复发 (用户清空再输同样的词不会重打源)
     private var firedSecondaryKeys: Set<String> = []
     /// 二轮搜索当前关键词 (UI 显示用); nil = 没在跑二轮
     @Published var secondaryRoundActiveKey: String? = nil
+
+    /// 本章换源模式: 从阅读器打开, 与 prefetch 并存时更保守 (低并发 / 无 info-fill / 无二轮)
+    var chapterChangeMode = false
+
+    private var effectiveMaxCandidates: Int {
+        chapterChangeMode ? 50 : Self.maxCandidates
+    }
+    private var effectiveSearchConcurrency: Int {
+        chapterChangeMode ? min(2, searchConcurrency) : searchConcurrency
+    }
+    private var effectiveMaxInfoFill: Int {
+        chapterChangeMode ? 0 : Self.maxInfoFillAfterSearch
+    }
 
     // MARK: - 搜索控制
 
@@ -528,28 +541,42 @@ final class ChangeSourceViewModel: ObservableObject {
     ///   2. 后台启动并发搜索, 增量 merge 新候选 + 写 cache.
     func startSearch(target: ChangeSourceView.Target) async {
         if isSearching { return }
+        SourceHealthChecker.shared.cancelHealthCheck()
         cancelInfoFill()
+        pendingInfoFillKeys.removeAll()
+        pendingMergeItems.removeAll()
+        pendingCacheUpserts.removeAll()
+        pendingCacheTarget = target
+        mergeCoalesceTask?.cancel()
+        mergeCoalesceTask = nil
+        progressCoalesceTask?.cancel()
+        progressCoalesceTask = nil
         // 万象书屋: 主搜启动时重置二轮状态 (用户重新打开换源 / 点刷新都从 0 开始)
         secondaryRoundTask?.cancel()
         secondaryRoundTask = nil
         secondaryRoundActiveKey = nil
         firedSecondaryKeys.removeAll()
+        listCurrentOrigin = target.currentOrigin
 
-        // 1) 同步加载磁盘 cache → 立即填. 跟 Android `getDbSearchBooks` 等价.
+        // 1) 同步加载磁盘 cache
         let cached = ChangeSourceCandidateCache.shared.get(name: target.name, author: target.author) ?? []
         seenCandidateKeys.removeAll()
-        candidates = []
+        var batch: [Candidate] = []
+        batch.reserveCapacity(cached.count)
         for c in cached {
             let key = "\(c.book.origin)::\(c.book.bookUrl)"
             guard seenCandidateKeys.insert(key).inserted else { continue }
-            var cand = Candidate(book: c.book)
-            cand.respondTimeMs = c.respondTimeMs
-            // cache 里 lastChapter 应已经填好; 即便没填, 不再 fetchInfo (避免冷启动一窝蜂打网络)
+            var cand = Candidate(book: c.book, respondTimeMs: c.respondTimeMs)
             cand.isLoadingInfo = false
-            self.insertCandidate(cand, currentOrigin: target.currentOrigin)
+            batch.append(cand)
         }
+        candidates = Self.orderedCandidateList(from: batch, currentOrigin: target.currentOrigin)
+        rebuildDisplayList(currentOrigin: target.currentOrigin)
+        await Task.yield()
 
         searchedCount = 0
+        progressSearchedCount = 0
+        progressSearchingName = ""
         currentSearchingName = ""
 
         // 2) 排好序的源 list → 历史好源先发, 用户感知速度 ↑
@@ -559,9 +586,12 @@ final class ChangeSourceViewModel: ObservableObject {
         availableGroups = collectGroups()
         isSearching = true
         let t0 = Date()
-        let concurrency = searchConcurrency
+        let concurrency = effectiveSearchConcurrency
         let task = Task { [weak self] in
             guard let self else { return }
+            // 等 sheet 动画完成再并发打源, 避免与首帧列表渲染抢主线程 graph update.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
             let stream = await BookSourceEngine.shared.searchAll(
                 in: sources, key: target.name,
                 maxConcurrency: concurrency
@@ -576,14 +606,14 @@ final class ChangeSourceViewModel: ObservableObject {
                     sourceUrl: src.bookSourceUrl, ok: okFlag, durationMs: dt
                 )
                 await MainActor.run {
-                    self.searchedCount += 1
-                    self.currentSearchingName = src.bookSourceName
+                    self.noteSearchProgress(searchedName: src.bookSourceName)
                 }
                 switch result {
                 case .success(let books):
-                    for b in books where self.matches(target: target, candidate: b) {
+                    let matched = books.filter { self.matches(target: target, candidate: $0) }
+                    if !matched.isEmpty {
                         await MainActor.run {
-                            self.tryInsertCandidate(SearchBook: b, target: target, respondTimeMs: dt)
+                            self.enqueueMergeSearchHits(matched, target: target, respondTimeMs: dt)
                         }
                     }
                 case .failure:
@@ -591,14 +621,17 @@ final class ChangeSourceViewModel: ObservableObject {
                 }
             }
             await MainActor.run {
+                self.flushCoalescedMergeHits()
+                self.flushSearchProgress()
                 self.isSearching = false
                 self.currentSearchingName = ""
-                // 万象书屋: 搜索结束兜底一次写盘. info-fill 可能在搜索完后还在跑,
-                // 那部分 lastChapter 补全由 performInfoFill 的最后一步另存.
+                self.flushPendingCacheWrites(target: target)
                 self.persistAllCandidatesToCache(target: target)
+                self.flushPendingInfoFillIfIdle()
             }
         }
         searchTask = task
+        await task.value
     }
 
     /// 万象书屋 (perf 2026-05-11): 二轮精准搜索.
@@ -611,13 +644,19 @@ final class ChangeSourceViewModel: ObservableObject {
     /// 不清候选 / 不动 isSearching — 新结果 merge 进 candidates, 共享 `seenCandidateKeys`
     /// 去重. 同 extra key 不重复发. 主搜在跑 / 不在跑都可以发.
     func startSecondaryRound(target: ChangeSourceView.Target, extraKeyword: String) async {
+        guard !chapterChangeMode else { return }
         let trimmed = extraKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 太短 (<2) 容易把搜索打成单字符, 大量源响应内容大 + 命中率低, 不发
         guard trimmed.count >= 2 else { return }
+        SourceHealthChecker.shared.cancelHealthCheck()
         let combined = "\(target.name) \(trimmed)"
         let dedupeKey = combined.lowercased()
         if firedSecondaryKeys.contains(dedupeKey) { return }
         firedSecondaryKeys.insert(dedupeKey)
+
+        // 等主搜结束再开二轮, 禁止双路 searchAll 并行
+        if let primary = searchTask {
+            await primary.value
+        }
 
         secondaryRoundTask?.cancel()
         secondaryRoundActiveKey = combined
@@ -628,7 +667,7 @@ final class ChangeSourceViewModel: ObservableObject {
             let sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
             let stream = await BookSourceEngine.shared.searchAll(
                 in: sources, key: combined,
-                maxConcurrency: 12
+                maxConcurrency: BookSourceEngine.changeSourceSearchConcurrency
             )
             let t0 = Date()
             for await (src, result) in stream {
@@ -641,11 +680,10 @@ final class ChangeSourceViewModel: ObservableObject {
                 )
                 switch result {
                 case .success(let books):
-                    // 万象书屋: 仍然用 `matches(target:candidate:)` 过滤 — 即使源对组合 key
-                    // 命中, 也要确保返回的 SearchBook.name == target.name (避免源乱返).
-                    for b in books where self.matches(target: target, candidate: b) {
+                    let matched = books.filter { self.matches(target: target, candidate: $0) }
+                    if !matched.isEmpty {
                         await MainActor.run {
-                            self.tryInsertCandidate(SearchBook: b, target: target, respondTimeMs: dt)
+                            self.enqueueMergeSearchHits(matched, target: target, respondTimeMs: dt)
                         }
                     }
                 case .failure:
@@ -653,39 +691,155 @@ final class ChangeSourceViewModel: ObservableObject {
                 }
             }
             await MainActor.run {
+                self.flushCoalescedMergeHits()
                 if self.secondaryRoundActiveKey == combined {
                     self.secondaryRoundActiveKey = nil
                 }
+                self.flushPendingCacheWrites(target: target)
                 self.persistAllCandidatesToCache(target: target)
+                self.flushPendingInfoFillIfIdle()
             }
         }
         secondaryRoundTask = task
+        await task.value
     }
 
-    /// 万象书屋: 主搜 / 二轮共用的"插入候选"通道. seenCandidateKeys 去重 + insert + 调度 info-fill + 落盘.
-    private func tryInsertCandidate(
-        SearchBook b: SearchBook,
+    /// 200ms 合并多源命中, 减少搜索过程中 List graph 刷新频率
+    private func enqueueMergeSearchHits(
+        _ books: [SearchBook],
         target: ChangeSourceView.Target,
         respondTimeMs: Int
     ) {
-        let key = "\(b.origin)::\(b.bookUrl)"
-        guard seenCandidateKeys.insert(key).inserted else { return }
-        var cand = Candidate(book: b)
-        cand.respondTimeMs = respondTimeMs
-        let alreadyHasLast = (b.lastChapter?
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-        cand.isLoadingInfo = !alreadyHasLast
-        insertCandidate(cand, currentOrigin: target.currentOrigin)
-        if !alreadyHasLast {
-            scheduleInfoFill(for: key)
+        pendingMergeTarget = target
+        for b in books {
+            pendingMergeItems.append((book: b, respondTimeMs: respondTimeMs))
         }
-        ChangeSourceCandidateCache.shared.upsert(
-            name: target.name,
-            author: target.author,
-            candidate: ChangeSourceCandidateCache.CachedCandidate(
-                book: b, respondTimeMs: respondTimeMs
+        mergeCoalesceTask?.cancel()
+        mergeCoalesceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.mergeCoalesceNanos)
+            guard !Task.isCancelled else { return }
+            self?.flushCoalescedMergeHits()
+        }
+    }
+
+    private func flushCoalescedMergeHits() {
+        mergeCoalesceTask?.cancel()
+        mergeCoalesceTask = nil
+        guard let target = pendingMergeTarget, !pendingMergeItems.isEmpty else { return }
+        let items = pendingMergeItems
+        pendingMergeItems.removeAll()
+        pendingMergeTarget = nil
+        mergeSearchHits(items, target: target)
+    }
+
+    /// 主搜 / 二轮共用: 按批 merge, 单次 @Published; info-fill 延到搜索全结束
+    private func mergeSearchHits(
+        _ items: [(book: SearchBook, respondTimeMs: Int)],
+        target: ChangeSourceView.Target
+    ) {
+        guard candidates.count < effectiveMaxCandidates else { return }
+        var batch: [Candidate] = []
+        batch.reserveCapacity(items.count)
+        for item in items {
+            let b = item.book
+            let key = "\(b.origin)::\(b.bookUrl)"
+            guard seenCandidateKeys.insert(key).inserted else { continue }
+            var cand = Candidate(book: b, respondTimeMs: item.respondTimeMs)
+            let alreadyHasLast = (b.lastChapter?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            cand.isLoadingInfo = !alreadyHasLast
+            batch.append(cand)
+            if !alreadyHasLast {
+                deferInfoFill(for: key)
+            }
+            queueCacheUpsert(
+                target: target,
+                candidate: ChangeSourceCandidateCache.CachedCandidate(
+                    book: b, respondTimeMs: item.respondTimeMs
+                )
             )
+            if candidates.count + batch.count >= effectiveMaxCandidates { break }
+        }
+        guard !batch.isEmpty else { return }
+        candidates = Self.orderedCandidateList(
+            from: candidates + batch,
+            currentOrigin: target.currentOrigin
         )
+        rebuildDisplayList(currentOrigin: target.currentOrigin)
+    }
+
+    private var isSearchPipelineActive: Bool {
+        isSearching || secondaryRoundActiveKey != nil
+    }
+
+    private func deferInfoFill(for key: String) {
+        guard effectiveMaxInfoFill > 0 else { return }
+        pendingInfoFillKeys.insert(key)
+    }
+
+    private func flushPendingInfoFillIfIdle() {
+        guard !isSearchPipelineActive else { return }
+        var keys = Array(pendingInfoFillKeys)
+        pendingInfoFillKeys.removeAll()
+        if keys.count > effectiveMaxInfoFill {
+            keys = Array(keys.prefix(effectiveMaxInfoFill))
+        }
+        for key in keys {
+            enqueueInfoFill(for: key)
+        }
+    }
+
+    /// 搜索进度节流 — 400ms 合并一次, 不触发 displayList 重建
+    private func noteSearchProgress(searchedName: String) {
+        progressSearchedCount += 1
+        progressSearchingName = searchedName
+        progressCoalesceTask?.cancel()
+        progressCoalesceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            self?.flushSearchProgress()
+        }
+    }
+
+    private func flushSearchProgress() {
+        progressCoalesceTask?.cancel()
+        progressCoalesceTask = nil
+        searchedCount = progressSearchedCount
+        currentSearchingName = progressSearchingName
+    }
+
+    private func queueCacheUpsert(
+        target: ChangeSourceView.Target,
+        candidate: ChangeSourceCandidateCache.CachedCandidate
+    ) {
+        pendingCacheTarget = target
+        pendingCacheUpserts.append(candidate)
+    }
+
+    private func flushPendingCacheWrites(target: ChangeSourceView.Target) {
+        guard pendingCacheTarget?.name == target.name,
+              pendingCacheTarget?.author == target.author,
+              !pendingCacheUpserts.isEmpty else { return }
+        for c in pendingCacheUpserts {
+            ChangeSourceCandidateCache.shared.upsert(
+                name: target.name, author: target.author, candidate: c
+            )
+        }
+        pendingCacheUpserts.removeAll()
+    }
+
+    /// 按 screenFilter / groupFilter / score 重建展示列表
+    func rebuildDisplayList(currentOrigin: String?) {
+        displayList = displayCandidates(currentOrigin: currentOrigin)
+    }
+
+    /// 旧签名保留给内部单批转换
+    private func mergeSearchHits(
+        _ books: [SearchBook],
+        target: ChangeSourceView.Target,
+        respondTimeMs: Int
+    ) {
+        mergeSearchHits(books.map { (book: $0, respondTimeMs: respondTimeMs) }, target: target)
     }
 
     /// 全量重写当前候选到磁盘 cache. info-fill 完成 / 搜索结束时调.
@@ -702,13 +856,29 @@ final class ChangeSourceViewModel: ObservableObject {
     func stopSearch() {
         searchTask?.cancel()
         searchTask = nil
+        secondaryRoundTask?.cancel()
+        secondaryRoundTask = nil
+        secondaryRoundActiveKey = nil
+        mergeCoalesceTask?.cancel()
+        mergeCoalesceTask = nil
+        progressCoalesceTask?.cancel()
+        progressCoalesceTask = nil
         isSearching = false
         currentSearchingName = ""
+    }
+
+    /// sheet 关闭 / deinit: 停止全部搜索与 info-fill
+    func shutdown() {
+        stopSearch()
+        cancelInfoFill()
+        pendingInfoFillKeys.removeAll()
+        pendingMergeItems.removeAll()
     }
 
     /// 刷新列表: 清掉所有候选, 重新搜 (Android `menu_refresh_list` → `startRefreshList`)
     func refreshList(target: ChangeSourceView.Target) async {
         stopSearch()
+        pendingInfoFillKeys.removeAll()
         // 强制刷新: 清磁盘 cache, 下面 startSearch 不会读到旧候选, 跟 Android 行为一致.
         ChangeSourceCandidateCache.shared.clear(name: target.name, author: target.author)
         await startSearch(target: target)
@@ -719,25 +889,27 @@ final class ChangeSourceViewModel: ObservableObject {
     /// 置顶 (Android `topSource`)
     func topSource(_ cand: Candidate) {
         guard let idx = candidates.firstIndex(where: { $0.book.bookUrl == cand.book.bookUrl && $0.book.origin == cand.book.origin }) else { return }
-        let c = candidates.remove(at: idx)
-        candidates.insert(c, at: 0)
+        var next = candidates
+        let c = next.remove(at: idx)
+        next.insert(c, at: 0)
+        candidates = next
+        rebuildDisplayList(currentOrigin: listCurrentOrigin)
     }
 
     /// 置底 (Android `bottomSource`)
     func bottomSource(_ cand: Candidate) {
         guard let idx = candidates.firstIndex(where: { $0.book.bookUrl == cand.book.bookUrl && $0.book.origin == cand.book.origin }) else { return }
-        let c = candidates.remove(at: idx)
-        candidates.append(c)
+        var next = candidates
+        let c = next.remove(at: idx)
+        next.append(c)
+        candidates = next
+        rebuildDisplayList(currentOrigin: listCurrentOrigin)
     }
 
     // MARK: - 派生显示候选 (screenFilter + groupFilter + score 排序)
 
     /// 万象书屋: 过滤后的候选 (顶栏 screenFilter + groupFilter) + 按 score 二级排序.
-    ///   - score=1 (推荐) 排最前
-    ///   - score=0 (默认) 中间, 顺序保持 candidates 原始顺序
-    ///   - score=-1 (屏蔽) 沉底
-    ///   - 当前源始终插队最前
-    func displayCandidates(score: (SearchBook) -> Int) -> [Candidate] {
+    private func displayCandidates(currentOrigin: String?) -> [Candidate] {
         let q = screenFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let filtered = candidates.filter { c in
             if let g = groupFilter, !g.isEmpty {
@@ -750,9 +922,8 @@ final class ChangeSourceViewModel: ObservableObject {
             }
             return true
         }
-        // 稳定排序: keep relative order within same bucket
         let withIdx = filtered.enumerated().map { (i, c) -> (Int, Int, Candidate) in
-            let s = score(c.book)
+            let s = SourceScoreStore.shared.score(for: c.book)
             let bucket: Int
             if s == 1 { bucket = 0 } else if s == 0 { bucket = 1 } else { bucket = 2 }
             return (bucket, i, c)
@@ -761,7 +932,18 @@ final class ChangeSourceViewModel: ObservableObject {
             if lhs.0 != rhs.0 { return lhs.0 < rhs.0 }
             return lhs.1 < rhs.1
         }
-        return sorted.map { $0.2 }
+        var seenRowIds = Set<String>()
+        return sorted.compactMap { pair -> Candidate? in
+            let c = pair.2
+            guard seenRowIds.insert(c.listRowId).inserted else { return nil }
+            return c
+        }
+    }
+
+    /// 兼容旧调用 (带 score 闭包)
+    func displayCandidates(score: (SearchBook) -> Int) -> [Candidate] {
+        _ = score
+        return displayList
     }
 
     // MARK: - private helpers
@@ -792,6 +974,25 @@ final class ChangeSourceViewModel: ObservableObject {
         }
     }
 
+    /// 当前源排最前 (批量加载 cache 时用, 单次 @Published 赋值).
+    private static func orderedCandidateList(
+        from items: [Candidate],
+        currentOrigin: String?
+    ) -> [Candidate] {
+        var current: Candidate? = nil
+        var rest: [Candidate] = []
+        rest.reserveCapacity(items.count)
+        for cand in items {
+            if let cur = currentOrigin, cand.book.origin == cur {
+                current = cand
+            } else {
+                rest.append(cand)
+            }
+        }
+        if let c = current { return [c] + rest }
+        return rest
+    }
+
     private func matches(target: ChangeSourceView.Target, candidate: SearchBook) -> Bool {
         let n1 = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let n2 = candidate.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -808,6 +1009,14 @@ final class ChangeSourceViewModel: ObservableObject {
     // MARK: - 异步 fetchInfo (补 lastChapter)
 
     private func scheduleInfoFill(for key: String) {
+        if isSearchPipelineActive {
+            pendingInfoFillKeys.insert(key)
+            return
+        }
+        enqueueInfoFill(for: key)
+    }
+
+    private func enqueueInfoFill(for key: String) {
         let task = Task { [weak self] in
             guard let self else { return }
             await self.acquireSlot()
@@ -867,7 +1076,10 @@ final class ChangeSourceViewModel: ObservableObject {
 
     private func updateCandidate(forKey key: String, _ mut: (inout Candidate) -> Void) {
         guard let idx = candidates.firstIndex(where: { "\($0.book.origin)::\($0.book.bookUrl)" == key }) else { return }
-        mut(&candidates[idx])
+        var next = candidates
+        mut(&next[idx])
+        candidates = next
+        rebuildDisplayList(currentOrigin: listCurrentOrigin)
     }
 
     private func acquireSlot() async {
@@ -890,5 +1102,8 @@ final class ChangeSourceViewModel: ObservableObject {
     deinit {
         for t in infoFillTasks { t.cancel() }
         searchTask?.cancel()
+        secondaryRoundTask?.cancel()
+        mergeCoalesceTask?.cancel()
+        progressCoalesceTask?.cancel()
     }
 }

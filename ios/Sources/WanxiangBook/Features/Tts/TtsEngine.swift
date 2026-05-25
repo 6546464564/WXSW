@@ -165,7 +165,11 @@ public final class TtsEngine: NSObject, ObservableObject {
     }
 
     /// 万象书屋 (M2.8): 锁屏 / 控制中心快进 — 跳过 N 句 (~30 秒)
+    /// 万象书屋 (2026-05-25): utterances 为空时 `count - 1 = -1`, 会让 currentUtteranceIndex
+    /// 变为 -1, 随后 speakCurrent 里 guard `-1 < 0 == true` 通过, 走到 utterances[-1] trap.
+    /// 必须先 guard 非空.
     public func skipForward() {
+        guard !utterances.isEmpty else { return }
         let target = min(currentUtteranceIndex + 5, utterances.count - 1)
         if target == currentUtteranceIndex { return }
         synth.stopSpeaking(at: .immediate)
@@ -174,6 +178,7 @@ public final class TtsEngine: NSObject, ObservableObject {
     }
 
     public func skipBackward() {
+        guard !utterances.isEmpty else { return }
         let target = max(currentUtteranceIndex - 5, 0)
         if target == currentUtteranceIndex { return }
         synth.stopSpeaking(at: .immediate)
@@ -223,8 +228,10 @@ public final class TtsEngine: NSObject, ObservableObject {
     // MARK: - 内部: 朗读当前句
 
     private func speakCurrent() {
-        guard currentUtteranceIndex < utterances.count else {
-            // 整章读完 → 下一章
+        // 万象书屋 (2026-05-25): 必须同时检查 >= 0 和 < count, 防御 negative index trap
+        // (skipBackward 等极端边界 + utterances 为空时已经在调用方守护, 这里是兜底).
+        guard currentUtteranceIndex >= 0, currentUtteranceIndex < utterances.count else {
+            // 整章读完 → 下一章 (空数组场景调 nextChapter 会因 chapters.isEmpty 安全 stop)
             Task { await self.nextChapter() }
             return
         }

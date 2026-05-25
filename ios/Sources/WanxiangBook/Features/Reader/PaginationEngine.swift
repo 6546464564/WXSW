@@ -119,12 +119,14 @@ public struct PaginationEngine {
         var slices: [(text: String, charOffset: Int, wasteH: CGFloat, lineCount: Int, startsNewPara: Bool)] = []
         var startIdx: CFIndex = 0
         var safety = 0
+        // 长章节能分上千页; 固定 1000 会截断后半段正文 (后面章节更容易触发)
+        let maxPages = max(1000, totalLength / 30 + 200)
 
         // #region agent log
         _dbg63Log("paginate canvasW=\(String(format: "%.1f", canvasSize.width)) canvasH=\(String(format: "%.1f", canvasSize.height)) textSize=\(config.textSize) lineSpacing=\(config.lineSpacing) paraSpacing=\(config.paragraphSpacing) chIdx=\(chapterIndex) totalLen=\(totalLength)")
         // #endregion
 
-        while startIdx < totalLength, safety < 1000 {
+        while startIdx < totalLength, safety < maxPages {
             safety += 1
             let path = CGPath(rect: CGRect(origin: .zero, size: canvasSize), transform: nil)
             let frame = CTFramesetterCreateFrame(
@@ -136,7 +138,39 @@ public struct PaginationEngine {
             let visibleRange = CTFrameGetVisibleStringRange(frame)
             if visibleRange.length <= 0 {
                 if startIdx < totalLength {
-                    startIdx += 1
+                    // CoreText 偶发返回 0 长度 — 用 SuggestFrameSize 推进, 避免逐字 +1 触发 maxPages 截断
+                    var fitRange = CFRange()
+                    _ = CTFramesetterSuggestFrameSizeWithConstraints(
+                        framesetter,
+                        CFRangeMake(startIdx, totalLength - startIdx),
+                        nil,
+                        canvasSize,
+                        &fitRange
+                    )
+                    let advance = max(1, min(fitRange.length > 0 ? fitRange.length : 1, totalLength - startIdx))
+                    if fitRange.length > 0 {
+                        let fallbackFrame = CTFramesetterCreateFrame(
+                            framesetter,
+                            CFRangeMake(startIdx, advance),
+                            path,
+                            nil
+                        )
+                        let ctLines = CTFrameGetLines(fallbackFrame) as! [CTLine]
+                        var wasteH: CGFloat = 0
+                        if !ctLines.isEmpty {
+                            var origins = [CGPoint](repeating: .zero, count: ctLines.count)
+                            CTFrameGetLineOrigins(fallbackFrame, CFRangeMake(0, ctLines.count), &origins)
+                            let lastOriginY = origins[ctLines.count - 1].y
+                            var lastDesc: CGFloat = 0
+                            CTLineGetTypographicBounds(ctLines.last!, nil, &lastDesc, nil)
+                            wasteH = max(0, lastOriginY - lastDesc)
+                        }
+                        let pageRange = NSRange(location: startIdx, length: advance)
+                        let pageText = (attrString.string as NSString).substring(with: pageRange)
+                        let isNewPara = startIdx == 0 || (attrString.string as NSString).substring(with: NSRange(location: Int(startIdx) - 1, length: 1)) == "\n"
+                        slices.append((text: pageText, charOffset: Int(startIdx), wasteH: wasteH, lineCount: ctLines.count, startsNewPara: isNewPara))
+                    }
+                    startIdx += advance
                     continue
                 }
                 break
@@ -166,8 +200,8 @@ public struct PaginationEngine {
             startIdx += visibleRange.length
         }
         // bug #10 fix: safety 触底是异常, 加日志方便用户上报
-        if safety >= 1000 {
-            print("[PaginationEngine] WARNING: safety limit hit (>1000 pages) at chapter \(chapterIndex), output truncated")
+        if safety >= maxPages {
+            print("[PaginationEngine] WARNING: page limit hit (\(maxPages) pages) at chapter \(chapterIndex), output truncated at char \(startIdx)/\(totalLength)")
         }
 
         if slices.isEmpty {
@@ -286,17 +320,23 @@ func _b08f71Log(_ msg: String, hyp: String = "") {
 // #endregion
 
 // #region agent log
+// 万象书屋 (2026-05-25): 仅 DEBUG 构建写日志; RELEASE 空函数让分页热路径零开销.
+// 之前 .first! 强制解包 + 每次分页写文件, 在 sandbox 异常时会崩在分页路径里,
+// 比 RELEASE 构建直接不写盘要安全.
 func _dbg63Log(_ msg: String) {
-    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+    #if DEBUG
+    guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
     let path = docs.appendingPathComponent("debug-63be44.log")
     let line = "\(msg)\n"
-    if let d = line.data(using: .utf8) {
-        if FileManager.default.fileExists(atPath: path.path) {
-            if let fh = try? FileHandle(forWritingTo: path) { fh.seekToEndOfFile(); fh.write(d); fh.closeFile() }
-        } else {
-            try? d.write(to: path)
+    guard let d = line.data(using: .utf8) else { return }
+    if FileManager.default.fileExists(atPath: path.path) {
+        if let fh = try? FileHandle(forWritingTo: path) {
+            fh.seekToEndOfFile(); fh.write(d); fh.closeFile()
         }
+    } else {
+        try? d.write(to: path)
     }
+    #endif
 }
 // #endregion
 

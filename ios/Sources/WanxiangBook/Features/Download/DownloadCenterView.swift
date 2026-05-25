@@ -204,7 +204,7 @@ public struct DownloadCenterView: View {
             guard let book = book else { return }
             let source = BookSourceRegistry.shared.find(origin: book.origin)
             await MainActor.run {
-                downloader.startDownload(book: book, source: source, range: job.lastRange)
+                downloader.startDownload(book: book, source: source, range: job.lastRange, force: true)
             }
         }
     }

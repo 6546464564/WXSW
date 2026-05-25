@@ -19,12 +19,12 @@ public struct ChangeChapterSourceView: View {
     public let onReplaceChapterBody: (String) -> Void
 
     @StateObject private var vm = ChangeSourceViewModel()
-    @StateObject private var scoreStore = SourceScoreStore.shared
+    @ObservedObject private var scoreStore = SourceScoreStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var path = NavigationPath()
     @State private var screenFieldVisible: Bool = false
     @State private var scrollToken: UUID = UUID()
-    @State private var jumpEdgeToken: JumpToken = JumpToken(kind: .none)
+    @State private var jumpEdgeToken: ChangeSourceJumpToken = ChangeSourceJumpToken(kind: .none)
 
     public init(
         target: ChangeSourceView.Target,
@@ -66,6 +66,7 @@ public struct ChangeChapterSourceView: View {
                 Divider()
                 bottomBar
             }
+            .accessibilityIdentifier("change-chapter-source-sheet")
             .navigationTitle("本章换源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -81,14 +82,19 @@ public struct ChangeChapterSourceView: View {
                 )
             }
             .task {
+                vm.chapterChangeMode = true
                 if vm.candidates.isEmpty {
                     await vm.startSearch(target: target)
                 }
-                // 万象书屋 (perf 2026-05-11): 同 ChangeSourceView, 自动起一轮 "name + 作者" 精准搜索.
-                let author = target.author.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !author.isEmpty {
-                    Task { await vm.startSecondaryRound(target: target, extraKeyword: author) }
-                }
+            }
+            .onDisappear {
+                vm.shutdown()
+            }
+            .onChange(of: vm.screenFilter) { _, _ in
+                vm.rebuildDisplayList(currentOrigin: target.currentOrigin)
+            }
+            .onChange(of: vm.groupFilter) { _, _ in
+                vm.rebuildDisplayList(currentOrigin: target.currentOrigin)
             }
         }
     }
@@ -150,6 +156,7 @@ public struct ChangeChapterSourceView: View {
     @State private var screenFilterDebounceTask: Task<Void, Never>? = nil
 
     private func scheduleSecondaryRound(extraKeyword: String) {
+        guard !vm.chapterChangeMode else { return }
         screenFilterDebounceTask?.cancel()
         let kw = extraKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard kw.count >= 2 else { return }
@@ -163,7 +170,7 @@ public struct ChangeChapterSourceView: View {
     // MARK: - Candidates list
 
     private var candidatesList: some View {
-        let display = vm.displayCandidates(score: { scoreStore.score(for: $0) })
+        let display = vm.displayList
         return Group {
             if display.isEmpty && !vm.isSearching {
                 VStack(spacing: 6) {
@@ -173,49 +180,32 @@ public struct ChangeChapterSourceView: View {
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    List {
-                        Section {
-                            ForEach(display, id: \.book.bookUrl) { item in
-                                Button {
-                                    guard let source = vm.sourceFor(origin: item.book.origin) else { return }
-                                    path.append(AlternatePickAnchor(book: item.book, source: source))
-                                } label: {
-                                    ChangeSourceCandidateRow(
-                                        candidate: item,
-                                        isCurrent: target.currentOrigin == item.book.origin,
-                                        showWordCountAndRespond: vm.showWordCountAndRespond,
-                                        onTop: { vm.topSource(item) },
-                                        onBottom: { vm.bottomSource(item) },
-                                        onScoreChanged: { newScore in
-                                            scoreStore.set(score: newScore, for: item.book)
-                                        },
-                                        score: scoreStore.score(for: item.book)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                .id(rowAnchor(for: item))
-                            }
-                        } header: {
-                            Text("找到 \(vm.candidates.count) 个候选源 (显示 \(display.count)) · 点选异源查目录")
-                                .font(.caption)
-                        }
+                ChangeSourceCandidatesList(
+                    display: display,
+                    header: "找到 \(vm.candidates.count) 个候选源 (显示 \(display.count)) · 点选异源查目录",
+                    currentOrigin: target.currentOrigin,
+                    scrollToken: scrollToken,
+                    jumpEdgeToken: jumpEdgeToken
+                ) { item in
+                    Button {
+                        guard let source = vm.sourceFor(origin: item.book.origin) else { return }
+                        path.append(AlternatePickAnchor(book: item.book, source: source))
+                    } label: {
+                        ChangeSourceCandidateRow(
+                            candidate: item,
+                            isCurrent: target.currentOrigin == item.book.origin,
+                            showWordCountAndRespond: vm.showWordCountAndRespond,
+                            onTop: { vm.topSource(item) },
+                            onBottom: { vm.bottomSource(item) },
+                            onScoreChanged: { newScore in
+                                scoreStore.set(score: newScore, for: item.book)
+                            },
+                            score: scoreStore.score(for: item.book)
+                        )
                     }
-                    .listStyle(.plain)
-                    .onChange(of: scrollToken) { _, _ in
-                        if let cur = currentRowAnchor() {
-                            withAnimation { proxy.scrollTo(cur, anchor: .center) }
-                        }
-                    }
-                    .onChange(of: jumpEdgeToken) { _, tok in
-                        let anchors = display.map { rowAnchor(for: $0) }
-                        guard !anchors.isEmpty else { return }
-                        if tok.kind == .top, let first = anchors.first {
-                            withAnimation { proxy.scrollTo(first, anchor: .top) }
-                        } else if tok.kind == .bottom, let last = anchors.last {
-                            withAnimation { proxy.scrollTo(last, anchor: .bottom) }
-                        }
-                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
                 }
             }
         }
@@ -228,26 +218,7 @@ public struct ChangeChapterSourceView: View {
         return "没找到此书的其它源"
     }
 
-    private func rowAnchor(for item: ChangeSourceViewModel.Candidate) -> String {
-        "row::\(item.book.origin)::\(item.book.bookUrl)"
-    }
-
-    private func currentRowAnchor() -> String? {
-        guard let cur = target.currentOrigin else { return nil }
-        if let hit = vm.candidates.first(where: { $0.book.origin == cur }) {
-            return rowAnchor(for: hit)
-        }
-        return nil
-    }
-
     // MARK: - Bottom bar
-
-    private struct JumpToken: Equatable {
-        enum Kind { case none, top, bottom }
-        let kind: Kind
-        let id = UUID()
-        static func == (l: JumpToken, r: JumpToken) -> Bool { l.id == r.id }
-    }
 
     private var bottomBar: some View {
         HStack(spacing: 10) {
@@ -277,14 +248,14 @@ public struct ChangeChapterSourceView: View {
             Spacer(minLength: 6)
 
             Button {
-                jumpEdgeToken = JumpToken(kind: .top)
+                jumpEdgeToken = ChangeSourceJumpToken(kind: .top)
             } label: {
                 Image(systemName: "arrow.up.to.line").font(.callout)
                     .foregroundStyle(WanxiangColors.textPrimary)
             }
             .buttonStyle(.borderless)
             Button {
-                jumpEdgeToken = JumpToken(kind: .bottom)
+                jumpEdgeToken = ChangeSourceJumpToken(kind: .bottom)
             } label: {
                 Image(systemName: "arrow.down.to.line").font(.callout)
                     .foregroundStyle(WanxiangColors.textPrimary)
@@ -367,6 +338,10 @@ public struct ChangeChapterSourceView: View {
     }
 }
 
+private extension BookChapter {
+    var pickRowId: String { "\(chapterIndex)::\(chapterUrl ?? title)::\(title)" }
+}
+
 // MARK: - Navigation anchor
 
 private struct AlternatePickAnchor: Hashable {
@@ -416,14 +391,16 @@ private struct AlternateChapterPickScreen: View {
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List {
-                    if let ce = chapterFetchError {
-                        Section {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if let ce = chapterFetchError {
                             Text(ce).font(.caption).foregroundStyle(.orange)
+                                .padding(.horizontal, 16).padding(.vertical, 8)
                         }
-                    }
-                    Section {
-                        ForEach(Array(toc.enumerated()), id: \.offset) { idx, chapter in
+                        Text("选用一节替换当前阅读章正文 · \(searchBook.originName)")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                        ForEach(Array(toc.enumerated()), id: \.element.pickRowId) { idx, chapter in
                             let isPick = (fetchingIndex == idx)
                             Button {
                                 chapterFetchError = nil
@@ -453,15 +430,13 @@ private struct AlternateChapterPickScreen: View {
                                         ProgressView().scaleEffect(0.75)
                                     }
                                 }
+                                .padding(.horizontal, 16).padding(.vertical, 10)
                             }
                             .disabled(fetchingIndex != nil)
+                            Divider().padding(.leading, 16)
                         }
-                    } header: {
-                        Text("选用一节替换当前阅读章正文 · \(searchBook.originName)")
-                            .font(.caption)
                     }
                 }
-                .listStyle(.plain)
             }
         }
         .navigationTitle("目录")
