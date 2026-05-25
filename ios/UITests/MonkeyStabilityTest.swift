@@ -2,13 +2,14 @@ import XCTest
 
 /// 万象书屋 Monkey 全功能增强稳定性测试
 ///
-/// 功能矩阵 (20项):
+/// 功能矩阵 (24项):
 ///   基础: 随机点击 / 滑动 / Tab切换 / 返回 / 长按 / 双击 / 元素点击
 ///   输入: 文字输入 / 边界输入 (超长文本/emoji/特殊字符)
-///   生命周期: 前后台切换 / 多任务切换 / 数据清理重启
+///   生命周期: 前后台切换 / 多任务切换 / 数据清理重启 / 长后台恢复(8-15s)
 ///   环境: 网络切换 / 屏幕旋转 / 暗色模式切换
 ///   手势: 缩放手势 / 下拉刷新
 ///   高级: 业务流程 / 快速连续操作(压力测试) / UI异常检测
+///   阅读专项: 持续阅读压测(20+页) / 快速进出阅读器 / 章节跳转 / 搜索快速取消
 ///   监控: 内存追踪 / 性能指标 / 慢操作检测
 ///
 final class MonkeyStabilityTest: XCTestCase {
@@ -194,20 +195,19 @@ final class MonkeyStabilityTest: XCTestCase {
         let roll = Int.random(in: 0..<100)
 
         if realDeviceSafeMode {
-            // 真机安全模式: 去掉旋转/开设置/多任务/数据清理，降低阅读器卡死概率
             switch roll {
-            case 0..<18:   tapCoordinate()
-            case 18..<26:  swipeRandom()
-            case 26..<32:  tapTabBar()
-            case 32..<38:  goBack()
-            case 38..<41:  longPressCoordinate()
-            case 41..<44:  doubleTapCoordinate()
-            case 44..<51:  typeRandomText()
-            case 51..<55:  backgroundForeground()
-            case 55..<59:  pullToRefresh()
-            case 59..<67:  businessFlowTest()
-            case 67..<71:  tapRandomElement()
-            case 71..<75:  darkModeToggle()
+            case 0..<16:   tapCoordinate()
+            case 16..<24:  swipeRandom()
+            case 24..<30:  tapTabBar()
+            case 30..<36:  goBack()
+            case 36..<39:  longPressCoordinate()
+            case 39..<42:  doubleTapCoordinate()
+            case 42..<48:  typeRandomText()
+            case 48..<52:  backgroundForeground()
+            case 52..<55:  pullToRefresh()
+            case 55..<68:  businessFlowTest()
+            case 68..<72:  tapRandomElement()
+            case 72..<75:  darkModeToggle()
             case 75..<79:  rapidBurst()
             case 79..<84:  boundaryInput()
             case 84..<90:  screenshotAnomalyCheck()
@@ -578,26 +578,36 @@ final class MonkeyStabilityTest: XCTestCase {
     private func businessFlowTest() {
         guard app.state == .runningForeground else { return }
         businessFlowCount += 1
-        switch Int.random(in: 0..<4) {
+        switch Int.random(in: 0..<8) {
         case 0: flowSearch()
         case 1: flowBrowseStore()
         case 2: flowReading()
-        default: flowProfile()
+        case 3: flowProfile()
+        case 4: flowExtendedReading()
+        case 5: flowRapidReaderEntryExit()
+        case 6: flowLongBackground()
+        default: flowChapterJump()
         }
     }
 
     private func flowSearch() {
         guard app.state == .runningForeground else { return }
-        NSLog("[Monkey] 📚 流程: 搜索")
+        let cancelMode = Bool.random()
+        NSLog("[Monkey] 📚 流程: 搜索%@", cancelMode ? " (快速取消)" : "")
         let sf = app.searchFields.firstMatch
         if sf.exists && sf.isHittable {
             sf.tap(); usleep(300_000)
             guard app.state == .runningForeground else { return }
             sf.typeText(randomSearchText() + "\n")
-            sleep(1)
-            guard app.state == .runningForeground else { return }
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: CGFloat.random(in: 0.25...0.6))).tap()
-            usleep(500_000)
+            if cancelMode {
+                usleep(UInt32(Int.random(in: 200_000...600_000)))
+                goBack()
+            } else {
+                sleep(1)
+                guard app.state == .runningForeground else { return }
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: CGFloat.random(in: 0.25...0.6))).tap()
+                usleep(500_000)
+            }
         } else {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.06)).tap()
             usleep(500_000)
@@ -649,6 +659,104 @@ final class MonkeyStabilityTest: XCTestCase {
                 dx: 0.5, dy: CGFloat.random(in: 0.2...0.8)
             )).tap()
             usleep(500_000)
+        }
+        goBack()
+    }
+
+    // MARK: - 持续阅读压测
+
+    private func flowExtendedReading() {
+        guard app.state == .runningForeground else { return }
+        NSLog("[Monkey] 📖 流程: 持续阅读压测")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.17, dy: 0.97)).tap()
+        usleep(500_000)
+        guard app.state == .runningForeground else { return }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.3)).tap()
+        sleep(2)
+        let pageCount = Int.random(in: 15...25)
+        for i in 0..<pageCount {
+            guard app.state == .runningForeground else { return }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
+            usleep(UInt32(Int.random(in: 200_000...800_000)))
+            if i % 5 == 4 {
+                guard app.state == .runningForeground else { return }
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+                usleep(300_000)
+            }
+        }
+        NSLog("[Monkey] 📖 持续阅读完成 %d 页翻页", pageCount)
+        goBack()
+    }
+
+    // MARK: - 快速进出阅读器
+
+    private func flowRapidReaderEntryExit() {
+        guard app.state == .runningForeground else { return }
+        NSLog("[Monkey] ⚡ 流程: 快速进出阅读器")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.17, dy: 0.97)).tap()
+        usleep(500_000)
+        let cycles = Int.random(in: 3...6)
+        for _ in 0..<cycles {
+            guard app.state == .runningForeground else { return }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.3)).tap()
+            usleep(UInt32(Int.random(in: 500_000...1_500_000)))
+            guard app.state == .runningForeground else { return }
+            goBack()
+            usleep(300_000)
+        }
+        NSLog("[Monkey] ⚡ 快速进出完成 %d 次", cycles)
+    }
+
+    // MARK: - 长后台恢复
+
+    private func flowLongBackground() {
+        guard app.state == .runningForeground else { return }
+        let bgSeconds = UInt32(Int.random(in: 8...15))
+        NSLog("[Monkey] 💤 流程: 长后台 %ds", bgSeconds)
+        XCUIDevice.shared.press(.home)
+        sleep(bgSeconds)
+        app.activate()
+        let recovered = app.wait(for: .runningForeground, timeout: 10)
+        if !recovered {
+            NSLog("[Monkey] ⚠️ 长后台恢复失败, 重启")
+            crashCount += 1
+            forceRelaunch()
+        } else {
+            NSLog("[Monkey] 💤 长后台恢复成功 (等待 %ds)", bgSeconds)
+        }
+        bgFgCycleCount += 1
+    }
+
+    // MARK: - 章节跳转
+
+    private func flowChapterJump() {
+        guard app.state == .runningForeground else { return }
+        NSLog("[Monkey] 📑 流程: 章节跳转")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.17, dy: 0.97)).tap()
+        usleep(500_000)
+        guard app.state == .runningForeground else { return }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.3)).tap()
+        sleep(1)
+        guard app.state == .runningForeground else { return }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        usleep(300_000)
+        guard app.state == .runningForeground else { return }
+        let tocBtn = app.buttons["目录"]
+        if tocBtn.exists && tocBtn.isHittable {
+            tocBtn.tap()
+            usleep(500_000)
+            guard app.state == .runningForeground else { return }
+            for _ in 0..<Int.random(in: 3...8) {
+                guard app.state == .runningForeground else { return }
+                app.swipeUp()
+                usleep(200_000)
+            }
+            guard app.state == .runningForeground else { return }
+            app.coordinate(withNormalizedOffset: CGVector(
+                dx: 0.5, dy: CGFloat.random(in: 0.3...0.7)
+            )).tap()
+            sleep(1)
+            NSLog("[Monkey] 📑 章节跳转完成")
         }
         goBack()
     }
