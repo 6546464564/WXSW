@@ -105,12 +105,19 @@ public struct BookCover: View {
             return
         }
         let cacheKey = request.url?.absoluteString ?? normalizedURLKey
-        // 1. 内存缓存
+        // 1. 内存缓存 — 命中走快速路径不限并发, 避免 24 个 cell 进 limiter 排队
         if let cached = BookCoverImageCache.shared.image(for: cacheKey) {
             image = cached
             isLoading = false
             return
         }
+        // 万象书屋 (2026-05-25): 全局 limiter 限并发, 防 BookStoreView 进入瞬间 24 个 BookCover
+        // 同时启动 @MainActor task 导致 main actor 持续被唤醒, XCTest waitForIdle 15s 超时.
+        // SE 真机 Monkey 测试 4/4 卡死前都是 "📚 流程: 书城" — 进店瞬间高密度 view tree + 24 个
+        // load task 并发让 XCUI watchdog 等不到 idle.
+        await BookCoverLoadLimiter.shared.acquire()
+        defer { Task { await BookCoverLoadLimiter.shared.release() } }
+
         // 2. 磁盘缓存 (跟 Android Glide setDiskCache 1GB 行为对齐)
         if let disk = await BookCoverDiskCache.shared.load(key: cacheKey) {
             BookCoverImageCache.shared.set(disk, for: cacheKey)
@@ -270,6 +277,45 @@ private enum BookCoverImageSession {
                                 diskPath: "WanxiangCoverHTTPCache")
         return URLSession(configuration: cfg)
     }()
+}
+
+/// 万象书屋 (2026-05-25): BookCover 全局并发限流.
+/// 进 BookStoreView / Bookshelf 等大量封面网格瞬间, 限制同时跑的 load() 数量,
+/// 避免 24+ 个 @MainActor task 同时 schedule 让 XCUI 等不到 main idle (15s watchdog 杀进程).
+/// 内存 ≤3GB (SE) 限 4, 中等限 6, 高内存限 8.
+actor BookCoverLoadLimiter {
+    static let shared = BookCoverLoadLimiter()
+
+    private let maxConcurrent: Int = {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 4 }
+        if mem <= 4_500_000_000 { return 6 }
+        return 8
+    }()
+    private var inflight = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        if inflight < maxConcurrent {
+            inflight += 1
+            return
+        }
+        // 等待 slot: release 会从 waiters 头部 resume, slot 直接转移过来
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            waiters.append(cont)
+        }
+        // 唤醒说明 release 已经把 slot 让出来了, inflight 不重复 +1
+    }
+
+    func release() {
+        if let next = waiters.first {
+            waiters.removeFirst()
+            // slot 直接转移给等待者, inflight 不变
+            next.resume()
+        } else {
+            inflight -= 1
+        }
+    }
 }
 
 /// 预加载封面 (设置页 `wanxiang.shelf.preloadCovers` 开启时, 书架加载后后台拉封面进磁盘缓存)
