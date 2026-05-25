@@ -1,14 +1,24 @@
 import SwiftUI
 
+private extension Notification.Name {
+    static let wxGameRelocked = Notification.Name("wx.game.relocked")
+}
+
 struct GameGateView: View {
-    @AppStorage("wx.game.unlocked") private var unlocked = false
+    @State private var unlocked: Bool = UserDefaults.standard.bool(forKey: "wx.game.unlocked")
     @EnvironmentObject var appState: AppState
 
     var body: some View {
         if unlocked {
             mainAppContent
+                .onReceive(NotificationCenter.default.publisher(for: .wxGameRelocked)) { _ in
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        unlocked = false
+                    }
+                }
         } else {
             WaterQualityGateView {
+                UserDefaults.standard.set(true, forKey: "wx.game.unlocked")
                 withAnimation(.easeInOut(duration: 0.4)) {
                     unlocked = true
                 }

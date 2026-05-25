@@ -18,7 +18,6 @@ struct MyView: View {
 
     @State private var unlockToast: String? = nil
     @State private var showRelockConfirm = false
-    @AppStorage("wx.game.unlocked") private var gateUnlocked = false
 
     @State private var showBookSourceImporter = false
     @State private var importSourceMessage: String?
@@ -173,9 +172,8 @@ struct MyView: View {
             .alert(String(localized: "my.app_disguise_confirm_title"), isPresented: $showRelockConfirm) {
                 Button(String(localized: "my.cancel"), role: .cancel) {}
                 Button(String(localized: "my.app_disguise_confirm_action"), role: .destructive) {
-                    withAnimation(.easeInOut(duration: 0.4)) {
-                        gateUnlocked = false
-                    }
+                    UserDefaults.standard.set(false, forKey: "wx.game.unlocked")
+                    NotificationCenter.default.post(name: Notification.Name("wx.game.relocked"), object: nil)
                 }
             } message: {
                 Text("my.app_disguise_confirm_message")
