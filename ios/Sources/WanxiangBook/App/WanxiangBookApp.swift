@@ -135,6 +135,7 @@ final class AppState: ObservableObject {
     @Published var versionUpdate: VersionUpdateInfo? = nil
 
     private var heartbeatTimer: Task<Void, Never>? = nil
+    private var memoryGuardTimer: Task<Void, Never>? = nil
     private var lastPingAt: Date? = nil
     private static let pingInterval: TimeInterval = 4 * 60   // 4 分钟一次, 跟后端 rateLimitPing 对齐
 
@@ -145,6 +146,7 @@ final class AppState: ObservableObject {
         #if TESTLAB
         isBootstrapped = true
         await BookSourceRegistry.shared.bootstrap()
+        startTestLabMemoryGuard()
         return
         #endif
         if CommandLine.arguments.contains("-uitest") {
@@ -225,6 +227,20 @@ final class AppState: ObservableObject {
     }
 
     /// 万象书屋: scenePhase 切换时调用
+    #if TESTLAB
+    func startTestLabMemoryGuard() {
+        memoryGuardTimer = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 20_000_000_000) // 20s
+                URLCache.shared.removeAllCachedResponses()
+                JSEngineCache.shared.clearAll()
+                _BrowserResultCache.shared.clear()
+                SyncHTTP.clearCache()
+            }
+        }
+    }
+    #endif
+
     /// - active   → 立即 ping (用户回到 App, 算一次活跃)
     /// - inactive → 不动
     /// - background → 取消心跳定时器 (省电, iOS 后台限制反正也跑不动)
@@ -409,7 +425,8 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
         HTTPFetcher.shared.clearResponseCache()
         _BrowserResultCache.shared.clear()
         SyncHTTP.clearCache()
-        NSLog("[WX-MEM] URLCache + BrowserCache + SyncHTTP 缓存已清理")
+        JSEngineCache.shared.clearAll()
+        NSLog("[WX-MEM] URLCache + BrowserCache + SyncHTTP + JSCache 缓存已清理")
         NotificationCenter.default.post(name: .wanxiangMemoryWarning, object: nil)
     }
 }

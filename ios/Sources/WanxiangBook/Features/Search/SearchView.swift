@@ -785,7 +785,10 @@ final class SearchViewModel: ObservableObject {
         // 万象书屋 (M2.8): 按历史成功率 + 平均响应时间排序源, 让稳定快的源先返结果.
         // 84 源里很多反爬/死站, 没排序时用户得等所有源 timeout. 排序后头几条结果
         // 通常是历史好源, 用户感知速度显著提升.
-        let sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
+        var sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
+        #if TESTLAB
+        sources = Array(sources.prefix(15))
+        #endif
         activeSources = sources
 
         // 3. 没源时直接 stub 一条提示

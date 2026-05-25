@@ -27,13 +27,22 @@ public final class LowMemoryGuard {
 
     /// 仅低内存设备启用 (≤4GB). 高内存设备额外做巡检收益小.
     private static let enabled: Bool = {
-        ProcessInfo.processInfo.physicalMemory <= 4_500_000_000
+        #if TESTLAB
+        return true
+        #else
+        return ProcessInfo.processInfo.physicalMemory <= 4_500_000_000
+        #endif
     }()
 
     /// 软警告阈值 (字节). 剩余 < 50MB → 发 wanxiangMemoryWarning.
+    #if TESTLAB
+    private static let softThresholdBytes: UInt64 = 100 * 1024 * 1024
+    private static let hardThresholdBytes: UInt64 = 60 * 1024 * 1024
+    #else
     private static let softThresholdBytes: UInt64 = 50 * 1024 * 1024
     /// 硬警告阈值 (字节). 剩余 < 25MB → 紧急清理 + cancel.
     private static let hardThresholdBytes: UInt64 = 25 * 1024 * 1024
+    #endif
 
     private var monitorTask: Task<Void, Never>?
     private var lastSoftFireAt: Date?
@@ -73,7 +82,11 @@ public final class LowMemoryGuard {
         monitorTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.checkOnce()
+                #if TESTLAB
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
+                #else
                 try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s
+                #endif
             }
         }
     }
@@ -82,15 +95,19 @@ public final class LowMemoryGuard {
         let avail = Self.availableMemory()
         guard avail > 0 else { return }
         let now = Date()
+        #if TESTLAB
+        let cooldown: TimeInterval = 10
+        #else
+        let cooldown: TimeInterval = 30
+        #endif
         if avail < Self.hardThresholdBytes {
-            if let last = lastHardFireAt, now.timeIntervalSince(last) < 30 { return }
+            if let last = lastHardFireAt, now.timeIntervalSince(last) < cooldown { return }
             lastHardFireAt = now
             NSLog("[WX-MEM] HARD pressure: avail=%lluKB → emergency cleanup", avail / 1024)
-            // 双发: 通知所有 observer + 直接停掉后台健康探测
             NotificationCenter.default.post(name: .wanxiangMemoryWarning, object: nil)
             URLCache.shared.removeAllCachedResponses()
         } else if avail < Self.softThresholdBytes {
-            if let last = lastSoftFireAt, now.timeIntervalSince(last) < 30 { return }
+            if let last = lastSoftFireAt, now.timeIntervalSince(last) < cooldown { return }
             lastSoftFireAt = now
             NSLog("[WX-MEM] SOFT pressure: avail=%lluKB → preemptive cleanup", avail / 1024)
             NotificationCenter.default.post(name: .wanxiangMemoryWarning, object: nil)

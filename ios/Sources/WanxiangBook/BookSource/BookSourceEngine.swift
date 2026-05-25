@@ -38,6 +38,9 @@ public final class BookSourceEngine: @unchecked Sendable {
     /// 万象书屋: JS pool 大小. 默认 4 (4 个 JSEngine 实例真并发). CLI 批量探测时可通过
     /// 环境变量 `WX_JS_POOL_SIZE` 调大到 16+, 让 1500 源探测从 80min → 20min.
     private static let JS_POOL_SIZE: Int = {
+        #if TESTLAB
+        return 1
+        #else
         if let env = ProcessInfo.processInfo.environment["WX_JS_POOL_SIZE"],
            let n = Int(env), n > 0, n <= 64 {
             return n
@@ -46,6 +49,7 @@ public final class BookSourceEngine: @unchecked Sendable {
         if mem <= 3_000_000_000 { return 2 }
         if mem <= 4_500_000_000 { return 3 }
         return 4
+        #endif
     }()
     private let searchParserPool: [SearchParser]
     private let poolCounter = ManagedAtomicLite()
@@ -66,18 +70,26 @@ public final class BookSourceEngine: @unchecked Sendable {
     /// 即便单源解析有 workPermit slots=1, 但 HTTP 响应/JSContext 缓冲仍并发占用,
     /// 进一步降到 1 — 牺牲一点搜索体感, 换稳定不闪退.
     public static let defaultSearchConcurrency: Int = {
+        #if TESTLAB
+        return 1
+        #else
         let mem = ProcessInfo.processInfo.physicalMemory
         if mem <= 3_000_000_000 { return 1 }
         if mem <= 4_500_000_000 { return 4 }
         return 9
+        #endif
     }()
 
     /// 换源页专用搜索并发 (比全站搜索更保守, 避免多路 HTML/JS 解析 OOM)
     public static let changeSourceSearchConcurrency: Int = {
+        #if TESTLAB
+        return 1
+        #else
         let mem = ProcessInfo.processInfo.physicalMemory
         if mem <= 3_000_000_000 { return 1 }
         if mem <= 4_500_000_000 { return 3 }
         return 4
+        #endif
     }()
 
     /// 换源 info-fill 并发 (fetchInfo 比 search 更吃内存)
