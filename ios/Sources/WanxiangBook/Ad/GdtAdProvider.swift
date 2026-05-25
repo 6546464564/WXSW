@@ -40,6 +40,12 @@ public actor GdtAdProvider: AdProvider {
 
     public func showRewarded(posId: String) async -> Bool {
         guard isReady, !posId.isEmpty else { return false }
+        // 万象书屋 (2026-05-25): 释放可能存在的老 continuation, 否则被覆盖会触发
+        // SWIFT TASK CONTINUATION MISUSE fatal.
+        if let prev = pendingReward {
+            pendingReward = nil
+            prev.resume(returning: false)
+        }
 
         return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             self.pendingReward = cont
@@ -52,12 +58,24 @@ public actor GdtAdProvider: AdProvider {
                 }
                 ad.load()
             }
+            // 60s 超时兜底.
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                await self?.timeoutReward()
+            }
         }
     }
 
     fileprivate func completeReward(_ ok: Bool) {
-        pendingReward?.resume(returning: ok)
+        guard let cont = pendingReward else { return }
         pendingReward = nil
+        cont.resume(returning: ok)
+    }
+
+    private func timeoutReward() {
+        guard let cont = pendingReward else { return }
+        pendingReward = nil
+        cont.resume(returning: false)
     }
 }
 

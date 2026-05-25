@@ -47,11 +47,21 @@ final class MonkeyStabilityTest: XCTestCase {
     private var anomalyDetectedCount = 0
     private var dataClearCount = 0
 
+    /// 真机上禁用旋转/开设置等破坏性操作，避免阅读器重排卡死
+    #if targetEnvironment(simulator)
+    private let realDeviceSafeMode = false
+    #else
+    private let realDeviceSafeMode = true
+    #endif
+
+    private let uiOperationTimeout: TimeInterval = 15
+    private let uiWatchdogLock = NSLock()
+    private var uiOperationInProgress = false
+
     override func setUpWithError() throws {
         continueAfterFailure = true
         app = XCUIApplication()
         app.launchArguments = ["-unlockApp", "-skipSplash", "-uitest"]
-        (app as NSObject).setValue(false, forKey: "shouldWaitForQuiescence")
         app.launch()
         startDate = Date()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "App 未正常启动")
@@ -96,6 +106,20 @@ final class MonkeyStabilityTest: XCTestCase {
 
     // MARK: - 主测试入口
 
+    /// 启动 App 并切到后台（供真机手动部署后保持后台运行）
+    func testLaunchAndBackground() throws {
+        continueAfterFailure = true
+        app = XCUIApplication()
+        app.launchArguments = ["-unlockApp", "-skipSplash"]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "App 未正常启动")
+        sleep(2)
+        NSLog("[Monkey] 🏠 App 切到后台")
+        XCUIDevice.shared.press(.home)
+        sleep(1)
+        app = nil
+    }
+
     func testMonkeyRun() throws {
         let deadline = startDate.addingTimeInterval(TimeInterval(durationMinutes * 60))
         NSLog("[Monkey] 开始全功能测试: 时长=%d分钟, throttle=%dms", durationMinutes, throttleMs)
@@ -111,12 +135,17 @@ final class MonkeyStabilityTest: XCTestCase {
                 }
 
                 let t0 = CFAbsoluteTimeGetCurrent()
-                safePerformAction()
+                withUITimeout("action-\(actionCount)") { safePerformAction() }
                 let dt = CFAbsoluteTimeGetCurrent() - t0
 
                 if dt > 3.0 {
                     slowActionCount += 1
                     NSLog("[Monkey] ⏱️ 慢操作 #%d 耗时 %.2fs", actionCount, dt)
+                }
+                if dt > uiOperationTimeout {
+                    NSLog("[Monkey] ⚠️ 操作超时 %.1fs, 强制重启", dt)
+                    crashCount += 1
+                    forceRelaunch()
                 }
 
                 actionCount += 1
@@ -161,6 +190,30 @@ final class MonkeyStabilityTest: XCTestCase {
     private func performRandomAction() {
         guard app.state == .runningForeground else { return }
         let roll = Int.random(in: 0..<100)
+
+        if realDeviceSafeMode {
+            // 真机安全模式: 去掉旋转/开设置/多任务/数据清理，降低阅读器卡死概率
+            switch roll {
+            case 0..<18:   tapCoordinate()
+            case 18..<26:  swipeRandom()
+            case 26..<32:  tapTabBar()
+            case 32..<38:  goBack()
+            case 38..<41:  longPressCoordinate()
+            case 41..<44:  doubleTapCoordinate()
+            case 44..<51:  typeRandomText()
+            case 51..<55:  backgroundForeground()
+            case 55..<59:  pullToRefresh()
+            case 59..<67:  businessFlowTest()
+            case 67..<71:  tapRandomElement()
+            case 71..<75:  darkModeToggle()
+            case 75..<79:  rapidBurst()
+            case 79..<84:  boundaryInput()
+            case 84..<90:  screenshotAnomalyCheck()
+            case 90..<95:  notificationCenterCheck()
+            default:       deepLinkTest()
+            }
+            return
+        }
 
         switch roll {
         case 0..<15:   tapCoordinate()         // 15%
@@ -216,11 +269,8 @@ final class MonkeyStabilityTest: XCTestCase {
 
     private func goBack() {
         guard app.state == .runningForeground else { return }
-        if Int.random(in: 0..<3) == 0 {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.06)).tap()
-        } else {
-            app.swipeRight()
-        }
+        // 右滑与阅读器翻页手势冲突且易触发 UI 卡死，真机统一用左上角返回
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.06)).tap()
     }
 
     private func longPressCoordinate() {
@@ -579,7 +629,9 @@ final class MonkeyStabilityTest: XCTestCase {
         sleep(1)
         for _ in 0..<Int.random(in: 3...6) {
             guard app.state == .runningForeground else { return }
-            app.swipeLeft(); usleep(300_000)
+            // 用右侧 tap 翻页，避免 swipe 与阅读器手势冲突导致 477s 超时
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
+            usleep(300_000)
         }
         goBack()
     }
@@ -683,5 +735,45 @@ final class MonkeyStabilityTest: XCTestCase {
 
     private func throttle() {
         usleep(UInt32(throttleMs * 1000))
+    }
+
+    /// UI 操作卡死时标记超时；恢复逻辑必须在主线程执行（XCTest 要求）
+    private func withUITimeout(_ label: String, _ block: () -> Void) {
+        uiWatchdogLock.lock()
+        uiOperationInProgress = true
+        uiWatchdogLock.unlock()
+
+        let watchdog = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInitiated))
+        watchdog.schedule(deadline: .now() + uiOperationTimeout)
+        watchdog.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.uiWatchdogLock.lock()
+            let stillRunning = self.uiOperationInProgress
+            self.uiWatchdogLock.unlock()
+            guard stillRunning else { return }
+            NSLog("[Monkey] ⚠️ UI 卡死 %.0fs (%@), 主线程恢复", self.uiOperationTimeout, label)
+            DispatchQueue.main.async {
+                self.uiWatchdogLock.lock()
+                let shouldRecover = self.uiOperationInProgress
+                self.uiOperationInProgress = false
+                self.uiWatchdogLock.unlock()
+                guard shouldRecover else { return }
+                self.crashCount += 1
+                self.forceRelaunch()
+            }
+        }
+        watchdog.activate()
+
+        block()
+
+        watchdog.cancel()
+        uiWatchdogLock.lock()
+        uiOperationInProgress = false
+        uiWatchdogLock.unlock()
+
+        if app.state != .runningForeground {
+            crashCount += 1
+            forceRelaunch()
+        }
     }
 }

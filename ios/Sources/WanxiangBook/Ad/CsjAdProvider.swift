@@ -61,6 +61,12 @@ public actor CsjAdProvider: AdProvider {
 
     public func showSplash(posId: String) async -> Bool {
         guard isReady, !posId.isEmpty else { return false }
+        // 万象书屋 (2026-05-25): 释放可能存在的老 continuation, 否则被覆盖后会触发
+        // SWIFT TASK CONTINUATION MISUSE fatal. 重入场景: SDK 出错没回调 + 用户再次触发.
+        if let prev = pendingSplash {
+            pendingSplash = nil
+            prev.resume(returning: false)
+        }
 
         return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             self.pendingSplash = cont
@@ -73,18 +79,37 @@ public actor CsjAdProvider: AdProvider {
                 // 先尝试 splash API，如果失败再 fallback
                 CsjSplashDelegateBridge.shared.loadSplash(posId: posId)
             }
+            // 万象书屋 (2026-05-25): 30s 超时兜底, 避免 SDK 卡死时 Task 永远 hang.
+            // splash tolerateTimeout 已设 3s, 加 fallback fullscreen 一般 10s 内出结果, 30s 是最后保险.
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                await self?.timeoutSplash()
+            }
         }
     }
 
     fileprivate func completeSplash(_ ok: Bool) {
-        pendingSplash?.resume(returning: ok)
+        guard let cont = pendingSplash else { return }
         pendingSplash = nil
+        cont.resume(returning: ok)
+    }
+
+    private func timeoutSplash() {
+        guard let cont = pendingSplash else { return }
+        pendingSplash = nil
+        adLog("[CsjSplash] timeout 30s, force resume false")
+        cont.resume(returning: false)
     }
 
     // MARK: - Rewarded
 
     public func showRewarded(posId: String) async -> Bool {
         guard isReady, !posId.isEmpty else { return false }
+        // 万象书屋 (2026-05-25): 同 showSplash, 释放可能存在的老 continuation.
+        if let prev = pendingReward {
+            pendingReward = nil
+            prev.resume(returning: false)
+        }
 
         return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             self.pendingReward = cont
@@ -107,12 +132,25 @@ public actor CsjAdProvider: AdProvider {
                 }
                 ad.loadData()
             }
+            // 60s 超时兜底 — 激励视频通常 30s 内播完, 60s 还没回调直接放弃.
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                await self?.timeoutReward()
+            }
         }
     }
 
     fileprivate func completeReward(_ ok: Bool) {
-        pendingReward?.resume(returning: ok)
+        guard let cont = pendingReward else { return }
         pendingReward = nil
+        cont.resume(returning: ok)
+    }
+
+    private func timeoutReward() {
+        guard let cont = pendingReward else { return }
+        pendingReward = nil
+        adLog("[CsjRewarded] timeout 60s, force resume false")
+        cont.resume(returning: false)
     }
 }
 

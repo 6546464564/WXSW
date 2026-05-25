@@ -139,10 +139,18 @@ enum MobiImporter {
                 let pair = (UInt16(byte) << 8) | UInt16(next)
                 let length = Int(pair & 0x0007) + 3
                 let distance = Int((pair >> 3) & 0x07FF)
+                // 万象书屋 (2026-05-25): 恶意 MOBI 可构造 distance==0, 此时 start == out.count,
+                // out[out.count] 立即 Fatal error: Index out of range. PalmDoc 规范里 distance==0
+                // 无意义, 直接跳过.
+                guard distance > 0 else { break }
                 let start = out.count - distance
                 if start >= 0 {
                     for k in 0..<length {
-                        out.append(out[start + k])
+                        // 防御 self-overlap 异常情况下索引漂出 (虽然 PalmDoc 允许 self-overlap,
+                        // 但 length 异常大 + 内存压力时仍可能有边界异常)
+                        let idx = start + k
+                        guard idx < out.count else { break }
+                        out.append(out[idx])
                     }
                 }
             case 0xC0...0xFF:       // 0xC0..0xFF → 空格 + (byte ^ 0x80) 字符

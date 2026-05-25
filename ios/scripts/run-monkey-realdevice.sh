@@ -26,7 +26,7 @@ if [ -z "$DEVICE_ID" ]; then
 fi
 
 DEVICE_NAME=$(xcrun devicectl list devices 2>/dev/null | grep "$DEVICE_ID" | head -1 | sed 's/  .*//' | xargs)
-LOG_BASE="/tmp/monkey_realdevice_$(date +%Y%m%d_%H%M%S)"
+LOG_BASE="${LOG_BASE:-/tmp/monkey_realdevice_$(date +%Y%m%d_%H%M%S)_${DEVICE_ID:0:8}}"
 mkdir -p "$LOG_BASE"
 
 echo "🐵 万象书屋 Monkey 真机测试 (自动重启版)"
@@ -38,6 +38,21 @@ echo "   每轮: ${RUN_DURATION} 分钟"
 echo "   日志: $LOG_BASE/"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+
+echo ">>> 预构建测试包..."
+xcodebuild build-for-testing \
+    -project WanxiangBook.xcodeproj \
+    -scheme WanxiangBook \
+    -destination "platform=iOS,id=$DEVICE_ID" \
+    -derivedDataPath "$LOG_BASE/DerivedData" \
+    -allowProvisioningUpdates \
+    -allowProvisioningDeviceRegistration \
+    DEVELOPMENT_TEAM=6UX5G5838X \
+    CODE_SIGN_STYLE=Automatic \
+    -quiet || {
+    echo "❌ 预构建失败，请检查设备是否解锁、已信任、并开启开发者模式"
+    exit 1
+}
 
 START_TS=$(date +%s)
 END_TS=$((START_TS + TOTAL_HOURS * 3600))
@@ -62,7 +77,7 @@ while [ "$(date +%s)" -lt "$END_TS" ]; do
     MONKEY_DURATION=$DURATION \
     MONKEY_THROTTLE=500 \
     MONKEY_SCREENSHOT_INTERVAL=300 \
-    xcodebuild test \
+    xcodebuild test-without-building \
         -project WanxiangBook.xcodeproj \
         -scheme WanxiangBook \
         -destination "platform=iOS,id=$DEVICE_ID" \
@@ -81,8 +96,8 @@ while [ "$(date +%s)" -lt "$END_TS" ]; do
         echo "✅ 第 $RUN_COUNT 轮完成 (无崩溃)"
     else
         TOTAL_CRASHES=$((TOTAL_CRASHES + 1))
-        echo "⚠️  第 $RUN_COUNT 轮失败 (exit=$EXIT_CODE), 3秒后自动重启..."
-        sleep 3
+        echo "⚠️  第 $RUN_COUNT 轮失败 (exit=$EXIT_CODE), 30秒后自动重启..."
+        sleep 30
     fi
 
     CRASHES_IN_RUN=$(grep -c "crash #" "$RESULT_DIR/xcodebuild.log" 2>/dev/null || echo "0")

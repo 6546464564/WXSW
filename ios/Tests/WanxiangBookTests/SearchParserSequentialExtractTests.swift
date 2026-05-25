@@ -62,4 +62,42 @@ final class SearchParserSequentialExtractTests: XCTestCase {
         XCTAssertNotEqual(qq.listRowId, suduguShould.listRowId,
                          "如果 dedupe 漏了, listRowId 至少保证 UI 上 ForEach 不冲突")
     }
+
+    /// 换源候选: 不同源返相同 bookUrl 时, Candidate.listRowId 仍唯一 (防 SwiftUI 闪退).
+    func test_changeSourceCandidate_listRowId_uniqueWhenBookUrlCollides() {
+        let sharedUrl = "https://example.com/book?id="
+        let a = ChangeSourceViewModel.Candidate(
+            book: SearchBook(
+                origin: "https://source-a.example",
+                originName: "源A",
+                name: "玄鉴仙族", author: "季越人",
+                bookUrl: sharedUrl
+            )
+        )
+        let b = ChangeSourceViewModel.Candidate(
+            book: SearchBook(
+                origin: "https://source-b.example",
+                originName: "源B",
+                name: "玄鉴仙族", author: "季越人",
+                bookUrl: sharedUrl
+            )
+        )
+        XCTAssertNotEqual(a.stableId, b.stableId)
+        XCTAssertNotEqual(a.listRowId, b.listRowId)
+    }
+
+    /// 换源后新目录远短于旧进度时, 章节映射不能因 invalid range 崩溃.
+    func test_chapterMigration_shortNewToc_doesNotTrap() {
+        let newChapters = (1...5).map {
+            BookChapter(chapterIndex: $0 - 1, chapterUrl: "u\($0)", title: "第\($0)章")
+        }
+        let mapped = BookChapterMigration.mappedDurChapterIndex(
+            oldDurChapterIndex: 499,
+            oldDurChapterTitle: "第500章 终章",
+            newChapters: newChapters,
+            oldChapterListSize: 600
+        )
+        XCTAssertGreaterThanOrEqual(mapped, 0)
+        XCTAssertLessThan(mapped, newChapters.count)
+    }
 }

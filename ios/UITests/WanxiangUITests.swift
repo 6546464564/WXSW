@@ -1041,7 +1041,229 @@ final class WanxiangUITests: XCTestCase {
         }
     }
 
-    /// K7: 阅读器换源
+    /// K7c: 换源 regression — 30 条 duplicate bookUrl cache + 自动打开换源 sheet 不闪退
+    func testK7c_ChangeSource_dupCacheRegression() throws {
+        app.terminate()
+        app.launchArguments = [
+            "-unlockApp", "-skipSplash", "-uitest", "-skipStateRestore",
+            "-AddDemoBook", "-OpenDemoReader",
+            "-SeedChangeSourceDupCache",
+            "-ReaderShowChangeSource",
+        ]
+        app.launch()
+        sleep(2)
+        let sheetTitle = app.otherElements["change-source-sheet"]
+        let navTitle = app.navigationBars["换源"]
+        XCTAssertTrue(
+            sheetTitle.waitForExistence(timeout: 35) || navTitle.waitForExistence(timeout: 5),
+            "duplicate cache 场景换源页应正常打开"
+        )
+        sleep(3)
+        XCTAssertEqual(app.state, .runningForeground, "duplicate cache 场景 App 不应崩溃")
+        XCTAssertTrue(sheetTitle.exists || navTitle.exists)
+        snapshot("K7c-duplicate-cache-换源")
+    }
+
+    /// K7d: 本章换源 regression — duplicate cache + 自动打开本章换源 sheet
+    func testK7d_ChangeChapterSource_dupCacheRegression() throws {
+        app.terminate()
+        app.launchArguments = [
+            "-unlockApp", "-skipSplash", "-uitest", "-skipStateRestore",
+            "-AddDemoBook", "-OpenDemoReader",
+            "-SeedChangeSourceDupCache",
+            "-ReaderShowChangeChapterSource",
+        ]
+        app.launch()
+        sleep(2)
+        let sheetTitle = app.otherElements["change-chapter-source-sheet"]
+        let navTitle = app.navigationBars["本章换源"]
+        XCTAssertTrue(
+            sheetTitle.waitForExistence(timeout: 35) || navTitle.waitForExistence(timeout: 5),
+            "duplicate cache 场景本章换源应正常打开"
+        )
+        sleep(3)
+        XCTAssertEqual(app.state, .runningForeground)
+        XCTAssertTrue(sheetTitle.exists || navTitle.exists)
+        snapshot("K7d-duplicate-cache-本章换源")
+    }
+
+    // MARK: - K7 换源搜索时长 stress (模拟用户反馈: 搜索一段时间后闪退)
+
+    /// 换源 sheet 打开后全自动操作 90s: 滚动 / 筛选 / 刷新, 验证不崩溃
+    func testK7e_ChangeSource_searchStress90s() throws {
+        try runChangeSourceSearchStress(
+            launchArgs: [
+                "-unlockApp", "-skipSplash", "-uitest", "-skipStateRestore",
+                "-AddDemoBook", "-OpenDemoReader",
+                "-SeedChangeSourceDupCache",
+                "-ReaderShowChangeSource",
+            ],
+            sheetId: "change-source-sheet",
+            navTitle: "换源",
+            snapshotPrefix: "K7e"
+        )
+    }
+
+    /// 本章换源 sheet 打开后全自动操作 90s
+    func testK7f_ChangeChapterSource_searchStress90s() throws {
+        try runChangeSourceSearchStress(
+            launchArgs: [
+                "-unlockApp", "-skipSplash", "-uitest", "-skipStateRestore",
+                "-AddDemoBook", "-OpenDemoReader",
+                "-SeedChangeSourceDupCache",
+                "-ReaderShowChangeChapterSource",
+            ],
+            sheetId: "change-chapter-source-sheet",
+            navTitle: "本章换源",
+            snapshotPrefix: "K7f"
+        )
+    }
+
+    /// 整书换源 + 本章换源连续 stress (各 60s)
+    func testK7g_ChangeSource_bothSheetsStress() throws {
+        try runChangeSourceSearchStress(
+            launchArgs: [
+                "-unlockApp", "-skipSplash", "-uitest", "-skipStateRestore",
+                "-AddDemoBook", "-OpenDemoReader",
+                "-SeedChangeSourceDupCache",
+                "-ReaderShowChangeSource",
+            ],
+            sheetId: "change-source-sheet",
+            navTitle: "换源",
+            snapshotPrefix: "K7g-整书",
+            durationSec: 60
+        )
+        app.navigationBars.buttons["关闭"].tap()
+        sleep(1)
+        app.terminate()
+        try runChangeSourceSearchStress(
+            launchArgs: [
+                "-unlockApp", "-skipSplash", "-uitest", "-skipStateRestore",
+                "-AddDemoBook", "-OpenDemoReader",
+                "-SeedChangeSourceDupCache",
+                "-ReaderShowChangeChapterSource",
+            ],
+            sheetId: "change-chapter-source-sheet",
+            navTitle: "本章换源",
+            snapshotPrefix: "K7g-本章",
+            durationSec: 60,
+            relaunch: true
+        )
+    }
+
+    /// 启动 App → 等换源 sheet → 在搜索过程中全自动交互
+    private func runChangeSourceSearchStress(
+        launchArgs: [String],
+        sheetId: String,
+        navTitle: String,
+        snapshotPrefix: String,
+        durationSec: Int = 90,
+        relaunch: Bool = false
+    ) throws {
+        if relaunch || app == nil {
+            app = XCUIApplication()
+        }
+        app.terminate()
+        app.launchArguments = launchArgs
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "App 未启动")
+
+        let sheet = app.otherElements[sheetId]
+        let nav = app.navigationBars[navTitle]
+        XCTAssertTrue(
+            sheet.waitForExistence(timeout: 40) || nav.waitForExistence(timeout: 10),
+            "\(navTitle) sheet 应正常打开"
+        )
+        snapshot("\(snapshotPrefix)-opened")
+
+        let deadline = Date().addingTimeInterval(TimeInterval(durationSec))
+        var tick = 0
+        var crashDetected = false
+
+        NSLog("[ChangeSourceStress] 开始 \(durationSec)s stress: \(navTitle)")
+
+        while Date() < deadline {
+            tick += 1
+            if app.state != .runningForeground {
+                crashDetected = true
+                snapshot("\(snapshotPrefix)-CRASH-tick\(tick)")
+                NSLog("[ChangeSourceStress] ❌ App 不在前台 tick=\(tick) state=\(app.state.rawValue)")
+                break
+            }
+
+            switch tick % 7 {
+            case 0:
+                app.swipeUp()
+            case 1:
+                app.swipeDown()
+            case 2:
+                tapChangeSourceFilterButton()
+            case 3:
+                typeInChangeSourceFilter("测试")
+            case 4:
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
+            case 5:
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
+            default:
+                app.swipeUp()
+            }
+
+            if tick % 15 == 0 {
+                snapshot("\(snapshotPrefix)-tick\(tick)")
+                NSLog("[ChangeSourceStress] tick=\(tick) state=\(app.state.rawValue) elapsed=\(Int(Date().timeIntervalSince(deadline.addingTimeInterval(-TimeInterval(durationSec)))))s")
+            }
+            usleep(800_000) // 800ms between actions
+        }
+
+        XCTAssertFalse(crashDetected, "\(navTitle) 搜索 stress \(durationSec)s 期间 App 崩溃")
+        XCTAssertEqual(app.state, .runningForeground, "\(navTitle) stress 结束后 App 应仍存活")
+        XCTAssertTrue(sheet.exists || nav.exists, "\(navTitle) sheet 仍应可见")
+        snapshot("\(snapshotPrefix)-done")
+        NSLog("[ChangeSourceStress] ✅ 完成 \(navTitle) ticks=\(tick)")
+    }
+
+    private func tapChangeSourceFilterButton() {
+        let filterBtn = app.buttons.matching(
+            NSPredicate(format: "identifier CONTAINS 'magnifyingglass' OR label CONTAINS 'magnifyingglass'")
+        ).firstMatch
+        if filterBtn.exists && filterBtn.isHittable {
+            filterBtn.tap()
+            return
+        }
+        // toolbar 图标无 label 时用坐标点右上角筛选区域
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.08)).tap()
+    }
+
+    private func typeInChangeSourceFilter(_ text: String) {
+        let field = app.textFields.matching(
+            NSPredicate(format: "placeholderValue CONTAINS '过滤' OR placeholderValue CONTAINS '精准'")
+        ).firstMatch
+        if field.waitForExistence(timeout: 2), field.isHittable {
+            field.tap()
+            field.typeText(text)
+        }
+    }
+
+    func testK7b_ChangeChapterSource() throws {
+        launchUnlocked()
+        guard openReader() else { return }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        sleep(1)
+        let changeBtn = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS '本章换源'")
+        ).firstMatch
+        if changeBtn.waitForExistence(timeout: 3) {
+            changeBtn.tap()
+            let sheetTitle = app.navigationBars["本章换源"]
+            XCTAssertTrue(sheetTitle.waitForExistence(timeout: 8), "本章换源页应正常打开")
+            sleep(2)
+            snapshot("K7b-本章换源页")
+            XCTAssertTrue(app.state == .runningForeground)
+            app.navigationBars.buttons.firstMatch.tap()
+        }
+    }
+
+    /// K7: 阅读器换源 — 打开 sheet 不闪退, 候选列表可渲染
     func testK7_ChangeSource() throws {
         launchUnlocked()
         guard openReader() else { return }
@@ -1052,8 +1274,14 @@ final class WanxiangUITests: XCTestCase {
         ).firstMatch
         if changeBtn.waitForExistence(timeout: 3) {
             changeBtn.tap()
+            // 等换源 sheet 弹出 + 磁盘 cache 填充列表 (曾在此 duplicate ForEach id 闪退)
+            let sheetTitle = app.navigationBars["换源"]
+            XCTAssertTrue(sheetTitle.waitForExistence(timeout: 8), "换源页应正常打开")
             sleep(2)
             snapshot("K7-换源页")
+            // App 仍存活且 sheet 可见
+            XCTAssertTrue(app.state == .runningForeground, "打开换源页后 App 不应崩溃")
+            XCTAssertTrue(sheetTitle.exists)
             app.navigationBars.buttons.firstMatch.tap()
         }
     }
