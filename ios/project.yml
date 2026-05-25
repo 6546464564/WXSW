@@ -69,7 +69,7 @@ targets:
           - "Resources/PrivacyInfo.xcprivacy"
           - "Resources/Assets.xcassets/**"
           - "Resources/*.lproj/**"
-          - "Resources/defaultData/**"
+
           - "Resources/Fonts/**"
           - "Info.plist"
       - path: Sources/WanxiangBook/Resources/legal
@@ -84,11 +84,6 @@ targets:
         buildPhase: resources
       - path: Sources/WanxiangBook/Resources/zh-Hant.lproj
         buildPhase: resources
-      # 万象书屋: 内置 fallback 书源, 跟 android/app/src/main/assets/defaultData/bookSources.json
-      # 同源 (从 backend/seed/ 复制), 后端不可达时仍能离线使用 32 条默认源.
-      - path: Sources/WanxiangBook/Resources/defaultData
-        buildPhase: resources
-        type: folder
       - path: Sources/WanxiangBook/Resources/Fonts
         buildPhase: resources
       - path: Frameworks/CSJAdSDK.bundle

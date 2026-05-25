@@ -656,10 +656,17 @@ struct BookDetailView: View {
             }
         }
 
-        // ── 网络搜索: 只搜前 15 高分源 (方案二 + 方案一 合并实现) ──
-        // 15 源 / 8 并发 / 6s 单源超时 → 最坏 2 批 × 6s = ~12s, 无需额外超时逻辑
-        let allSources = BookSourceRegistry.shared.sources
-        let candidates = Array(SourcePerformanceTracker.shared.sortByScore(allSources).prefix(15))
+        // ── 网络搜索: 搜高分源 (tracker 有数据取前 15, 无数据取前 50 兜底) ──
+        let allSources: [BookSource]
+        if BookSourceRegistry.shared.isLoaded {
+            allSources = BookSourceRegistry.shared.enabledSources
+        } else {
+            await BookSourceRegistry.shared.waitUntilEnabledSourcesNonEmpty(timeout: 8)
+            allSources = BookSourceRegistry.shared.enabledSources
+        }
+        let hasTracker = !SourcePerformanceTracker.shared.allStats().isEmpty
+        let cap = hasTracker ? 15 : 50
+        let candidates = Array(SourcePerformanceTracker.shared.sortByScore(allSources).prefix(cap))
         guard !candidates.isEmpty else {
             await MainActor.run { isResolvingSource = false; resolveFailed = true }
             return

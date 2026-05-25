@@ -41,29 +41,6 @@ public final class BookSourceRegistry: ObservableObject {
 
         // 拉远端 → 内存
         await refresh()
-
-        // 远端拉失败 + 内存仍空时, 退到 bundle fallback (App 包内置 JSON, 不算用户态 cache).
-        // 不入 SQLite, 仅放内存 — 重启再拉远端.
-        if self.sources.isEmpty {
-            await loadBundleFallbackInMemory()
-        }
-    }
-
-    /// 万象书屋: bundle 兜底, 只放内存, **不**入 SQLite (跟"本地不保存源"的设计对齐).
-    private func loadBundleFallbackInMemory() async {
-        guard let url = Bundle.main.url(forResource: "bookSources",
-                                        withExtension: "json",
-                                        subdirectory: "defaultData"),
-              let data = try? Data(contentsOf: url) else {
-            print("[BookSourceRegistry] bundle fallback missing")
-            return
-        }
-        guard let arr = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else { return }
-        let parsed = await Self.parseSourcesOffMainActor(arr)
-        guard !parsed.isEmpty else { return }
-        self.sources = parsed
-        self.isLoaded = true
-        print("[BookSourceRegistry] in-memory bundle fallback: \(parsed.count) sources (offline mode)")
     }
 
     /// 上次 200 命中时拿到的 ETag, 给下次 If-None-Match 用.

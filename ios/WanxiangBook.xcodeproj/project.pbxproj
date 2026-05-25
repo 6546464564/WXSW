@@ -60,7 +60,6 @@
 		3F089E622C191EB8BE267C0E /* RegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0632E4CF35C45BF4E3729161 /* RegressionTests.swift */; };
 		4051E83A912F4B872D7B4E2B /* RankDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 255339063530EF62E7345A61 /* RankDetailView.swift */; };
 		4121F0F85F12BF0EC14B0867 /* LXGWWenKai-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A5EC715B68CA43DFE6D177E0 /* LXGWWenKai-Regular.ttf */; };
-		4417C0EB11AA309884A9A1AB /* defaultData in Resources */ = {isa = PBXBuildFile; fileRef = DED740F31F48A3B6B0870329 /* defaultData */; };
 		462B54E6E0D4399D1D6FA6BC /* PhotosUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 317A3219F6D2B2FD1641C92C /* PhotosUI.framework */; };
 		47B4F2049C6B158C42D9ECC6 /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA619571ECB3DB3E2E05ABDB /* L10n.swift */; };
 		4B5C42658E51D91723F904A0 /* ChangeSourceCandidateRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DB3E2EAF8B1B119702C7846 /* ChangeSourceCandidateRow.swift */; };
@@ -424,7 +423,6 @@
 		DE324462B464322A32BE7C74 /* QidianRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QidianRepository.swift; sourceTree = "<group>"; };
 		DE648528EB23EC78D5BEF0A4 /* MangaReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MangaReaderView.swift; sourceTree = "<group>"; };
 		DE742507EF23FFB9720B5E64 /* WanxiangBookTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = WanxiangBookTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		DED740F31F48A3B6B0870329 /* defaultData */ = {isa = PBXFileReference; lastKnownFileType = folder; name = defaultData; path = Sources/WanxiangBook/Resources/defaultData; sourceTree = SOURCE_ROOT; };
 		DFAF34554D1E513C489116CB /* BookshelfManageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfManageView.swift; sourceTree = "<group>"; };
 		DFD051511142C2E916F1A161 /* SafeRegexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafeRegexTests.swift; sourceTree = "<group>"; };
 		E065A37900F742555A803334 /* AccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityTests.swift; sourceTree = "<group>"; };
@@ -995,7 +993,6 @@
 			children = (
 				7F9BC7A5046CC54B73F363EC /* Fonts */,
 				6FB441BD039E3369E5DC6881 /* Assets.xcassets */,
-				DED740F31F48A3B6B0870329 /* defaultData */,
 				AA619571ECB3DB3E2E05ABDB /* L10n.swift */,
 				8A9B1F265DD405B0B41AC98D /* legal */,
 				DAB886B06563AA1FDEFF2256 /* PrivacyInfo.xcprivacy */,
@@ -1211,7 +1208,6 @@
 				3A29554A03797C065ED8AD05 /* NotoSansSC-Regular.otf in Resources */,
 				3C2C31D0D515E8A19E27B1CA /* NotoSerifSC-Regular.otf in Resources */,
 				260A8A97B5BAB2E1C82E04AB /* PrivacyInfo.xcprivacy in Resources */,
-				4417C0EB11AA309884A9A1AB /* defaultData in Resources */,
 				C1D0919C0827D3D26F4979F6 /* legal in Resources */,
 				69752CDDD968274CD05A765C /* zh-Hans.lproj in Resources */,
 				E54ABA2D1914EE47280A021F /* zh-Hant.lproj in Resources */,
