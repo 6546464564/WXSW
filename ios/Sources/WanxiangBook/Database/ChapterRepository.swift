@@ -195,6 +195,24 @@ public actor ChapterRepository {
         }
     }
 
+    /// 同 loadContent 但额外返回是否为下载器写入 (有 downloaded_at)
+    public func loadContentWithDownloadFlag(bookUrl: String, chapterIndex: Int) async throws -> (content: String, isDownloaded: Bool)? {
+        try await DB.shared.openIfNeeded()
+        return try await DB.shared.execQuery { handle in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_prepare_v2(handle, "SELECT content, downloaded_at FROM book_chapters WHERE book_url = ? AND chapter_index = ?", -1, &stmt, nil)
+            sqlite3_bind_text(stmt, 1, bookUrl, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int(stmt, 2, Int32(chapterIndex))
+            if sqlite3_step(stmt) == SQLITE_ROW {
+                guard let text = colString(stmt, 0) else { return nil }
+                let downloaded = sqlite3_column_type(stmt, 1) != SQLITE_NULL
+                return (text, downloaded)
+            }
+            return nil
+        }
+    }
+
     /// 万象书屋 (M2.8 perf): 一次拿"已有正文"的章节 index 集合，与 Android BookHelp.hasContent()
     /// 语义一致 — 有内容就跳过，不区分来源（阅读器缓存 / 下载器写入）。
     /// downloaded_at 字段仅作元数据记录，不用于跳过判断，避免全量重下载拖慢速度。

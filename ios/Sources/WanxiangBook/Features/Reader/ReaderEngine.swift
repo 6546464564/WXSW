@@ -387,11 +387,11 @@ public final class ReaderEngine: ObservableObject {
         }
         do {
             let task = Task<String, Error> { [book, source, chapters] in
-                // 1. 本地 SQLite — 过短正文视为残缺, 忽略并走远端 (修复下载污染后无法在线读)
-                if let local = try await ChapterRepository.shared.loadContent(bookUrl: book.bookUrl, chapterIndex: index) {
+                // 1. 本地 SQLite — 已下载章节无条件信任; 阅读器缓存的过短正文视为残缺走远端
+                if let result = try await ChapterRepository.shared.loadContentWithDownloadFlag(bookUrl: book.bookUrl, chapterIndex: index) {
                     let isVolume = chapters[safe: index]?.isVolume ?? false
-                    if isVolume || local.count >= Self.minTrustedContentLength {
-                        return local
+                    if result.isDownloaded || isVolume || result.content.count >= Self.minTrustedContentLength {
+                        return result.content
                     }
                 }
                 // 2. 远端 — 没源/没章就报真错, 不返伪正文 (P1 fix)
