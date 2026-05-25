@@ -43,6 +43,14 @@ public final class SourceHealthChecker: ObservableObject {
 
     private var checkTask: Task<Void, Never>?
 
+    /// 低内存设备串行探测，避免多路 HTML 解析 OOM (SE crash 报告 10/13)
+    private static let healthCheckConcurrency: Int = {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 1 }
+        if mem <= 4_500_000_000 { return 2 }
+        return 4
+    }()
+
     private init() {}
 
     // MARK: - 功能一: 后台定时健康检测
@@ -62,6 +70,13 @@ public final class SourceHealthChecker: ObservableObject {
         checkTask = Task.detached(priority: .background) { [weak self] in
             await self?.runHealthProbe()
         }
+    }
+
+    /// 换源搜索启动时取消后台健康检测, 避免 searchAll + checkOneSource 双负载 OOM.
+    public func cancelHealthCheck() {
+        checkTask?.cancel()
+        checkTask = nil
+        isChecking = false
     }
 
     // MARK: - 校验超时（对齐 Android CheckSource.timeout 默认 180s）
@@ -169,8 +184,8 @@ public final class SourceHealthChecker: ObservableObject {
             self.totalCount = enabled.count
         }
 
-        // 并发 7（iOS JS 解析 CPU 压力下的最优点，介于 Android MAX_THREAD=9 与 iOS 限制之间）
-        let maxConcurrency = 7
+        // 并发上限（原固定 7，SE 上易 OOM）
+        let maxConcurrency = Self.healthCheckConcurrency
 
         await withTaskGroup(of: Void.self) { group in
             var iter = enabled.makeIterator()

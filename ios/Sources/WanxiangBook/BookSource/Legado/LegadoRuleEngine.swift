@@ -60,6 +60,8 @@ public struct LegadoContext: Sendable {
     public var key: String? = nil     // 搜索关键词
     public var page: Int = 1
     public var book: [String: String] = [:]   // book 字段 (book.name 等)
+    public var chapter: [String: String] = [:] // chapter 字段 (chapter.url / title 等)
+    public var nextChapterUrl: String? = nil   // 对齐 Android AnalyzeRule.nextChapterUrl
     /// 万象书屋: 当前 BookSource (注 source/cookie/host/jsLib)
     public var bookSource: BookSource? = nil
 
@@ -91,8 +93,21 @@ public actor LegadoRuleEngine {
     ///   - 后续 bookInfo / toc / content 阶段, @get:{bid} 或 @get:bid 取出
     /// 跟 Android `AnalyzeRule.putMap`+`source.variable` 等价
     private var putStore: [String: [String: String]] = [:]
+    private var memoryWarningObserver: Any?
 
-    public init() {}
+    public init() {
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: .wanxiangMemoryWarning, object: nil, queue: nil
+        ) { _ in
+            Task { await LegadoRuleEngine.shared.resetPutStore() }
+        }
+    }
+
+    deinit {
+        if let obs = memoryWarningObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
 
     /// 暴露给外部: 手动注入 / 清空 (调试或换源时用)
     public func resetPutStore(sourceKey: String? = nil) {
@@ -153,6 +168,9 @@ public actor LegadoRuleEngine {
             print("[LegadoRuleEngine] WARNING: rule recursion depth exceeded (\(depth)), rule: \(String(ruleStr.prefix(80)))")
             return []
         }
+        let boundedInput: Any = (input is String) ? LegadoHTMLParse.clampSource(input as! String) : input
+        var boundedCtx = ctx
+        boundedCtx.source = LegadoHTMLParse.clampSource(ctx.source)
         // 万象书屋: legado 复合语法 — `<js>...code...</js>\nselector`
         // "先跑 JS,把它返回值当作新 source,然后用后面 selector 在新 source 上选"
         if let (jsCode, restRule) = stripLeadingJSBlock(ruleStr), !restRule.isEmpty {
@@ -161,37 +179,41 @@ public actor LegadoRuleEngine {
             let lowerJs = jsCode.lowercased()
             if lowerJs.contains("startbrowserawait") || lowerJs.contains("startbrowser") {
                 let kw = extractAwaitKeyword(from: jsCode) ?? "html"
-                let url = extractAwaitURL(from: jsCode) ?? (ctx.baseUrl ?? "")
+                let url = extractAwaitURL(from: jsCode) ?? (boundedCtx.baseUrl ?? "")
                 let bridge = await BrowserBridgeRegistry.shared.get()
                 if ProcessInfo.processInfo.environment["WX_DEBUG_BRIDGE"] != nil {
                     print("[BrowserBridge] 反爬: url=\(url) keyword=\(kw)")
                 }
                 if !url.isEmpty,
                    let newHtml = await bridge.loadAndWait(url: url, expectedKeyword: kw, timeout: 30) {
-                    var newCtx = ctx
-                    newCtx.source = newHtml
-                    return await evalToList(ruleStr: restRule, on: newHtml, ctx: newCtx, depth: depth + 1)
+                    let clampedHtml = LegadoHTMLParse.clampSource(newHtml)
+                    var newCtx = boundedCtx
+                    newCtx.source = clampedHtml
+                    return await evalToList(ruleStr: restRule, on: clampedHtml, ctx: newCtx, depth: depth + 1)
                 }
-                return await evalToList(ruleStr: restRule, on: input, ctx: ctx, depth: depth + 1)
+                return await evalToList(ruleStr: restRule, on: boundedInput, ctx: boundedCtx, depth: depth + 1)
             }
 
             // 普通 JS 块: 直接跑 JS, 把返回值当新 source
             let scope = JSContextScope()
-            scope.baseUrl = ctx.baseUrl
-            scope.src = ctx.source
-            scope.result = stringify(input)
-            scope.key = ctx.key
-            scope.page = ctx.page
-            scope.bookSource = ctx.bookSource
+            scope.baseUrl = boundedCtx.baseUrl
+            scope.src = boundedCtx.source
+            scope.result = stringify(boundedInput)
+            scope.key = boundedCtx.key
+            scope.page = boundedCtx.page
+            scope.bookSource = boundedCtx.bookSource
+            if !boundedCtx.book.isEmpty { scope.book = boundedCtx.book }
+            if !boundedCtx.chapter.isEmpty { scope.chapter = boundedCtx.chapter }
+            scope.nextChapterUrl = boundedCtx.nextChapterUrl
             let newSource: String
             do {
-                let v = try await js.evaluate(script: jsCode, source: ctx.source,
-                                               baseUrl: ctx.baseUrl, scope: scope)
+                let v = try await js.evaluate(script: jsCode, source: boundedCtx.source,
+                                               baseUrl: boundedCtx.baseUrl, scope: scope)
                 newSource = stringifyOptional(v)
             } catch {
-                newSource = stringify(input)
+                newSource = stringify(boundedInput)
             }
-            var newCtx = ctx
+            var newCtx = boundedCtx
             newCtx.source = newSource
             return await evalToList(ruleStr: restRule, on: newSource, ctx: newCtx, depth: depth + 1)
         }
@@ -201,7 +223,7 @@ public actor LegadoRuleEngine {
         // 第一支非空就返回 → JS body 永远跑不到. 隐式切仅 `&&` chain 层做.
         let orBranches = LegadoRuleParser.splitTop(ruleStr, separators: ["||"], implicitJsChainSplit: false)
         for branch in orBranches {
-            let merged = await evalZipOrAnd(String(branch), on: input, ctx: ctx)
+            let merged = await evalZipOrAnd(String(branch), on: boundedInput, ctx: boundedCtx)
             if !merged.isEmpty && !(merged.count == 1 && merged[0].isEmpty) {
                 return merged
             }
@@ -327,7 +349,7 @@ public actor LegadoRuleEngine {
         let mode = rule.mode
 
         // 2. 把 input 转成 string (selector 都吃 string)
-        let srcStr: String = stringify(input)
+        let srcStr: String = LegadoHTMLParse.clampSource(stringify(input))
 
         // 3. 主体 select
         var midResult: [String]
@@ -439,6 +461,10 @@ public actor LegadoRuleEngine {
         if !ctx.book.isEmpty {
             scope.book = ctx.book
         }
+        if !ctx.chapter.isEmpty {
+            scope.chapter = ctx.chapter
+        }
+        scope.nextChapterUrl = ctx.nextChapterUrl
         do {
             let v = try await js.evaluate(script: script, source: ctx.source,
                                            baseUrl: ctx.baseUrl, scope: scope)

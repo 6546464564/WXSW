@@ -17,7 +17,18 @@ public final class ContentParser: @unchecked Sendable {
     public let dispatcher: SelectorDispatcher
     public let fetcher: HTTPFetcher
     public let jsEngine: JSEngine
-    public static let maxContentPages = 20
+    public static let maxContentPages = 100
+
+    /// 万象书屋 (2026-05-25): 单章正文累积字节上限. 防止恶意源 / 错配 nextContentUrl
+    /// 在 100 页里堆出几十 MB 字符串导致 OOM (尤其 SE 2GB).
+    /// 正常一章 5-30k 字 = 10-60KB; 5MB 已经是 100 万字, 任何正常章节都达不到.
+    /// SE 设备进一步收紧到 2MB (40 万字), 显著低于内存边界.
+    public static var maxContentBytes: Int {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 2 * 1024 * 1024 }
+        if mem <= 4_500_000_000 { return 4 * 1024 * 1024 }
+        return 8 * 1024 * 1024
+    }
 
     public init(dispatcher: SelectorDispatcher, fetcher: HTTPFetcher = .shared, jsEngine: JSEngine? = nil) {
         self.dispatcher = dispatcher
@@ -31,9 +42,17 @@ public final class ContentParser: @unchecked Sendable {
     ///   `<js>java.ajax(book.bookUrl)</js>` 之类需要 book 的规则会拿到空值.
     public func fetchContent(of chapter: BookChapter,
                              in source: BookSource,
-                             book: BookInfo? = nil) async throws -> ChapterContent {
+                             book: BookInfo? = nil,
+                             nextChapterUrl: String? = nil) async throws -> ChapterContent {
         guard let rule = source.ruleContent, let contentSelector = rule.content, !contentSelector.isEmpty else {
             throw BookSourceEngineError.missingRule("ruleContent.content")
+        }
+        // 对齐 Android WebBook: 卷首/卷末等一级目录不拉正文
+        if chapter.isVolume,
+           let url = chapter.chapterUrl,
+           url.hasPrefix(chapter.title.trimmingCharacters(in: .whitespaces)) {
+            return ChapterContent(chapterIndex: chapter.chapterIndex, title: chapter.title,
+                                  content: chapter.tag ?? "", images: [])
         }
         guard let firstUrl = chapter.chapterUrl, !firstUrl.isEmpty else {
             throw BookSourceEngineError.missingRule("chapter.chapterUrl 为空且无替代")
@@ -84,7 +103,8 @@ public final class ContentParser: @unchecked Sendable {
                 // 万象书屋 (M2.6 fix): 章节正文页 (一章 5-30k 字 + 反爬延迟) 用 25s 超时,
                 // 不能跟 search 共用 8s — 复现 case 是"永夜·小说之家", 8s × 3 retry 全超时
                 // = 用户报"阅读不了"; 30s 测试时同源 24k 字正文能完整拉到.
-                requestTimeoutSec: 25
+                requestTimeoutSec: 25,
+                maxBodyBytes: HTTPFetcher.maxContentResponseBytes
             )
             let scope = JSContextScope()
             scope.baseUrl = baseUrl
@@ -92,6 +112,7 @@ public final class ContentParser: @unchecked Sendable {
             scope.bookSource = source
             scope.book = scopeBook
             scope.chapter = scopeChapter
+            scope.nextChapterUrl = nextChapterUrl
 
             // 1. 抽正文 (规则可能返回多段, join 起来)
             let rawList = try await dispatcher.selectList(
@@ -119,30 +140,31 @@ public final class ContentParser: @unchecked Sendable {
 
             allContent += (allContent.isEmpty ? "" : "\n") + pageText
 
-            // 5. 多页翻页 — 优先 selectList (兼容 JS 返数组), 否则 selectString
+            // 万象书屋 (2026-05-25): 累积字节超上限就停止 nextContentUrl 拉取,
+            // 避免极端源把内存撑爆. 已抓的内容仍正常返回.
+            if allContent.utf8.count >= Self.maxContentBytes {
+                NSLog("[ContentParser] ch=%d hit maxContentBytes=%d at page=%d, stop next-page fetch",
+                      chapter.chapterIndex, Self.maxContentBytes, pageCount)
+                break
+            }
+
+            // 5. 多页翻页 — 对齐 Android getStringList(isUrl=true) + while 链式拉取
             if let nextRule = rule.nextContentUrl, !nextRule.isEmpty {
-                let nextList = (try? await dispatcher.selectList(
+                let candidates = (try? await dispatcher.selectUrlList(
                     rule: nextRule, source: html, baseUrl: baseUrl, jsContext: scope
                 )) ?? []
-                let candidates: [String]
-                if nextList.count > 1 {
-                    candidates = nextList
-                } else if let single = try? await dispatcher.selectString(
-                    rule: nextRule, source: html, baseUrl: baseUrl, jsContext: scope), !single.isEmpty {
-                    candidates = [single]
-                } else {
-                    candidates = []
-                }
-                for raw in candidates {
-                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                    // legado 约定: JS 返回 `""` / `null` / `[]` 时停止
-                    if trimmed.isEmpty || trimmed == "null" || trimmed == "[]" { continue }
-                    guard let abs = URL(string: trimmed, relativeTo: URL(string: baseUrl))?.absoluteString,
-                          !visited.contains(abs) else { continue }
+                for abs in candidates {
+                    if visited.contains(abs) { continue }
+                    if let nextCh = nextChapterUrl, !nextCh.isEmpty,
+                       Self.resolveAbsoluteURL(nextCh, base: baseUrl) == abs {
+                        continue
+                    }
                     queue.append(abs)
                 }
             }
         }
+
+        NSLog("[ContentParser] ch=\(chapter.chapterIndex) title=\(chapter.title.prefix(20)) fetchedPages=\(pageCount) totalLen=\(allContent.count) hasNextRule=\(!(rule.nextContentUrl ?? "").isEmpty)")
 
         return ChapterContent(
             chapterIndex: chapter.chapterIndex,
@@ -153,6 +175,11 @@ public final class ContentParser: @unchecked Sendable {
     }
 
     // MARK: - 净化与转换
+
+    /// legado `NetworkUtils.getAbsoluteURL` 等价 — 用于 nextContentUrl / nextChapterUrl 比较.
+    nonisolated static func resolveAbsoluteURL(_ url: String, base: String) -> String? {
+        URL(string: url, relativeTo: URL(string: base))?.absoluteString
+    }
 
     /// legado replaceRegex 格式: "regex##replacement##regex2##replacement2"
     ///

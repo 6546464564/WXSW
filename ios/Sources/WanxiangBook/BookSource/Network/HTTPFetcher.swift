@@ -42,6 +42,11 @@ public final class HTTPFetcher: @unchecked Sendable {
 
     public static let shared = HTTPFetcher()
 
+    /// 搜索/目录页 HTML 常超大；SE 等设备并发解析时易 OOM
+    public static let maxSearchResponseBytes = 800_000
+    /// 单章正文允许稍大
+    public static let maxContentResponseBytes = 1_500_000
+
     private let session: URLSession
 
     public static let defaultUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) " +
@@ -66,8 +71,11 @@ public final class HTTPFetcher: @unchecked Sendable {
         //   - cache 让 toc/详情页等可重读资源不重复网络
         cfg.httpMaximumConnectionsPerHost = 8
         cfg.httpAdditionalHeaders = ["Accept-Encoding": "gzip, deflate"]
-        cfg.urlCache = URLCache(memoryCapacity: 16 * 1024 * 1024,    // 16 MB
-                                 diskCapacity: 64 * 1024 * 1024,      // 64 MB
+        let mem = ProcessInfo.processInfo.physicalMemory
+        let memCacheCap = mem <= 3_000_000_000 ? 2 * 1024 * 1024 : 8 * 1024 * 1024
+        let diskCacheCap = mem <= 3_000_000_000 ? 16 * 1024 * 1024 : 32 * 1024 * 1024
+        cfg.urlCache = URLCache(memoryCapacity: memCacheCap,
+                                 diskCapacity: diskCacheCap,
                                  diskPath: "wanxiang-http-cache")
         cfg.requestCachePolicy = .useProtocolCachePolicy
         // 万象书屋: 用 delegate 拦截 cross-origin redirect (反爬源会 302 跳到 google.com / baidu.com)
@@ -96,7 +104,8 @@ public final class HTTPFetcher: @unchecked Sendable {
         headers: [String: String] = [:],
         sourceKey: String? = nil,
         retries: Int = 3,
-        requestTimeoutSec: TimeInterval? = nil
+        requestTimeoutSec: TimeInterval? = nil,
+        maxBodyBytes: Int = HTTPFetcher.maxSearchResponseBytes
     ) async throws -> HTTPResponse {
         guard let url = URL(string: urlString) else {
             throw BookSourceEngineError.httpFailed("非法 URL: \(urlString)")
@@ -112,7 +121,8 @@ public final class HTTPFetcher: @unchecked Sendable {
             }
             do {
                 return try await fetchOnce(url: url, method: method, body: body, headers: headers,
-                                           sourceKey: sourceKey, requestTimeoutSec: requestTimeoutSec)
+                                           sourceKey: sourceKey, requestTimeoutSec: requestTimeoutSec,
+                                           maxBodyBytes: maxBodyBytes)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -136,7 +146,8 @@ public final class HTTPFetcher: @unchecked Sendable {
 
     private func fetchOnce(url: URL, method: String, body: Data?,
                            headers: [String: String], sourceKey: String?,
-                           requestTimeoutSec: TimeInterval?) async throws -> HTTPResponse {
+                           requestTimeoutSec: TimeInterval?,
+                           maxBodyBytes: Int) async throws -> HTTPResponse {
         var req = URLRequest(url: url)
         req.httpMethod = method.uppercased()
         // 万象书屋 (M2.6 fix): per-request 超时覆盖 session 全局 8s.
@@ -165,19 +176,30 @@ public final class HTTPFetcher: @unchecked Sendable {
             throw BookSourceEngineError.httpFailed("反爬重定向 (status \(http.statusCode))")
         }
         let decodedBody = maybeGunzip(data) ?? data
-        let detected = detectEncoding(headers: http.allHeaderFields, body: decodedBody)
-        let text = decodeText(data: decodedBody, encoding: detected)
+        let cappedBody = Self.capBody(decodedBody, maxBytes: maxBodyBytes)
+        let detected = detectEncoding(headers: http.allHeaderFields, body: cappedBody)
+        let text = decodeText(data: cappedBody, encoding: detected)
         let respHeaders = (http.allHeaderFields as? [String: String]) ?? [:]
 
         return HTTPResponse(
             url: url,
             statusCode: http.statusCode,
-            bodyData: decodedBody,
+            bodyData: cappedBody,
             bodyText: text,
             detectedEncoding: detected,
             headers: respHeaders,
             finalURL: http.url
         )
+    }
+
+    /// 截断超大 HTTP 响应，避免 SwiftSoup / 规则引擎 OOM
+    nonisolated private static func capBody(_ data: Data, maxBytes: Int) -> Data {
+        guard maxBytes > 0, data.count > maxBytes else { return data }
+        return data.prefix(maxBytes)
+    }
+
+    public func clearResponseCache() {
+        session.configuration.urlCache?.removeAllCachedResponses()
     }
 
     // MARK: - gzip / 编码探测

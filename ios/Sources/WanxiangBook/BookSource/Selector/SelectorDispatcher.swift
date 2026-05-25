@@ -47,7 +47,9 @@ public struct SelectorDispatcher: Sendable {
         var ctx = LegadoContext(baseUrl: baseUrl, source: source, key: jsContext?.key,
                                  page: jsContext?.page ?? 1, bookSource: jsContext?.bookSource)
         if let s = jsContext?.src { ctx.source = s }
-        ctx.book = Self.bookFieldsAsStrings(jsContext?.book)
+        ctx.book = Self.fieldsAsStrings(jsContext?.book)
+        ctx.chapter = Self.fieldsAsStrings(jsContext?.chapter)
+        ctx.nextChapterUrl = jsContext?.nextChapterUrl
         return await LegadoRuleEngine.shared.selectList(rule: trimmed, source: source, ctx: ctx)
     }
 
@@ -58,24 +60,39 @@ public struct SelectorDispatcher: Sendable {
         var ctx = LegadoContext(baseUrl: baseUrl, source: source, key: jsContext?.key,
                                  page: jsContext?.page ?? 1, bookSource: jsContext?.bookSource)
         if let s = jsContext?.src { ctx.source = s }
-        ctx.book = Self.bookFieldsAsStrings(jsContext?.book)
+        ctx.book = Self.fieldsAsStrings(jsContext?.book)
+        ctx.chapter = Self.fieldsAsStrings(jsContext?.chapter)
+        ctx.nextChapterUrl = jsContext?.nextChapterUrl
         return await LegadoRuleEngine.shared.selectString(rule: trimmed, source: source, ctx: ctx)
     }
 
-    /// 万象书屋: JSContextScope.book ([String:Any]?) → LegadoContext.book ([String:String])
-    ///   - LegadoRuleEngine 的模板 {{book.xxx}} / @get:{xxx} 用的是 String 字典
-    ///   - JS 引擎那边 book 可能塞了非字符串 (Int 章节序号等), 这里全部 stringify 兜底
-    ///   - 跟 Android `RuleData.put` (Object 转 String) 对齐
-    private static func bookFieldsAsStrings(_ book: [String: Any]?) -> [String: String] {
-        guard let book else { return [:] }
+    /// 万象书屋: JSContextScope.book/chapter ([String:Any]?) → LegadoContext ([String:String])
+    private static func fieldsAsStrings(_ fields: [String: Any]?) -> [String: String] {
+        guard let fields else { return [:] }
         var out: [String: String] = [:]
-        out.reserveCapacity(book.count)
-        for (k, v) in book {
+        out.reserveCapacity(fields.count)
+        for (k, v) in fields {
             if let s = v as? String { out[k] = s }
             else if let n = v as? NSNumber { out[k] = n.stringValue }
             else { out[k] = String(describing: v) }
         }
         return out
+    }
+
+    /// 对齐 Android getStringList(isUrl=true): 提取 URL 并 absolutize
+    public func selectUrlList(rule: String, source: String, baseUrl: String?, jsContext: JSContextScope? = nil) async throws -> [String] {
+        let raw = try await selectList(rule: rule, source: source, baseUrl: baseUrl, jsContext: jsContext)
+        var urls: [String] = []
+        for item in raw {
+            for line in item.components(separatedBy: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty || trimmed == "null" || trimmed == "[]" { continue }
+                guard let abs = ContentParser.resolveAbsoluteURL(trimmed, base: baseUrl ?? ""),
+                      !urls.contains(abs) else { continue }
+                urls.append(abs)
+            }
+        }
+        return urls
     }
 
     // MARK: - 路由

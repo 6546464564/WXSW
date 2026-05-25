@@ -391,6 +391,7 @@ public struct URLTemplate {
         fetcher: HTTPFetcher = .shared,
         retries: Int = 1,
         requestTimeoutSec: TimeInterval? = nil,
+        maxBodyBytes: Int = HTTPFetcher.maxSearchResponseBytes,
         webViewKeyword: String? = nil,
         webViewTimeout: TimeInterval = 25
     ) async throws -> (bodyText: String, finalUrl: String) {
@@ -462,7 +463,8 @@ public struct URLTemplate {
             headers: mergedHeaders,
             sourceKey: source.bookSourceUrl,
             retries: effectiveRetries,
-            requestTimeoutSec: requestTimeoutSec
+            requestTimeoutSec: requestTimeoutSec,
+            maxBodyBytes: maxBodyBytes
         )
         return (resp.bodyText, resp.finalURL?.absoluteString ?? rendered.url)
     }

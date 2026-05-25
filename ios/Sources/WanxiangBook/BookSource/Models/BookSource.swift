@@ -84,20 +84,31 @@ public struct BookSource: Codable, Hashable, Sendable {
     /// (猫眼看书等需要 client-device/version 自定义 header 才能拿数据), 所以 iOS 也要兼容.
     public func parseHeaders() -> [String: String] {
         guard let h = header, !h.isEmpty else { return [:] }
+        let parsed: [String: String]
         // 1. 先严格 JSON 试
         if let data = h.data(using: .utf8),
            let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return dict.compactMapValues { String(describing: $0) }
+            parsed = dict.compactMapValues { String(describing: $0) }
+        } else {
+            // 2. lenient: 简单把不在双引号内的单引号换成双引号再试
+            let normalized = lenientJSONNormalize(h)
+            if let data = normalized.data(using: .utf8),
+               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                parsed = dict.compactMapValues { String(describing: $0) }
+            } else {
+                return [:]
+            }
         }
-        // 2. lenient: 简单把不在双引号内的单引号换成双引号再试
-        // 万象书屋 (M2.8 fix bug): 猫眼看书等大量加密源 header 写单引号 ⇒ 严格 JSON 解析失败
-        // ⇒ 没带 client-device/version/Authorization ⇒ API 返 4004 device 不能为空 ⇒ toc 0.
-        let normalized = lenientJSONNormalize(h)
-        if let data = normalized.data(using: .utf8),
-           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return dict.compactMapValues { String(describing: $0) }
+        return expandHeaderPlaceholders(parsed)
+    }
+
+    /// legado 源 header 常见 `Referer: {{baseUrl}}`; iOS 之前未替换导致源站拒访.
+    private func expandHeaderPlaceholders(_ dict: [String: String]) -> [String: String] {
+        let base = bookSourceUrl
+        return dict.mapValues { v in
+            v.replacingOccurrences(of: "{{baseUrl}}", with: base)
+                .replacingOccurrences(of: "{{origin}}", with: base)
         }
-        return [:]
     }
 
     /// 万象书屋: 简单 lenient JSON 标准化 — 把字符串外的单引号换成双引号.
@@ -353,7 +364,7 @@ extension BookSource {
             scope.bookSource = self
             let out = try? await js.evaluate(script: script, source: "", baseUrl: bookSourceUrl, scope: scope)
             let parsed = dictFromJsOutput(out)
-            return parsed.isEmpty ? parseHeaders() : parsed
+            return parsed.isEmpty ? parseHeaders() : expandHeaderPlaceholders(parsed)
         }
         if lower.hasPrefix("<js>"),
            let endRange = t.range(of: "</js>", options: .caseInsensitive) {
@@ -363,7 +374,7 @@ extension BookSource {
             scope.bookSource = self
             let out = try? await js.evaluate(script: script, source: "", baseUrl: bookSourceUrl, scope: scope)
             let parsed = dictFromJsOutput(out)
-            return parsed.isEmpty ? parseHeaders() : parsed
+            return parsed.isEmpty ? parseHeaders() : expandHeaderPlaceholders(parsed)
         }
         return parseHeaders()
     }

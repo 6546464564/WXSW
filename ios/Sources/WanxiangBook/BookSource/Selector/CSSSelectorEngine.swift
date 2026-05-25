@@ -19,6 +19,49 @@ import SwiftSoup
 
 /// 表格单元格 / 行片段外包一层，避免 SwiftSoup 把裸 `</td>` 文档解析残导致 XPath/CSS 选不中。
 enum LegadoHTMLParse {
+    /// SwiftSoup 解析超大 HTML 在 SE 等低内存设备上易 OOM；Monkey 并发搜书/换源时尤甚。
+    static var maxSourceBytes: Int {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 500_000 }
+        if mem <= 4_500_000_000 { return 650_000 }
+        return HTTPFetcher.maxSearchResponseBytes
+    }
+    /// SwiftSoup 内部有全局锁; 并发 parse 易 Mutex 死锁 (SE crash 报告 #2/#11)
+    /// 万象书屋 (2026-05-25): 改用 DispatchSemaphore 替 NSLock, 加 5s 超时兜底. 极端情况下
+    /// SwiftSoup 解析超大 HTML 卡住时, 后续 task 不会无限期 park 线程导致 cooperative pool 耗尽.
+    private static let parseLock = DispatchSemaphore(value: 1)
+    private static let parseLockTimeoutSec: Double = 5.0
+
+    /// 限制同时跑 parse+select 的路数，避免多源并发时 SelectorResultCache 撑爆 RAM
+    private static let workPermit: DispatchSemaphore = {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        let slots: Int
+        if mem <= 3_000_000_000 { slots = 1 }
+        else if mem <= 4_500_000_000 { slots = 2 }
+        else { slots = 3 }
+        return DispatchSemaphore(value: slots)
+    }()
+    /// workPermit 也加超时, 避免 parser 之间互相等到 watchdog 杀进程.
+    private static let workPermitTimeoutSec: Double = 8.0
+
+    static func withWorkPermit<T>(_ body: () throws -> T) rethrows -> T {
+        let r = workPermit.wait(timeout: .now() + workPermitTimeoutSec)
+        if r == .timedOut {
+            // 超时也要继续走, 但记录一笔 — 通常意味着上游有 source 卡死,
+            // 此时让当前 task 失败比让所有 task 一起死锁要好.
+            NSLog("[WX-MEM] CSSSelectorEngine workPermit timeout %.1fs, proceeding without permit", workPermitTimeoutSec)
+            return try body()
+        }
+        defer { workPermit.signal() }
+        return try body()
+    }
+
+    static func clampSource(_ raw: String) -> String {
+        guard raw.utf8.count > maxSourceBytes else { return raw }
+        let end = raw.index(raw.startIndex, offsetBy: maxSourceBytes, limitedBy: raw.endIndex) ?? raw.endIndex
+        return String(raw[..<end])
+    }
+
     static func wrapTableFragments(_ raw: String) -> String {
         var html1 = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = html1.lowercased()
@@ -32,9 +75,41 @@ enum LegadoHTMLParse {
         return html1
     }
 
+    /// 内存预算检查 — 剩余可用 < 20MB 时直接拒绝解析, 防止 SwiftSoup 在 OOM 边缘
+    /// 触发 `_DictionaryStorage.allocate` 的 swift_abortAllocationFailure (SE crash 主因).
+    /// 拒绝后调用方拿到 SelectorError.parseFailed, 当前请求失败但进程不挂.
+    static var minAvailableBytesForParse: UInt64 {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 30 * 1024 * 1024 }
+        if mem <= 4_500_000_000 { return 50 * 1024 * 1024 }
+        return 80 * 1024 * 1024
+    }
+
+    private static func hasEnoughMemoryForParse() -> Bool {
+        if #available(iOS 13.0, *) {
+            let avail = UInt64(os_proc_available_memory())
+            // 0 表示不可用, 此时不拒绝
+            if avail == 0 { return true }
+            return avail >= minAvailableBytesForParse
+        }
+        return true
+    }
+
     /// `<?xml` 走 XML Parser（与 jsoup Parser.xmlParser 一致），失败则回落 HTML。
     static func parseDocument(source: String, baseUrl: String) throws -> Document {
-        let wrapped = wrapTableFragments(source)
+        // 万象书屋 (2026-05-25): 进 SwiftSoup 之前先看内存预算, 不够直接抛, 让上层 fail-fast
+        guard hasEnoughMemoryForParse() else {
+            throw SelectorError.parseFailed("low memory: skipping parse to prevent OOM")
+        }
+        let r = parseLock.wait(timeout: .now() + parseLockTimeoutSec)
+        if r == .timedOut {
+            // 锁卡死: SwiftSoup 自身被另一个 task 卡住, 让当前 task 失败而不是无限 park.
+            // 不 signal (没拿到锁), 不 unlock.
+            throw SelectorError.parseFailed("SwiftSoup parseLock timeout \(parseLockTimeoutSec)s")
+        }
+        defer { parseLock.signal() }
+        let clamped = clampSource(source)
+        let wrapped = wrapTableFragments(clamped)
         let t = wrapped.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.lowercased().hasPrefix("<?xml") {
             if let doc = try? SwiftSoup.parse(wrapped, baseUrl, Parser.xmlParser()) {
@@ -67,6 +142,12 @@ public struct CSSSelectorEngine: SelectorEngine {
     public init() {}
 
     public func selectList(rule: String, source: String, baseUrl: String?) throws -> [String] {
+        try LegadoHTMLParse.withWorkPermit {
+            try selectListUnlocked(rule: rule, source: source, baseUrl: baseUrl)
+        }
+    }
+
+    private func selectListUnlocked(rule: String, source: String, baseUrl: String?) throws -> [String] {
         let doc: Document
         do {
             doc = try LegadoHTMLParse.parseDocument(source: source, baseUrl: baseUrl ?? "")
@@ -126,6 +207,12 @@ public struct CSSSelectorEngine: SelectorEngine {
     }
 
     public func selectString(rule: String, source: String, baseUrl: String?) throws -> String? {
+        try LegadoHTMLParse.withWorkPermit {
+            try selectStringUnlocked(rule: rule, source: source, baseUrl: baseUrl)
+        }
+    }
+
+    private func selectStringUnlocked(rule: String, source: String, baseUrl: String?) throws -> String? {
         let doc: Document
         do {
             doc = try LegadoHTMLParse.parseDocument(source: source, baseUrl: baseUrl ?? "")

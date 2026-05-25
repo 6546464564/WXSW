@@ -42,6 +42,9 @@ public final class BookSourceEngine: @unchecked Sendable {
            let n = Int(env), n > 0, n <= 64 {
             return n
         }
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 2 }
+        if mem <= 4_500_000_000 { return 3 }
         return 4
     }()
     private let searchParserPool: [SearchParser]
@@ -55,6 +58,45 @@ public final class BookSourceEngine: @unchecked Sendable {
     private let infoPoolCounter = ManagedAtomicLite()
     private let tocPoolCounter = ManagedAtomicLite()
     private let contentPoolCounter = ManagedAtomicLite()
+    /// 所有 JSEngine 实例 (主 + pool extras), 内存警告时统一 evictAll
+    private let allJSEngines: [JSEngine]
+
+    /// 低内存设备 (≤4GB) 降低并发, 避免多路 HTML 解析 OOM
+    /// 万象书屋 (2026-05-25): SE 2GB 实测 maxConcurrency=2 仍易 OOM (10/13 crash 是 OOM),
+    /// 即便单源解析有 workPermit slots=1, 但 HTTP 响应/JSContext 缓冲仍并发占用,
+    /// 进一步降到 1 — 牺牲一点搜索体感, 换稳定不闪退.
+    public static let defaultSearchConcurrency: Int = {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 1 }
+        if mem <= 4_500_000_000 { return 4 }
+        return 9
+    }()
+
+    /// 换源页专用搜索并发 (比全站搜索更保守, 避免多路 HTML/JS 解析 OOM)
+    public static let changeSourceSearchConcurrency: Int = {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 1 }
+        if mem <= 4_500_000_000 { return 3 }
+        return 4
+    }()
+
+    /// 换源 info-fill 并发 (fetchInfo 比 search 更吃内存)
+    public static let adaptiveFetchInfoConcurrency: Int = {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 1 }
+        if mem <= 4_500_000_000 { return 4 }
+        return 8
+    }()
+
+    /// 详情页 TOC fallback 等窄场景搜索并发
+    public static let adaptiveResolveSearchConcurrency: Int = {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 1 }
+        if mem <= 4_500_000_000 { return 4 }
+        return 6
+    }()
+
+    private var memoryWarningObserver: Any?
 
     private init() {
         let js = JSEngine()
@@ -72,6 +114,7 @@ public final class BookSourceEngine: @unchecked Sendable {
         var iPool: [BookInfoParser] = [self.infoParser]
         var tPool: [TocParser] = [self.tocParser]
         var cPool: [ContentParser] = [self.contentParser]
+        var jsPool: [JSEngine] = [js]
         for _ in 1..<Self.JS_POOL_SIZE {
             let extraJS = JSEngine()
             let extraDispatcher = SelectorDispatcher(js: extraJS)
@@ -79,11 +122,43 @@ public final class BookSourceEngine: @unchecked Sendable {
             iPool.append(BookInfoParser(dispatcher: extraDispatcher))
             tPool.append(TocParser(dispatcher: extraDispatcher))
             cPool.append(ContentParser(dispatcher: extraDispatcher))
+            jsPool.append(extraJS)
         }
         self.searchParserPool = sPool
         self.infoParserPool = iPool
         self.tocParserPool = tPool
         self.contentParserPool = cPool
+        self.allJSEngines = jsPool
+
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: .wanxiangMemoryWarning, object: nil, queue: nil
+        ) { [weak self] _ in
+            Task { await self?.handleMemoryWarning() }
+        }
+    }
+
+    deinit {
+        if let obs = memoryWarningObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
+
+    private func handleMemoryWarning() async {
+        await infoCache.clearAll()
+        HTTPFetcher.shared.clearResponseCache()
+        JSEngineCache.shared.clearAll()
+        await LegadoRuleEngine.shared.resetPutStore()
+        // 万象书屋 (2026-05-25): SE crash 报告显示 OOM 主因是后台健康探测 + 用户搜索叠加,
+        // 收到内存警告时立刻取消进行中的源探测, 把 cooperative pool 让给前台.
+        await MainActor.run {
+            SourceHealthChecker.shared.cancelHealthCheck()
+        }
+        // 万象书屋 (2026-05-25): 主动 GC 所有 JSEngine 实例, 释放番茄/起点等长 init
+        // 脚本残留的 JS 堆对象. JSCore incremental GC 不会立刻回收, 必须显式触发.
+        for engine in allJSEngines {
+            await engine.evictAll()
+        }
+        NSLog("[WX-MEM] BookSourceEngine: cleared caches + cancelled healthCheck + GC %d JSEngines", allJSEngines.count)
     }
 
     private func pickInfoParser() -> BookInfoParser {
@@ -135,7 +210,7 @@ public final class BookSourceEngine: @unchecked Sendable {
     /// - **单源 30s 硬超时** = Android `withTimeout(30000L)`. 之前 12s 太激进, 一些慢但合法
     ///   的源 (8-15s 抓页面) 被误杀.
     public func searchAll(in sources: [BookSource], key: String,
-                          maxConcurrency: Int = 9,
+                          maxConcurrency: Int = BookSourceEngine.defaultSearchConcurrency,
                           perSourceTimeoutSec: TimeInterval = 30) -> AsyncStream<(BookSource, Result<[SearchBook], Error>)> {
         AsyncStream { continuation in
             let innerTask = Task {
@@ -222,6 +297,9 @@ public final class BookSourceEngine: @unchecked Sendable {
                 if let k = oldest { cache.removeValue(forKey: k) }
             }
         }
+        func clearAll() {
+            cache.removeAll()
+        }
     }
 
     public func fetchInfo(of book: SearchBook, in source: BookSource) async throws -> BookInfo {
@@ -265,12 +343,15 @@ public final class BookSourceEngine: @unchecked Sendable {
     ///   `<js>java.ajax(book.bookUrl)</js>` 之类, 不传 book 会拿到空值导致正文断裂.
     public func fetchContent(of chapter: BookChapter,
                              in source: BookSource,
-                             book: BookInfo? = nil) async throws -> ChapterContent {
+                             book: BookInfo? = nil,
+                             nextChapterUrl: String? = nil) async throws -> ChapterContent {
         // 万象书屋 (M2.8 perf): round-robin contentParser, 让 reader prefetch 15 章 JS 真并发.
         // 之前共用单个 contentParser, 即使 prefetch 启 15 个 task, JS 评估都被 actor 串行化.
         let parser = pickContentParser()
         do {
-            let content = try await parser.fetchContent(of: chapter, in: source, book: book)
+            let content = try await parser.fetchContent(
+                of: chapter, in: source, book: book, nextChapterUrl: nextChapterUrl
+            )
             if content.content.isEmpty {
                 Self.reportHealth(source: source, stage: "content", status: "zero",
                                   errorMessage: "empty content", sampleUrl: chapter.chapterUrl)

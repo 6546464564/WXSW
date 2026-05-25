@@ -37,6 +37,8 @@ public final class JSContextScope: @unchecked Sendable {
     public var page: Int = 1        // 万象书屋: 翻页 (legado JS 里 page 全局可读)
     public var book: [String: Any]? = nil
     public var chapter: [String: Any]? = nil
+    /// 对齐 Android AnalyzeRule.nextChapterUrl — 正文 nextContentUrl 规则里常用
+    public var nextChapterUrl: String? = nil
     public var sharedKV: [String: Any] = [:]
     public var prefetchedAjax: [String: String] = [:]
     /// 万象书屋: 当前书源 (注入 source / host / cookie 全局 + jsLib)
@@ -52,12 +54,8 @@ public actor JSEngine {
 
     public init() {
         // JavaScriptCore JSContext 不是 thread-safe, 全 actor 串行化
-        // JSContext() 在极端内存压力下可能返回 nil，使用 JSVirtualMachine 兜底
-        let ctx = JSContext() ?? JSContext(virtualMachine: JSVirtualMachine()) ?? JSContext()
-        guard let ctx else {
-            // 理论上不可能到达这里 (JSContext 创建需要系统完全 OOM)
-            preconditionFailure("[JSEngine] JSContext init failed - system out of memory")
-        }
+        let vm = JSVirtualMachine()
+        let ctx = JSContext(virtualMachine: vm) ?? JSContext()!
         ctx.exceptionHandler = { _, e in
             if let e {
                 print("[JSEngine] uncaught: \(e.toString() ?? "?")")
@@ -123,7 +121,27 @@ public actor JSEngine {
         // 万象书屋: 每次 evaluate 完成后清理 JsoupShim 节点缓存，防止全局字典无限增长
         // JS 执行完毕后 JS 端的 jsoup wrapper 对象也随之失效，native 节点无需保留
         JsoupShim.clearNodes()
+        // 万象书屋 (2026-05-25): 长 init 脚本 (番茄/起点等 100KB+) 跑完后留下大量临时字符串
+        // 在 JS 堆里, JSCore 的 incremental GC 不会立刻回收. 主动跑一次 GC 让低内存设备
+        // (iPhone SE 2GB) 不会把 JS 堆撑到 jetsam 红线触发 SIGKILL.
+        evictHeapIfHeavy(scriptBytes: script.utf8.count)
         return result
+    }
+
+    /// 主动让 JSCore 跑一次 GC. JSGarbageCollect 是公开 C API, 不会卡线程.
+    /// - script ≥ 16KB 才触发 (避免每次小 JS 都 GC 引入抖动).
+    private func evictHeapIfHeavy(scriptBytes: Int) {
+        guard scriptBytes >= 16 * 1024 else { return }
+        guard let globalCtx = ctx.jsGlobalContextRef else { return }
+        JSGarbageCollect(globalCtx)
+    }
+
+    /// 内存警告时由 BookSourceEngine 调度: 强制 GC + 清 JsoupShim 节点 cache.
+    public func evictAll() {
+        JsoupShim.clearNodes()
+        if let globalCtx = ctx.jsGlobalContextRef {
+            JSGarbageCollect(globalCtx)
+        }
     }
 
     /// 万象书屋: 给 eval 路径用 — 极少处理, 只去 trim, 因为 eval 会自动返回最后值.
@@ -417,6 +435,7 @@ public actor JSEngine {
         ctx.setObject(scope.src ?? "", forKeyedSubscript: "src" as NSString)
         ctx.setObject(scope.book ?? NSNull(), forKeyedSubscript: "book" as NSString)
         ctx.setObject(scope.chapter ?? NSNull(), forKeyedSubscript: "chapter" as NSString)
+        ctx.setObject(scope.nextChapterUrl ?? "", forKeyedSubscript: "nextChapterUrl" as NSString)
         ctx.setObject(scope.key ?? "", forKeyedSubscript: "key" as NSString)
         ctx.setObject(scope.key ?? "", forKeyedSubscript: "searchKey" as NSString)
         ctx.setObject(scope.page, forKeyedSubscript: "page" as NSString)
@@ -1805,14 +1824,17 @@ final class _BrowserResultCache: @unchecked Sendable {
     static let shared = _BrowserResultCache()
     private let cache = NSCache<NSString, NSString>()
     private init() {
-        cache.countLimit = 50
-        cache.totalCostLimit = 8 * 1024 * 1024
+        let mem = ProcessInfo.processInfo.physicalMemory
+        cache.countLimit = mem <= 3_000_000_000 ? 20 : 50
+        cache.totalCostLimit = mem <= 3_000_000_000 ? 2 * 1024 * 1024 : 8 * 1024 * 1024
     }
     func get(url: String) -> String? {
         cache.object(forKey: url as NSString) as? String
     }
     func set(url: String, body: String) {
-        cache.setObject(body as NSString, forKey: url as NSString)
+        let clamped = LegadoHTMLParse.clampSource(body)
+        let cost = clamped.utf8.count
+        cache.setObject(clamped as NSString, forKey: url as NSString, cost: cost)
     }
     func clear() {
         cache.removeAllObjects()
@@ -1836,6 +1858,12 @@ public final class JSEngineCache: @unchecked Sendable {
     public func getMemory(key: String) -> Any? {
         lock.lock(); defer { lock.unlock() }
         return memory[key]
+    }
+
+    /// 内存警告时清空跨源 KV, 避免 Monkey 长时间跑后 putMemory 堆积
+    public func clearAll() {
+        lock.lock(); defer { lock.unlock() }
+        memory.removeAll(keepingCapacity: false)
     }
 }
 
