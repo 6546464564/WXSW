@@ -51,8 +51,10 @@ final class MetricKitSubscriber: NSObject, MXMetricManagerSubscriber {
     // MARK: - Helpers
 
     private func save(data: Data, prefix: String) {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MetricKit", isDirectory: true)
+        // 万象书屋 (2026-05-25): 用 .first ?? temp 兜底, 沙盒未就绪时不崩.
+        let baseDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = baseDir.appendingPathComponent("MetricKit", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let ts = ISO8601DateFormatter().string(from: Date())
         let file = dir.appendingPathComponent("\(prefix)_\(ts).json")

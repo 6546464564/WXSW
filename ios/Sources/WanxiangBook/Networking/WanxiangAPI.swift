@@ -75,6 +75,26 @@ actor WanxiangAPI {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
+    /// 万象书屋 (2026-05-25): 启动时一次性缓存 device 信息.
+    /// reportCrash / 各路上报跨线程读取, 避免 DispatchQueue.main.sync 跨线程死锁.
+    /// 由 AppDelegate.application(_:didFinishLaunchingWithOptions:) 主线程调用 prefillCache.
+    nonisolated(unsafe) private static var _cachedModel: String = "iPhone"
+    nonisolated(unsafe) private static var _cachedSdkInt: Int = 17
+    nonisolated(unsafe) private static var _cachedIDFV: String?
+    nonisolated(unsafe) private static var deviceCachePrefilled = false
+
+    /// 在 AppDelegate.didFinishLaunching 主线程调用一次, 之后任意线程无锁读 cachedXxx.
+    public static func prefillDeviceCache() {
+        #if canImport(UIKit)
+        // 仅在主线程调用; 防止意外在后台线程跑.
+        assert(Thread.isMainThread, "prefillDeviceCache must be called on main thread")
+        _cachedModel = UIDevice.current.model
+        _cachedSdkInt = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        _cachedIDFV = UIDevice.current.identifierForVendor?.uuidString
+        #endif
+        deviceCachePrefilled = true
+    }
+
     private init() {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 15
@@ -464,13 +484,22 @@ actor WanxiangAPI {
     }
 
     /// 上报崩溃 (M2.1.7 接 NSSetUncaughtExceptionHandler 后用)
+    /// 万象书屋 (2026-05-25): 不再走 DispatchQueue.main.sync — 改为读启动时已缓存的 _cachedModel/_cachedSdkInt,
+    /// 避免崩溃路径上跨线程死锁 (BG 线程持锁 → main.sync(getter) → main 在等 BG 锁).
     nonisolated func reportCrash(exception: String, stack: String) {
         var r = request(path: "/api/crash-log", method: "POST")
-        let body: [String: Any] = [
+        let appVer = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
+        var body: [String: Any] = [
             "exception": exception,
             "stack": stack,
-            "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "0.0",
+            "appVer": appVer,
+            "deviceId": deviceId,
         ]
+        #if canImport(UIKit)
+        body["brand"] = "Apple"
+        body["model"] = Self._cachedModel
+        body["sdkInt"] = Self._cachedSdkInt
+        #endif
         r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         sendIgnoreResult(r)
     }
@@ -485,14 +514,16 @@ actor WanxiangAPI {
 
     private nonisolated func currentIDFV() -> String? {
         #if canImport(UIKit)
-        // UIDevice.current 是 MainActor 隔离的属性; 这里在任意线程均能安全读取:
-        // 若已在主线程直接访问, 否则通过 DispatchQueue.main.sync 调度到主线程.
-        // 注意: 不可在主线程内再 sync 主队列, 否则死锁 — Thread.isMainThread 防护.
+        // 万象书屋 (2026-05-25): 启动 prefillDeviceCache 后直接读缓存, 避免任何 main.sync 路径.
+        // 即使没 prefill (单元测试/兜底), 也只在主线程同步读 — 跨线程返回 nil 让上层走 UUID fallback.
+        if let cached = Self._cachedIDFV { return cached }
         if Thread.isMainThread {
-            return UIDevice.current.identifierForVendor?.uuidString
-        } else {
-            return DispatchQueue.main.sync { UIDevice.current.identifierForVendor?.uuidString }
+            let id = UIDevice.current.identifierForVendor?.uuidString
+            Self._cachedIDFV = id
+            return id
         }
+        // 后台线程且未 prefill: 不阻塞, 让上层退化到 UUID 种子 (Keychain 还会再写一次, 之后稳定).
+        return nil
         #else
         return nil
         #endif

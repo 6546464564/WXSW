@@ -17,7 +17,11 @@ struct WanxiangBookApp: App {
     init() {
         ReadConfig.logFontDiagnostics()
         // #region agent log
+        // 万象书屋 (2026-05-25): 启动诊断仅 DEBUG 构建运行;
+        // RELEASE 跑 7 个字号 × 5 页测量纯浪费 200ms 启动 + 占用低内存机型 RAM.
+        #if DEBUG
         _runPaginationDiagnostic()
+        #endif
         // #endregion
         // -downloadAll: 启动后自动下载书架所有书籍（用于性能测试）
         if CommandLine.arguments.contains("-downloadAll") {
@@ -219,6 +223,7 @@ final class AppState: ObservableObject {
     func handleScenePhase(_ phase: ScenePhase) async {
         switch phase {
         case .active:
+            CrashBreadcrumb.leave("scene.active")
             // 后台回前台立即 ping 一次 + 重启 heartbeat
             await sendPingNow()
             if heartbeatTimer == nil || heartbeatTimer?.isCancelled == true {
@@ -359,7 +364,6 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
     ///     英文/繁体的话改这个标记就能恢复跟系统.
     override init() {
         super.init()
-        BookCoverNetworkPolicy.start()
         let lockKey = "wx.lang.locked_v1"
         if !UserDefaults.standard.bool(forKey: lockKey) {
             UserDefaults.standard.set(["zh-Hans"], forKey: "AppleLanguages")
@@ -371,14 +375,29 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // 万象书屋 (2026-05-25): 启动主线程一次性缓存 device 信息, 后续崩溃上报等
+        // 跨线程路径直接读缓存, 避免 DispatchQueue.main.sync 跨线程死锁.
+        WanxiangAPI.prefillDeviceCache()
         CrashHandler.install()
         MetricKitSubscriber.shared.start()
+        // 万象书屋 (2026-05-25): 低内存设备 (SE/iPhone 6/7) 主动监控可用内存,
+        // 比系统 didReceiveMemoryWarning 更早触发清理, 避免被 jetsam 直接 SIGKILL.
+        LowMemoryGuard.shared.start()
         return true
     }
 
     func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
         NSLog("[WX-MEM] ⚠️ 收到内存警告, 开始清理缓存")
+        // #region agent log
+        DebugSessionLog.log(
+            location: "WanxiangBookApp.applicationDidReceiveMemoryWarning",
+            message: "memory warning",
+            hypothesisId: "H5",
+            data: ["memMB": ProcessInfo.processInfo.physicalMemory / 1_048_576]
+        )
+        // #endregion
         URLCache.shared.removeAllCachedResponses()
+        HTTPFetcher.shared.clearResponseCache()
         _BrowserResultCache.shared.clear()
         SyncHTTP.clearCache()
         NSLog("[WX-MEM] URLCache + BrowserCache + SyncHTTP 缓存已清理")

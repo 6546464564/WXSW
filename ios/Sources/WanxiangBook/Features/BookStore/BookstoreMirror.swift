@@ -37,7 +37,9 @@ actor BookstoreMirror {
     private var cachedEtag: String?
 
     private static let diskURL: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        // 万象书屋 (2026-05-25): .first ?? temp 兜底, 应用沙盒未就绪时不崩.
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
         let dir = base.appendingPathComponent("com.wanxiang.reader", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("bookstore_mirror.json")
