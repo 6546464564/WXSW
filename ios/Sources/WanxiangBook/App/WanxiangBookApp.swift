@@ -236,6 +236,7 @@ final class AppState: ObservableObject {
         case .background:
             heartbeatTimer?.cancel()
             heartbeatTimer = nil
+            SourceHealthChecker.shared.cancelHealthCheck()
             await WanxiangAnalytics.shared.flush()
             URLCache.shared.removeAllCachedResponses()
             _BrowserResultCache.shared.clear()

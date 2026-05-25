@@ -50,6 +50,9 @@ public final class JSContextScope: @unchecked Sendable {
 /// JS 引擎 (actor 串行化避免 JSContext 多线程并发问题)
 public actor JSEngine {
 
+    /// 独立 suite 存储 JS cache/variable，不触发 SwiftUI @AppStorage 的 UserDefaults 通知
+    static let jsDefaults = UserDefaults(suiteName: "wx.jsdata") ?? .standard
+
     private let ctx: JSContext
 
     public init() {
@@ -465,16 +468,16 @@ public actor JSEngine {
         let put: @convention(block) (String, Any?, Any?) -> Void = { key, value, _ in
             // saveTime 第三参 (秒), iOS 简化为永久 — UserDefaults 没原生 expire
             if let s = value as? String {
-                UserDefaults.standard.set(s, forKey: "wx.jsCache." + key)
+                JSEngine.jsDefaults.set(s, forKey: "wx.jsCache." + key)
             } else if let v = value {
-                UserDefaults.standard.set(String(describing: v), forKey: "wx.jsCache." + key)
+                JSEngine.jsDefaults.set(String(describing: v), forKey: "wx.jsCache." + key)
             }
         }
         let get: @convention(block) (String) -> String = { key in
-            UserDefaults.standard.string(forKey: "wx.jsCache." + key) ?? ""
+            JSEngine.jsDefaults.string(forKey: "wx.jsCache." + key) ?? ""
         }
         let del: @convention(block) (String) -> Void = { key in
-            UserDefaults.standard.removeObject(forKey: "wx.jsCache." + key)
+            JSEngine.jsDefaults.removeObject(forKey: "wx.jsCache." + key)
         }
         cache.setObject(putMem, forKeyedSubscript: "putMemory" as NSString)
         cache.setObject(getMem, forKeyedSubscript: "getFromMemory" as NSString)
@@ -509,13 +512,13 @@ public actor JSEngine {
         let getTag: @convention(block) () -> String = { source.bookSourceName }
 
         let getVariable: @convention(block) () -> String = {
-            UserDefaults.standard.string(forKey: "wx.sourceVariable." + sourceUrl) ?? ""
+            JSEngine.jsDefaults.string(forKey: "wx.sourceVariable." + sourceUrl) ?? ""
         }
         let setVariable: @convention(block) (Any?) -> Void = { val in
             if let v = val as? String {
-                UserDefaults.standard.set(v, forKey: "wx.sourceVariable." + sourceUrl)
+                JSEngine.jsDefaults.set(v, forKey: "wx.sourceVariable." + sourceUrl)
             } else if val == nil {
-                UserDefaults.standard.removeObject(forKey: "wx.sourceVariable." + sourceUrl)
+                JSEngine.jsDefaults.removeObject(forKey: "wx.sourceVariable." + sourceUrl)
             } else {
                 // legado 偶尔传 object, 序列化
                 // 万象书屋 (M2.8 fix bug): 必须 isValidJSONObject 守卫. 不然 fragment 类型
@@ -524,7 +527,7 @@ public actor JSEngine {
                    JSONSerialization.isValidJSONObject(v),
                    let data = try? JSONSerialization.data(withJSONObject: v),
                    let s = String(data: data, encoding: .utf8) {
-                    UserDefaults.standard.set(s, forKey: "wx.sourceVariable." + sourceUrl)
+                    JSEngine.jsDefaults.set(s, forKey: "wx.sourceVariable." + sourceUrl)
                 }
             }
         }
@@ -559,11 +562,10 @@ public actor JSEngine {
         // `source.putLoginHeader(JSON.stringify({...}))` 把 token 写回. iOS 之前没注入 ⇒
         // TypeError ⇒ 登录 JS 整段失败. 简化版: 写到 SourceVariableSnapshot 的 loginInfo dict.
         let putLoginHeader: @convention(block) (String) -> Void = { jsonStr in
-            // 用 source URL 作 key, header JSON 字符串存到 UserDefaults. legado 等价行为.
-            UserDefaults.standard.set(jsonStr, forKey: "wanxiang.loginHeader.\(sourceUrl)")
+            JSEngine.jsDefaults.set(jsonStr, forKey: "wanxiang.loginHeader.\(sourceUrl)")
         }
         let putLoginInfo: @convention(block) (String) -> Bool = { jsonStr in
-            UserDefaults.standard.set(jsonStr, forKey: "wanxiang.loginInfo.\(sourceUrl)")
+            JSEngine.jsDefaults.set(jsonStr, forKey: "wanxiang.loginInfo.\(sourceUrl)")
             return true
         }
         sourceObj.setObject(putLoginHeader, forKeyedSubscript: "putLoginHeader" as NSString)
@@ -962,9 +964,9 @@ public actor JSEngine {
         // 为简化跟稳定: 返 UserDefaults 持久化的伪 androidId (16 位 hex).
         let androidIdBlk: @convention(block) () -> String = {
             let key = "wanxiang.fake_android_id"
-            if let v = UserDefaults.standard.string(forKey: key), !v.isEmpty { return v }
+            if let v = JSEngine.jsDefaults.string(forKey: key), !v.isEmpty { return v }
             let v = (0..<16).map { _ in String(format: "%x", Int.random(in: 0..<16)) }.joined()
-            UserDefaults.standard.set(v, forKey: key)
+            JSEngine.jsDefaults.set(v, forKey: key)
             return v
         }
         java.setObject(androidIdBlk, forKeyedSubscript: "androidId" as NSString)

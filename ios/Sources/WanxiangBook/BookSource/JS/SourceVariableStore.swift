@@ -5,7 +5,7 @@
 //  legado 给每个源一个 KV (key = sourceVariable_{bookSourceUrl}),
 //  源 JS 用 source.getVariable() / source.setVariable(json) 读写自己的状态.
 //
-//  iOS 实现: 用 UserDefaults (单机 KV 够用).
+//  iOS 实现: 用独立 UserDefaults suite，避免触发 SwiftUI @AppStorage 通知.
 //
 
 import Foundation
@@ -14,26 +14,28 @@ public actor SourceVariableStore {
 
     public static let shared = SourceVariableStore()
 
+    static let defaults = UserDefaults(suiteName: "wx.jsdata") ?? .standard
+
     private let prefix = "wx.sourceVariable."
     private let loginPrefix = "wx.sourceLogin."
 
     private init() {}
 
     public func get(sourceUrl: String) -> String {
-        UserDefaults.standard.string(forKey: prefix + sourceUrl) ?? ""
+        Self.defaults.string(forKey: prefix + sourceUrl) ?? ""
     }
 
     public func set(sourceUrl: String, value: String?) {
         let k = prefix + sourceUrl
         if let v = value {
-            UserDefaults.standard.set(v, forKey: k)
+            Self.defaults.set(v, forKey: k)
         } else {
-            UserDefaults.standard.removeObject(forKey: k)
+            Self.defaults.removeObject(forKey: k)
         }
     }
 
     public func getLoginInfo(sourceUrl: String) -> [String: String] {
-        guard let raw = UserDefaults.standard.string(forKey: loginPrefix + sourceUrl),
+        guard let raw = Self.defaults.string(forKey: loginPrefix + sourceUrl),
               let data = raw.data(using: .utf8),
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]
@@ -44,7 +46,7 @@ public actor SourceVariableStore {
     public func setLoginInfo(sourceUrl: String, info: [String: String]) {
         if let data = try? JSONSerialization.data(withJSONObject: info),
            let s = String(data: data, encoding: .utf8) {
-            UserDefaults.standard.set(s, forKey: loginPrefix + sourceUrl)
+            Self.defaults.set(s, forKey: loginPrefix + sourceUrl)
         }
     }
 }
@@ -57,8 +59,8 @@ public struct SourceVariableSnapshot: Sendable {
 
     public init(sourceUrl: String) {
         self.sourceUrl = sourceUrl
-        self.variable = UserDefaults.standard.string(forKey: "wx.sourceVariable." + sourceUrl) ?? ""
-        if let raw = UserDefaults.standard.string(forKey: "wx.sourceLogin." + sourceUrl),
+        self.variable = SourceVariableStore.defaults.string(forKey: "wx.sourceVariable." + sourceUrl) ?? ""
+        if let raw = SourceVariableStore.defaults.string(forKey: "wx.sourceLogin." + sourceUrl),
            let data = raw.data(using: .utf8),
            let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
             self.loginInfo = dict
@@ -68,10 +70,10 @@ public struct SourceVariableSnapshot: Sendable {
     }
 
     public func writeBack() {
-        UserDefaults.standard.set(variable, forKey: "wx.sourceVariable." + sourceUrl)
+        SourceVariableStore.defaults.set(variable, forKey: "wx.sourceVariable." + sourceUrl)
         if let data = try? JSONSerialization.data(withJSONObject: loginInfo),
            let s = String(data: data, encoding: .utf8) {
-            UserDefaults.standard.set(s, forKey: "wx.sourceLogin." + sourceUrl)
+            SourceVariableStore.defaults.set(s, forKey: "wx.sourceLogin." + sourceUrl)
         }
     }
 }

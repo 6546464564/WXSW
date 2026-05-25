@@ -57,7 +57,7 @@ public final class SourceHealthChecker: ObservableObject {
 
     /// App 切到前台时调用. 如距上次 ≥ 2h, 则后台启动健康检测.
     public func scheduleIfNeeded() {
-        let last = UserDefaults.standard.double(forKey: Self.lastCheckKey)
+        let last = JSEngine.jsDefaults.double(forKey: Self.lastCheckKey)
         let now = Date().timeIntervalSince1970
         guard now - last >= checkInterval else { return }
         guard !isChecking else { return }
@@ -82,8 +82,8 @@ public final class SourceHealthChecker: ObservableObject {
     // MARK: - 校验超时（对齐 Android CheckSource.timeout 默认 180s）
     /// UserDefaults key "wx.sourceCheck.timeoutSec" (Int)，默认 120 秒
     public var checkTimeoutSeconds: Int {
-        get { UserDefaults.standard.integer(forKey: "wx.sourceCheck.timeoutSec").clamped(to: 30...300).nonZero(default: 120) }
-        set { UserDefaults.standard.set(newValue, forKey: "wx.sourceCheck.timeoutSec") }
+        get { JSEngine.jsDefaults.integer(forKey: "wx.sourceCheck.timeoutSec").clamped(to: 30...300).nonZero(default: 120) }
+        set { JSEngine.jsDefaults.set(newValue, forKey: "wx.sourceCheck.timeoutSec") }
     }
 
     /// 校验单个书源（全链路: 搜索 → 书籍详情 → 章节目录 → 正文）
@@ -176,7 +176,7 @@ public final class SourceHealthChecker: ObservableObject {
         guard !enabled.isEmpty else { return }
 
         let timeout = await checkTimeoutSeconds
-        let keyword = UserDefaults.standard.string(forKey: "wx.sourceCheck.keyword") ?? "修仙"
+        let keyword = JSEngine.jsDefaults.string(forKey: "wx.sourceCheck.keyword") ?? "修仙"
 
         await MainActor.run {
             self.isChecking = true
@@ -207,7 +207,7 @@ public final class SourceHealthChecker: ObservableObject {
 
         SourcePerformanceTracker.shared.persistToDisk()
         let now = Date().timeIntervalSince1970
-        UserDefaults.standard.set(now, forKey: Self.lastCheckKey)
+        JSEngine.jsDefaults.set(now, forKey: Self.lastCheckKey)
 
         await MainActor.run {
             self.isChecking = false

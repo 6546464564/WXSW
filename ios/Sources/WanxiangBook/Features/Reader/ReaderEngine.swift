@@ -139,6 +139,12 @@ public final class ReaderEngine: ObservableObject {
         // 且保证 bootstrap 返回时书一定已入库 (ASan 等慢速环境不会竞态).
         try? await BookshelfRepository.shared.add(book)
 
+        // P0 fix: 如果 init 时源未加载完导致 source == nil，等待注册表就绪后重试
+        if source == nil {
+            await BookSourceRegistry.shared.waitUntilEnabledSourcesNonEmpty(timeout: 8)
+            source = BookSourceRegistry.shared.find(origin: book.origin)
+        }
+
         // Step 1: 加载目录 (cache-first, 不能后台跑 — 后续 loadChapter 依赖 chapters).
         // 万象书屋 (perf): updateTotalChapters 等后台 DB 写延到
         // loadChapter 之后, 避免它们抢占 DB actor 串行队列拖慢首屏关键路径.
