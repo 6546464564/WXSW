@@ -64,7 +64,11 @@ public final class AdManager: ObservableObject {
     }
 
     /// UI 测试模式: 完全禁用所有广告功能
+    #if TESTLAB
+    public let isUITest = true
+    #else
     public let isUITest = CommandLine.arguments.contains("-uitest")
+    #endif
 
     private init() {
         if isUITest {

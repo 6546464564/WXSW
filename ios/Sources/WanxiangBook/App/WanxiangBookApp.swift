@@ -44,10 +44,15 @@ struct WanxiangBookApp: App {
             UserDefaults.standard.synchronize()
         }
         // -unlockApp: 测试时跳过伪装面，直接进入主界面
+        #if TESTLAB
+        UserDefaults.standard.set(true, forKey: "wx.game.unlocked")
+        UserDefaults.standard.synchronize()
+        #else
         if CommandLine.arguments.contains("-unlockApp") {
             UserDefaults.standard.set(true, forKey: "wx.game.unlocked")
             UserDefaults.standard.synchronize()
         }
+        #endif
         // -uitest: 注入测试激活码到 UserDefaults，PromoCodeManager 会读取
         if CommandLine.arguments.contains("-uitest") {
             struct _TestCode: Codable { let code: String; let agentName: String }
