@@ -178,7 +178,9 @@ final class MonkeyStabilityTest: XCTestCase {
     private func forceRelaunch() {
         NSLog("[Monkey] 🔄 重新启动 App (crash #%d)", crashCount)
         XCUIDevice.shared.orientation = .portrait
-        app.terminate()
+        if app.state != .notRunning {
+            app.terminate()
+        }
         sleep(1)
         app.launch()
         _ = app.wait(for: .runningForeground, timeout: 10)
