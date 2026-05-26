@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-万象书屋 — 全功能真实用户模拟 v6 (10倍速)
-覆盖所有可交互功能: 28+ 场景 + 广告识别跳过
+万象书屋 — 全功能真实用户模拟 v7 (100倍速)
+覆盖所有可交互功能: 50+ 场景 + 深层 UI (7级以下全覆盖) + 广告识别跳过
 
 设备: iPhone SE (375x667)
-WDA 元素定位: 坐标 + accessibilityIdentifier/name
+WDA 元素定位: 坐标 + accessibilityIdentifier/name/label
 广告: 开屏等待 + 章节解锁"先跳过" + 激励广告"跳过"
 """
 
@@ -591,6 +591,536 @@ def action_feedback(s):
 
 
 # ═══════════════════════════════════════════════════════
+# F. 书架深层交互 (长按/管理/分组/下拉刷新)
+# ═══════════════════════════════════════════════════════
+
+def action_shelf_pull_refresh(s):
+    """书架下拉刷新"""
+    go_shelf(s)
+    s.swipe(W // 2, 300, W // 2, 550, duration=0.3)
+    time.sleep(3)
+    stats["actions"] += 1
+
+def action_shelf_longpress(s):
+    """书架长按菜单 (置顶/下载/移分组/删除)"""
+    go_shelf(s)
+    pos = random.choice(SHELF_BOOKS)
+    try:
+        s.tap_hold(pos[0], pos[1], duration=1.5)
+    except Exception:
+        s.tap(pos[0], pos[1])
+        time.sleep(1.5)
+    time.sleep(1)
+    choice = random.choice(["置顶", "下载到本地", "移到分组", "从书架删除"])
+    if choice == "从书架删除":
+        if safe_tap(s, labelContains="从书架删除", timeout=2):
+            time.sleep(0.5)
+            safe_tap(s, labelContains="删除", timeout=2) or safe_tap(s, labelContains="取消", timeout=2)
+    elif choice == "移到分组":
+        if safe_tap(s, labelContains="移到分组", timeout=2):
+            time.sleep(1)
+            safe_tap(s, labelContains="取消", timeout=2) or go_back(s)
+    else:
+        safe_tap(s, labelContains=choice, timeout=2)
+    time.sleep(1)
+    stats["actions"] += 1
+
+def action_shelf_group_switch(s):
+    """书架分组切换"""
+    go_shelf(s)
+    time.sleep(0.5)
+    chip_y = 120
+    positions = [(60, chip_y), (130, chip_y), (200, chip_y), (270, chip_y)]
+    for _ in range(random.randint(2, 4)):
+        s.tap(*random.choice(positions))
+        time.sleep(0.5)
+    stats["actions"] += 1
+
+def action_shelf_batch_manage(s):
+    """书架管理 (多选/筛选/批量更新)"""
+    go_shelf(s)
+    if safe_tap(s, name="ellipsis.circle", timeout=2):
+        time.sleep(0.5)
+        if safe_tap(s, labelContains="书架管理", timeout=2):
+            time.sleep(1)
+            for _ in range(random.randint(2, 5)):
+                s.tap(random.randint(30, 340), random.randint(200, 500))
+                time.sleep(0.3)
+            if random.random() > 0.5:
+                safe_tap(s, labelContains="更新目录", timeout=2)
+                time.sleep(3)
+            safe_tap(s, labelContains="完成", timeout=2) or go_back(s)
+            time.sleep(0.5)
+    stats["actions"] += 1
+
+def action_shelf_layout_config(s):
+    """书架布局配置 (列数/排序/开关)"""
+    go_shelf(s)
+    if safe_tap(s, name="ellipsis.circle", timeout=2):
+        time.sleep(0.5)
+        if safe_tap(s, labelContains="书架布局", timeout=2):
+            time.sleep(1)
+            for _ in range(random.randint(2, 4)):
+                s.tap(random.randint(50, 320), random.randint(200, 500))
+                time.sleep(0.3)
+            safe_tap(s, labelContains="完成", timeout=2) or safe_tap(s, name="完成", timeout=2)
+            time.sleep(0.5)
+    stats["actions"] += 1
+
+def action_shelf_group_manage(s):
+    """分组管理 (新建/重命名/删除)"""
+    go_shelf(s)
+    if safe_tap(s, name="ellipsis.circle", timeout=2):
+        time.sleep(0.5)
+        if safe_tap(s, labelContains="分组管理", timeout=2):
+            time.sleep(1)
+            if random.random() > 0.6:
+                safe_tap(s, labelContains="新建分组", timeout=2)
+                time.sleep(1)
+                safe_tap(s, labelContains="取消", timeout=2)
+            else:
+                s.swipe_up()
+                time.sleep(0.5)
+            go_back(s)
+            time.sleep(0.5)
+    stats["actions"] += 1
+
+def action_import_local(s):
+    """添加本地书籍 (进入file picker界面然后返回)"""
+    go_shelf(s)
+    if safe_tap(s, name="ellipsis.circle", timeout=2):
+        time.sleep(0.5)
+        if safe_tap(s, labelContains="添加本地", timeout=2):
+            time.sleep(2)
+            safe_tap(s, labelContains="取消", timeout=2) or go_back(s)
+            time.sleep(0.5)
+    stats["actions"] += 1
+
+
+# ═══════════════════════════════════════════════════════
+# G. 书籍详情页深层交互
+# ═══════════════════════════════════════════════════════
+
+def enter_book_detail(s):
+    """从书城进入书籍详情"""
+    go_store(s)
+    time.sleep(0.5)
+    s.tap(random.randint(30, 340), random.randint(200, 400))
+    time.sleep(2)
+
+def action_detail_change_source(s):
+    """详情页换源"""
+    enter_book_detail(s)
+    if safe_tap(s, name="arrow.triangle.2.circlepath", timeout=2):
+        time.sleep(3)
+        s.tap(W // 2, 300)
+        time.sleep(2)
+        stats["sources_changed"] += 1
+    go_back(s)
+    stats["actions"] += 1
+
+def action_detail_toc_sheet(s):
+    """详情页目录 sheet"""
+    enter_book_detail(s)
+    for _ in range(2):
+        s.swipe_up()
+        time.sleep(0.3)
+    if safe_tap(s, labelContains="目录", timeout=2):
+        time.sleep(2)
+        for _ in range(random.randint(2, 5)):
+            s.swipe_up()
+            time.sleep(0.5)
+        safe_tap(s, labelContains="关闭", timeout=2) or go_back(s)
+        time.sleep(0.5)
+    go_back(s)
+    stats["actions"] += 1
+
+def action_detail_download(s):
+    """详情页下载"""
+    enter_book_detail(s)
+    if safe_tap(s, labelContains="下载本书", timeout=2):
+        time.sleep(3)
+        if random.random() > 0.5:
+            safe_tap(s, name="xmark.circle.fill", timeout=2)
+        stats["downloads"] += 1
+    go_back(s)
+    stats["actions"] += 1
+
+def action_detail_remove_shelf(s):
+    """详情页移除书架 (已加书架再点)"""
+    enter_book_detail(s)
+    if safe_tap(s, labelContains="已加书架", timeout=2):
+        time.sleep(1)
+    elif safe_tap(s, name="加书架", timeout=2):
+        stats["books_added"] += 1
+        time.sleep(0.5)
+    go_back(s)
+    stats["actions"] += 1
+
+
+# ═══════════════════════════════════════════════════════
+# H. 阅读器深层交互 (翻页方式/字体/slider/选词/TTS面板)
+# ═══════════════════════════════════════════════════════
+
+def action_page_turn_style(s):
+    """切换翻页方式 (覆盖/滑动/仿真/滚动/无动画)"""
+    enter_reader(s)
+    read_pages(s, random.randint(3, 8))
+    show_menu(s)
+    if safe_tap(s, name="设置", timeout=2) or safe_tap(s, name="textformat.size", timeout=2):
+        time.sleep(1)
+        styles = ["覆盖", "滑动", "仿真", "滚动", "无动画"]
+        safe_tap(s, labelContains=random.choice(styles), timeout=2)
+        time.sleep(0.5)
+        safe_tap(s, labelContains="完成", timeout=2) or safe_tap(s, name="完成", timeout=2)
+        time.sleep(0.5)
+    read_pages(s, random.randint(10, 20))
+    exit_reader(s)
+
+def action_font_picker(s):
+    """切换字体"""
+    enter_reader(s)
+    read_pages(s, random.randint(3, 5))
+    show_menu(s)
+    if safe_tap(s, name="设置", timeout=2) or safe_tap(s, name="textformat.size", timeout=2):
+        time.sleep(1)
+        fonts = ["系统默认", "黑体", "宋体", "楷体", "霞鹜文楷"]
+        safe_tap(s, labelContains=random.choice(fonts), timeout=2)
+        time.sleep(0.5)
+        safe_tap(s, labelContains="完成", timeout=2) or safe_tap(s, name="完成", timeout=2)
+        time.sleep(0.5)
+    read_pages(s, random.randint(5, 15))
+    exit_reader(s)
+
+def action_chapter_slider(s):
+    """拖动章节进度条跳章"""
+    enter_reader(s)
+    show_menu(s)
+    time.sleep(0.5)
+    slider_y = 560
+    start_x = random.randint(60, 150)
+    end_x = random.randint(200, 320)
+    s.swipe(start_x, slider_y, end_x, slider_y, duration=0.3)
+    time.sleep(2)
+    stats["chapters_jumped"] += 1
+    read_pages(s, random.randint(5, 15))
+    exit_reader(s)
+
+def action_swipe_up_toc(s):
+    """上滑打开目录"""
+    enter_reader(s)
+    read_pages(s, random.randint(5, 10))
+    s.swipe(W // 2, 600, W // 2, 200, duration=0.3)
+    time.sleep(1.5)
+    for _ in range(random.randint(2, 5)):
+        s.swipe_up()
+        time.sleep(0.3)
+    s.tap(W // 2, random.randint(200, 450))
+    time.sleep(2)
+    stats["chapters_jumped"] += 1
+    read_pages(s, random.randint(5, 15))
+    exit_reader(s)
+
+def action_tts_full(s):
+    """TTS 完整面板 (暂停/定时/设置)"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="speaker.wave.2.fill", timeout=2):
+        time.sleep(2)
+        safe_tap(s, name="pause.fill", timeout=2) or safe_tap(s, name="pause", timeout=2)
+        time.sleep(1)
+        safe_tap(s, name="play.fill", timeout=2) or safe_tap(s, name="play", timeout=2)
+        time.sleep(1)
+        if safe_tap(s, name="timer", timeout=2) or safe_tap(s, labelContains="定时", timeout=2):
+            time.sleep(1)
+            safe_tap(s, labelContains="30分钟", timeout=1) or safe_tap(s, labelContains="取消", timeout=1)
+            time.sleep(0.5)
+        if safe_tap(s, name="gearshape", timeout=2) or safe_tap(s, labelContains="设置", timeout=2):
+            time.sleep(1)
+            s.tap(W // 2, 300)
+            time.sleep(0.5)
+            go_back(s)
+        safe_tap(s, name="forward.end.fill", timeout=2)
+        time.sleep(2)
+        stats["tts_sessions"] += 1
+        s.tap(W // 2, H // 2)
+        time.sleep(0.5)
+    exit_reader(s)
+
+def action_text_selection(s):
+    """选词菜单 (词典/书签/搜索/分享)"""
+    enter_reader(s)
+    read_pages(s, random.randint(3, 8))
+    try:
+        s.tap_hold(W // 2, H // 2, duration=2.0)
+    except Exception:
+        s.tap(W // 2, H // 2)
+        time.sleep(2)
+    time.sleep(1)
+    actions = ["书签", "词典", "正文搜索", "分享", "复制"]
+    chosen = random.choice(actions)
+    if safe_tap(s, labelContains=chosen, timeout=2):
+        time.sleep(2)
+        if chosen == "词典":
+            time.sleep(2)
+            safe_tap(s, labelContains="关闭", timeout=2) or go_back(s)
+        elif chosen == "正文搜索":
+            time.sleep(2)
+            go_back(s)
+        elif chosen == "分享":
+            time.sleep(2)
+            safe_tap(s, labelContains="取消", timeout=2) or go_back(s)
+        elif chosen == "书签":
+            stats["bookmarks"] += 1
+    time.sleep(0.5)
+    exit_reader(s)
+
+def action_book_finished_page(s):
+    """读完页 (去书架/去书城/换源)"""
+    enter_reader(s)
+    read_pages(s, random.randint(50, 100))
+    if safe_tap(s, labelContains="去书城", timeout=1):
+        time.sleep(1)
+        go_back(s)
+    elif safe_tap(s, labelContains="看看其它源", timeout=1):
+        time.sleep(2)
+        go_back(s)
+    elif safe_tap(s, labelContains="去书架", timeout=1):
+        time.sleep(0.5)
+    else:
+        exit_reader(s)
+    stats["actions"] += 1
+
+def action_reader_error_retry(s):
+    """阅读器错误态 (重试/换源)"""
+    enter_reader(s)
+    read_pages(s, random.randint(10, 30))
+    if safe_tap(s, labelContains="重试", timeout=1):
+        time.sleep(3)
+    elif safe_tap(s, labelContains="换源", timeout=1):
+        time.sleep(3)
+        stats["sources_changed"] += 1
+    read_pages(s, random.randint(5, 10))
+    exit_reader(s)
+
+def action_toc_search(s):
+    """目录内搜索章节名"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="目录", timeout=2) or safe_tap(s, name="list.bullet", timeout=2):
+        time.sleep(1.5)
+        tf = s(type="TextField")
+        if tf.exists:
+            tf.set_text(random.choice(["第", "章", "卷"]))
+            time.sleep(1)
+            s.tap(W // 2, random.randint(200, 400))
+            time.sleep(2)
+            stats["chapters_jumped"] += 1
+            read_pages(s, random.randint(5, 15))
+        else:
+            go_back(s)
+    exit_reader(s)
+
+def action_auto_read_stop(s):
+    """自动翻页启动后停止"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="更多", timeout=2):
+        time.sleep(0.5)
+        safe_tap(s, name="play.circle", timeout=2)
+        time.sleep(0.5)
+    time.sleep(random.uniform(5, 10))
+    show_menu(s)
+    if safe_tap(s, name="更多", timeout=2):
+        time.sleep(0.5)
+        safe_tap(s, name="stop.circle", timeout=2)
+        time.sleep(0.5)
+    exit_reader(s)
+    stats["actions"] += 1
+
+
+# ═══════════════════════════════════════════════════════
+# I. 搜索深层 (精准/过滤/历史)
+# ═══════════════════════════════════════════════════════
+
+def action_search_precision(s):
+    """精准搜索模式"""
+    go_shelf(s)
+    if not safe_tap(s, name="magnifyingglass", timeout=3):
+        return
+    time.sleep(1)
+    if safe_tap(s, labelContains="搜索选项", timeout=2):
+        time.sleep(0.5)
+        safe_tap(s, labelContains="精准搜索", timeout=2)
+        time.sleep(0.5)
+    tf = s(type="TextField")
+    if tf.exists:
+        tf.set_text(random.choice(["斗破苍穹", "完美世界", "遮天", "凡人修仙传"]))
+        time.sleep(0.5)
+        safe_tap(s, name="Search", type="Button", timeout=3)
+        stats["books_searched"] += 1
+        time.sleep(random.uniform(5, 10))
+    go_back(s)
+    stats["actions"] += 1
+
+def action_search_filters(s):
+    """搜索结果过滤 (多源/百万字+/近期更新)"""
+    go_shelf(s)
+    if not safe_tap(s, name="magnifyingglass", timeout=3):
+        return
+    time.sleep(1)
+    tf = s(type="TextField")
+    if tf.exists:
+        tf.set_text(random.choice(["修仙", "都市", "玄幻"]))
+        time.sleep(0.5)
+        safe_tap(s, name="Search", type="Button", timeout=3)
+        stats["books_searched"] += 1
+        time.sleep(random.uniform(5, 10))
+        filters = ["全部", "多源", "百万字+", "近期更新"]
+        for f in random.sample(filters, 2):
+            safe_tap(s, labelContains=f, timeout=1)
+            time.sleep(1)
+        s.tap(W // 2, 250)
+        time.sleep(2)
+        if safe_tap(s, name="开始阅读", timeout=2):
+            time.sleep(2)
+            read_pages(s, random.randint(5, 15))
+            exit_reader(s)
+        go_back(s)
+    go_back(s)
+    stats["actions"] += 1
+
+def action_search_history(s):
+    """搜索历史 (点历史词/清除)"""
+    go_shelf(s)
+    if not safe_tap(s, name="magnifyingglass", timeout=3):
+        return
+    time.sleep(1)
+    s.tap(W // 2, 200)
+    time.sleep(1)
+    stats["books_searched"] += 1
+    time.sleep(3)
+    go_back(s)
+    stats["actions"] += 1
+
+
+# ═══════════════════════════════════════════════════════
+# J. 书城深层 (换一批/完本/下拉刷新)
+# ═══════════════════════════════════════════════════════
+
+def action_store_refresh(s):
+    """书城下拉刷新"""
+    go_store(s)
+    s.swipe(W // 2, 200, W // 2, 500, duration=0.3)
+    time.sleep(3)
+    stats["actions"] += 1
+
+def action_store_shuffle(s):
+    """书城换一批"""
+    go_store(s)
+    for _ in range(random.randint(2, 4)):
+        s.swipe_up()
+        time.sleep(0.5)
+    if safe_tap(s, labelContains="换一批", timeout=2):
+        time.sleep(2)
+    s.tap(random.randint(30, 340), random.randint(300, 500))
+    time.sleep(2)
+    if safe_tap(s, name="开始阅读", timeout=2):
+        time.sleep(2)
+        read_pages(s, random.randint(5, 15))
+        exit_reader(s)
+    go_back(s)
+    stats["actions"] += 1
+
+def action_store_complete_lib(s):
+    """完本书库/出版书库"""
+    go_store(s)
+    for _ in range(random.randint(3, 6)):
+        s.swipe_up()
+        time.sleep(0.5)
+    target = random.choice(["完本书库", "出版书库", "完本精选"])
+    if safe_tap(s, labelContains=target, timeout=2):
+        time.sleep(2)
+        for _ in range(random.randint(2, 5)):
+            s.swipe_up()
+            time.sleep(0.5)
+        s.tap(W // 2, random.randint(200, 400))
+        time.sleep(2)
+        if safe_tap(s, name="开始阅读", timeout=2):
+            time.sleep(2)
+            read_pages(s, random.randint(5, 15))
+            exit_reader(s)
+        go_back(s)
+    go_back(s)
+    stats["actions"] += 1
+
+
+# ═══════════════════════════════════════════════════════
+# K. 我的/设置深层 (主题跟随/纯净延长/公告/版本)
+# ═══════════════════════════════════════════════════════
+
+def action_follow_system_theme(s):
+    """跟随系统主题 Toggle"""
+    go_my(s)
+    safe_tap(s, labelContains="跟随系统", timeout=2)
+    time.sleep(1)
+    safe_tap(s, labelContains="跟随系统", timeout=2)
+    time.sleep(0.5)
+    stats["actions"] += 1
+
+def action_purified_extend(s):
+    """纯净阅读延长卡"""
+    go_my(s)
+    safe_tap(s, labelContains="延长", timeout=2)
+    time.sleep(3)
+    safe_tap(s, labelContains="跳过", timeout=2) or safe_tap(s, labelContains="关闭", timeout=2)
+    time.sleep(1)
+    stats["actions"] += 1
+
+def action_dismiss_announcement(s):
+    """公告/版本弹窗(如果出现就关闭)"""
+    safe_tap(s, labelContains="知道了", timeout=1)
+    safe_tap(s, labelContains="暂不更新", timeout=1) or safe_tap(s, labelContains="取消", timeout=1)
+    stats["actions"] += 1
+
+def action_download_center_ops(s):
+    """下载管理 (取消/重试操作)"""
+    go_my(s)
+    if safe_tap(s, name="my.row.download_manage", timeout=2):
+        time.sleep(1.5)
+        if random.random() > 0.5:
+            safe_tap(s, labelContains="重试", timeout=2)
+            time.sleep(2)
+        else:
+            safe_tap(s, name="xmark.circle.fill", timeout=2)
+            time.sleep(1)
+        go_back(s)
+    stats["actions"] += 1
+
+def action_change_source_deep(s):
+    """换源 sheet 深层操作 (过滤/评分/置顶)"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="更多", timeout=2):
+        time.sleep(0.5)
+        if safe_tap(s, name="arrow.triangle.2.circlepath", timeout=2):
+            time.sleep(3)
+            if safe_tap(s, labelContains="过滤", timeout=2) or safe_tap(s, name="line.3.horizontal.decrease", timeout=2):
+                time.sleep(1)
+                safe_tap(s, labelContains="全部", timeout=1) or go_back(s)
+            for _ in range(random.randint(2, 5)):
+                s.swipe_up()
+                time.sleep(0.5)
+            s.tap(W // 2, random.randint(200, 400))
+            time.sleep(2)
+            stats["sources_changed"] += 1
+        else:
+            time.sleep(0.5)
+    read_pages(s, random.randint(3, 8))
+    exit_reader(s)
+
+
+# ═══════════════════════════════════════════════════════
 # 主循环
 # ═══════════════════════════════════════════════════════
 
@@ -619,10 +1149,10 @@ def main():
     args = parser.parse_args()
 
     print("╔══════════════════════════════════════════════╗")
-    print("║  万象书屋 — 全功能用户模拟 v6 (10倍速)     ║")
+    print("║  万象书屋 — 全功能用户模拟 v7 (100倍速)    ║")
     print("╚══════════════════════════════════════════════╝")
     print(f"WDA: {args.wda_url}  时长: {args.duration//3600}h")
-    print(f"覆盖: 28+场景  阅读: 0.3-0.6s/页(100倍速)  广告: 自动跳过")
+    print(f"覆盖: 50+场景  阅读: 0.3-0.6s/页(100倍速)  广告: 自动跳过")
 
     client = wda.Client(args.wda_url)
     try:
@@ -637,39 +1167,73 @@ def main():
     wait_splash(session)
     print("App 启动，广告已跳过，开始模拟...\n")
     start_time = time.time()
-    log_event("test_started", duration_planned=args.duration, version="reader-sim-v6-full+ad")
+    log_event("test_started", duration_planned=args.duration, version="reader-sim-v7-full-deep+ad")
 
-    # 28 个场景, 总权重 100
+    # 50+ 场景, 总权重 ~160
     pool_def = [
-        # A. 阅读 (65%)
-        (action_read_shelf, "read_shelf", 20),
-        (action_read_long, "read_long", 12),
-        (action_switch_book, "switch_book", 7),
-        (action_chapter_jump, "chapter_jump", 10),
-        (action_toc_jump, "toc_jump", 6),
-        (action_auto_read, "auto_read", 5),
-        (action_auto_read_settings, "auto_settings", 2),
-        (action_tts, "tts", 3),
+        # A. 阅读核心 (50%)
+        (action_read_shelf, "read_shelf", 15),
+        (action_read_long, "read_long", 8),
+        (action_switch_book, "switch_book", 5),
+        (action_chapter_jump, "chapter_jump", 8),
+        (action_toc_jump, "toc_jump", 5),
+        (action_auto_read, "auto_read", 3),
+        (action_auto_read_settings, "auto_settings", 1),
+        (action_auto_read_stop, "auto_stop", 2),
+        (action_tts, "tts", 2),
+        (action_tts_full, "tts_full", 2),
+        (action_page_turn_style, "page_style", 3),
+        (action_font_picker, "font_pick", 2),
+        (action_chapter_slider, "ch_slider", 3),
+        (action_swipe_up_toc, "swipe_toc", 2),
+        (action_toc_search, "toc_search", 2),
+        (action_text_selection, "text_sel", 3),
+        (action_book_finished_page, "book_done", 1),
+        (action_reader_error_retry, "error_retry", 2),
         # B. 书源/网络 (15%)
         (action_search_add, "search_add", 4),
         (action_change_source, "change_source", 3),
+        (action_change_source_deep, "source_deep", 2),
         (action_change_chapter_source, "ch_source", 2),
         (action_reload_chapter, "reload", 2),
         (action_purify_chapter, "purify", 2),
         (action_download, "download", 2),
-        # C. 书城 (8%)
+        # C. 书城 (10%)
         (action_browse_read, "browse_read", 2),
         (action_store_channel, "store_channel", 2),
         (action_store_search, "store_search", 2),
         (action_rankings, "rankings", 2),
-        # D. 设置 (7%)
+        (action_store_refresh, "store_refresh", 1),
+        (action_store_shuffle, "store_shuffle", 2),
+        (action_store_complete_lib, "complete_lib", 2),
+        # D. 书架深层 (10%)
+        (action_shelf_pull_refresh, "shelf_refresh", 2),
+        (action_shelf_longpress, "shelf_lp", 3),
+        (action_shelf_group_switch, "grp_switch", 2),
+        (action_shelf_batch_manage, "batch_manage", 2),
+        (action_shelf_layout_config, "layout_cfg", 1),
+        (action_shelf_group_manage, "grp_manage", 1),
+        (action_import_local, "import_local", 1),
+        # E. 详情页 (5%)
+        (action_detail_change_source, "dtl_source", 2),
+        (action_detail_toc_sheet, "dtl_toc", 2),
+        (action_detail_download, "dtl_download", 1),
+        (action_detail_remove_shelf, "dtl_remove", 1),
+        # F. 搜索深层 (5%)
+        (action_search_precision, "srch_prec", 2),
+        (action_search_filters, "srch_filter", 2),
+        (action_search_history, "srch_hist", 1),
+        # G. 设置/UI (5%)
         (action_theme_font, "theme_font", 2),
         (action_eye_care, "eye_care", 1),
         (action_disguise, "disguise", 1),
-        (action_tts, "tts2", 1),
+        (action_follow_system_theme, "follow_sys", 1),
+        (action_purified_extend, "purify_ext", 1),
+        (action_dismiss_announcement, "dismiss_ann", 1),
         (action_feedback, "feedback", 1),
+        (action_download_center_ops, "dl_ops", 1),
         (action_download_manage, "dl_manage", 1),
-        # E. 其他 (5%)
+        # H. 其他 (5%)
         (action_background, "background", 2),
         (action_bookmark, "bookmark", 1),
         (action_search_content, "search_content", 1),
