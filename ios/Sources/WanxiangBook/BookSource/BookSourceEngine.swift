@@ -43,8 +43,8 @@ public final class BookSourceEngine: @unchecked Sendable {
             return n
         }
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 1 }
-        if mem <= 4_500_000_000 { return 2 }
+        if mem <= 4_000_000_000 { return 1 }   // ≤3GB (实际 3.22GB)
+        if mem <= 5_000_000_000 { return 2 }   // 4GB
         return 2
     }()
     private let searchParserPool: [SearchParser]
@@ -67,41 +67,41 @@ public final class BookSourceEngine: @unchecked Sendable {
     /// 进一步降到 1 — 牺牲一点搜索体感, 换稳定不闪退.
     public static let defaultSearchConcurrency: Int = {
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 1 }    // 3GB — 实测串行安全
-        if mem <= 4_500_000_000 { return 3 }
+        if mem <= 4_000_000_000 { return 1 }    // ≤3GB — 串行避免线程饥饿
+        if mem <= 5_000_000_000 { return 3 }    // 4GB
         return 4
     }()
 
     /// 换源页专用搜索并发 (比全站搜索更保守, 避免多路 HTML/JS 解析 OOM)
     public static let changeSourceSearchConcurrency: Int = {
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 1 }
-        if mem <= 4_500_000_000 { return 2 }
+        if mem <= 4_000_000_000 { return 1 }    // ≤3GB
+        if mem <= 5_000_000_000 { return 2 }    // 4GB
         return 2
     }()
 
     /// 换源 info-fill 并发 (fetchInfo 比 search 更吃内存)
     public static let adaptiveFetchInfoConcurrency: Int = {
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 1 }
-        if mem <= 4_500_000_000 { return 4 }
+        if mem <= 4_000_000_000 { return 1 }    // ≤3GB
+        if mem <= 5_000_000_000 { return 4 }    // 4GB
         return 8
     }()
 
     /// 搜索时最多使用的源数量（按设备内存动态调整，防止低内存设备 OOM）
     public static let maxSearchSourceCount: Int = {
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 5 }    // 3GB (SE) — 实测安全值
-        if mem <= 4_500_000_000 { return 10 }   // 4-4.5GB (iPhone 11, XR)
-        if mem <= 6_500_000_000 { return 15 }   // 6GB (iPhone 12 Pro, 13 Pro)
+        if mem <= 4_000_000_000 { return 5 }    // ≤3GB (SE)
+        if mem <= 5_000_000_000 { return 10 }   // 4GB (iPhone 11, XR)
+        if mem <= 7_000_000_000 { return 15 }   // 6GB (iPhone 12 Pro, 13 Pro)
         return 20                                // 8GB+ (iPhone 14 Pro+)
     }()
 
     /// 详情页 TOC fallback 等窄场景搜索并发
     public static let adaptiveResolveSearchConcurrency: Int = {
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 1 }
-        if mem <= 4_500_000_000 { return 4 }
+        if mem <= 4_000_000_000 { return 1 }    // ≤3GB
+        if mem <= 5_000_000_000 { return 4 }
         return 6
     }()
 

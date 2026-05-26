@@ -46,8 +46,8 @@ public final class SourceHealthChecker: ObservableObject {
     /// 低内存设备串行探测，避免多路 HTML 解析 OOM (SE crash 报告 10/13)
     private static let healthCheckConcurrency: Int = {
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 1 }
-        if mem <= 4_500_000_000 { return 2 }
+        if mem <= 4_000_000_000 { return 1 }    // ≤3GB
+        if mem <= 5_000_000_000 { return 2 }    // 4GB
         return 4
     }()
 

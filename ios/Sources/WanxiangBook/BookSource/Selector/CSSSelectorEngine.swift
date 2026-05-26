@@ -99,8 +99,8 @@ enum LegadoHTMLParse {
     /// SwiftSoup 解析超大 HTML 在 SE 等低内存设备上易 OOM；Monkey 并发搜书/换源时尤甚。
     static var maxSourceBytes: Int {
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 500_000 }
-        if mem <= 4_500_000_000 { return 650_000 }
+        if mem <= 4_000_000_000 { return 500_000 }   // ≤3GB
+        if mem <= 5_000_000_000 { return 650_000 }   // 4GB
         return HTTPFetcher.maxSearchResponseBytes
     }
     /// SwiftSoup 并发控制已移至 AsyncSemaphore (workPermit)，不再使用阻塞式 parseLock。
@@ -111,8 +111,8 @@ enum LegadoHTMLParse {
     private static let workPermit: AsyncSemaphore = {
         let mem = ProcessInfo.processInfo.physicalMemory
         let slots: Int
-        if mem <= 3_000_000_000 { slots = 1 }
-        else if mem <= 4_500_000_000 { slots = 2 }
+        if mem <= 4_000_000_000 { slots = 1 }        // ≤3GB
+        else if mem <= 5_000_000_000 { slots = 2 }   // 4GB
         else { slots = 3 }
         return AsyncSemaphore(value: slots)
     }()
@@ -159,8 +159,8 @@ enum LegadoHTMLParse {
     /// 拒绝后调用方拿到 SelectorError.parseFailed, 当前请求失败但进程不挂.
     static var minAvailableBytesForParse: UInt64 {
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 30 * 1024 * 1024 }
-        if mem <= 4_500_000_000 { return 50 * 1024 * 1024 }
+        if mem <= 4_000_000_000 { return 30 * 1024 * 1024 }   // ≤3GB
+        if mem <= 5_000_000_000 { return 50 * 1024 * 1024 }   // 4GB
         return 80 * 1024 * 1024
     }
 
