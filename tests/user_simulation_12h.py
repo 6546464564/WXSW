@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-万象书屋 — 真实用户模拟 (10倍速阅读)
-核心流程: 搜书 → 加书架 → 沉浸阅读翻页 → 偶尔书城浏览
-阅读速度: 正常用户30-60秒/页, 10倍速 = 3-6秒/页
+万象书屋 — 全功能真实用户模拟 (10倍速)
+覆盖所有功能模块: 阅读 / 跳章 / 换源 / TTS / 下载 / 书签 / 主题 / 书城 / 搜索 等
 
 设备: iPhone SE (375x667)
-优化: 用坐标点击避免慢速 source() 解析, 最大化翻页时间
+优化: 坐标点击为主, safe_tap 兜底
 """
 
 import argparse
@@ -20,18 +19,20 @@ BUNDLE_ID = "com.wanxiang.reader"
 DEFAULT_WDA_URL = "http://192.168.88.166:8100"
 LOG_FILE = os.path.join(os.path.dirname(__file__), "simulation_crash_log.jsonl")
 
-# iPhone SE 屏幕坐标 (375x667)
-SCREEN_W, SCREEN_H = 375, 667
-# 书架上3列书的中心 x 坐标, y 中心约 234
-SHELF_BOOK_POSITIONS = [(66, 234), (187, 234), (308, 234)]
-# Tab bar
+# iPhone SE 屏幕 375x667
+W, H = 375, 667
+# 书架 3 列书中心坐标
+SHELF_BOOKS = [(66, 234), (187, 234), (308, 234)]
+# Tab bar y=635
 TAB_Y = 635
-TAB_SHELF_X = 62
-TAB_STORE_X = 187
-TAB_MY_X = 312
+TAB_SHELF_X, TAB_STORE_X, TAB_MY_X = 62, 187, 312
 
-stats = {"cycles": 0, "errors": 0, "crashes": 0, "actions": 0, "wda_failures": 0,
-         "pages_read": 0, "books_searched": 0, "books_added": 0}
+stats = {
+    "cycles": 0, "errors": 0, "crashes": 0, "actions": 0,
+    "wda_failures": 0, "pages_read": 0, "books_searched": 0,
+    "books_added": 0, "chapters_jumped": 0, "sources_changed": 0,
+    "tts_sessions": 0, "downloads": 0, "bookmarks": 0,
+}
 current_action = "idle"
 last_action = "idle"
 start_time = time.time()
@@ -50,9 +51,9 @@ def log_event(event_type, **data):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def safe_tap(session, timeout=3, **kwargs):
+def safe_tap(s, timeout=3, **kwargs):
     try:
-        el = session(**kwargs)
+        el = s(**kwargs)
         if el.wait(timeout=timeout):
             el.tap()
             return True
@@ -61,7 +62,7 @@ def safe_tap(session, timeout=3, **kwargs):
     return False
 
 
-def check_wda_alive(client):
+def check_wda(client):
     try:
         client.status()
         return True
@@ -69,18 +70,18 @@ def check_wda_alive(client):
         return False
 
 
-def ensure_app_alive(client, session):
-    if not check_wda_alive(client):
+def ensure_alive(client, session):
+    if not check_wda(client):
         stats["wda_failures"] += 1
         log_event("wda_disconnected")
-        for attempt in range(20):
+        for i in range(20):
             time.sleep(5)
-            if check_wda_alive(client):
-                log_event("wda_reconnected", attempt=attempt + 1)
+            if check_wda(client):
+                log_event("wda_reconnected", attempt=i + 1)
                 break
         else:
             log_event("wda_dead")
-            print_final_report()
+            report()
             sys.exit(2)
         try:
             session = client.session(BUNDLE_ID)
@@ -88,7 +89,6 @@ def ensure_app_alive(client, session):
         except Exception:
             pass
         return session
-
     try:
         info = client.app_current()
         bid = info.get("bundleId") or info.get("bundleID") or ""
@@ -96,11 +96,10 @@ def ensure_app_alive(client, session):
             return session
         stats["crashes"] += 1
         log_event("app_crash", current_app=bid)
-        print(f"  ⚠ App 崩溃/退出，第 {stats['crashes']} 次（操作: {current_action}）")
+        print(f"  ⚠ 崩溃#{stats['crashes']}（{current_action}）")
     except Exception as e:
         stats["crashes"] += 1
         log_event("app_crash_check_failed", error=str(e)[:200])
-
     try:
         session = client.session(BUNDLE_ID)
         time.sleep(3)
@@ -110,156 +109,384 @@ def ensure_app_alive(client, session):
     return session
 
 
-def tap_tab_shelf(session):
-    session.tap(TAB_SHELF_X, TAB_Y)
+# ─── 导航辅助 ───────────────────────────────────────
+def go_shelf(s):
+    s.tap(TAB_SHELF_X, TAB_Y)
     time.sleep(0.8)
 
-
-def tap_tab_store(session):
-    session.tap(TAB_STORE_X, TAB_Y)
+def go_store(s):
+    s.tap(TAB_STORE_X, TAB_Y)
     time.sleep(1.0)
 
-
-def exit_reader(session):
-    """从阅读器退出 - 右滑手势"""
-    session.swipe(0.05, 0.5, 0.9, 0.5)
+def go_my(s):
+    s.tap(TAB_MY_X, TAB_Y)
     time.sleep(1.0)
 
+def exit_reader(s):
+    s.swipe(0.05, 0.5, 0.9, 0.5)
+    time.sleep(1.0)
 
-def read_pages(session, count):
-    """翻页阅读 - 10倍速 (3-6秒/页)"""
+def go_back(s):
+    s.swipe(0.05, 0.5, 0.9, 0.5)
+    time.sleep(0.8)
+
+def show_reader_menu(s):
+    s.tap(W // 2, H // 2)
+    time.sleep(1.0)
+
+def enter_book_from_shelf(s):
+    go_shelf(s)
+    pos = random.choice(SHELF_BOOKS)
+    s.tap(*pos)
+    time.sleep(2.5)
+
+def read_pages(s, count):
     for _ in range(count):
-        session.swipe_left()
+        s.swipe_left()
         time.sleep(random.uniform(3.0, 6.0))
         stats["pages_read"] += 1
         stats["actions"] += 1
 
 
 # ═══════════════════════════════════════════════════════
-# 核心场景: 从书架读书 (坐标点击, 极快)
+# 阅读类场景 (70%)
 # ═══════════════════════════════════════════════════════
 
-def action_read_from_shelf(session):
-    """从书架随机选一本书阅读 20-80 页"""
-    tap_tab_shelf(session)
-    pos = random.choice(SHELF_BOOK_POSITIONS)
-    session.tap(*pos)
-    time.sleep(2.5)
-    pages = random.randint(20, 80)
-    read_pages(session, pages)
-    exit_reader(session)
+def action_read_shelf(s):
+    """书架选书阅读 20-80 页"""
+    enter_book_from_shelf(s)
+    read_pages(s, random.randint(20, 80))
+    exit_reader(s)
 
 
-def action_read_long_session(session):
-    """长阅读 — 连续看 100-200 页"""
-    tap_tab_shelf(session)
-    pos = random.choice(SHELF_BOOK_POSITIONS)
-    session.tap(*pos)
-    time.sleep(2.5)
-    pages = random.randint(100, 200)
-    read_pages(session, pages)
-    exit_reader(session)
+def action_read_long(s):
+    """长阅读 100-200 页"""
+    enter_book_from_shelf(s)
+    read_pages(s, random.randint(100, 200))
+    exit_reader(s)
 
 
-def action_switch_book(session):
-    """切换到另一本书"""
-    tap_tab_shelf(session)
-    # 随机选不同位置
-    pos = random.choice(SHELF_BOOK_POSITIONS)
-    session.tap(*pos)
-    time.sleep(2.5)
-    pages = random.randint(10, 40)
-    read_pages(session, pages)
-    exit_reader(session)
+def action_switch_book(s):
+    """换一本书读"""
+    enter_book_from_shelf(s)
+    read_pages(s, random.randint(10, 40))
+    exit_reader(s)
+
+
+def action_chapter_jump(s):
+    """跳章: 上/下一章 + 继续读"""
+    enter_book_from_shelf(s)
+    read_pages(s, random.randint(5, 15))
+    show_reader_menu(s)
+    if random.random() > 0.5:
+        safe_tap(s, name="下一章", timeout=2)
+    else:
+        safe_tap(s, name="上一章", timeout=2)
+    stats["chapters_jumped"] += 1
+    time.sleep(2)
+    read_pages(s, random.randint(10, 30))
+    # 再跳一次
+    show_reader_menu(s)
+    safe_tap(s, name="下一章", timeout=2)
+    stats["chapters_jumped"] += 1
+    time.sleep(2)
+    read_pages(s, random.randint(5, 20))
+    exit_reader(s)
+
+
+def action_toc_jump(s):
+    """目录跳转: 打开目录 → 选章 → 读"""
+    enter_book_from_shelf(s)
+    read_pages(s, random.randint(3, 8))
+    show_reader_menu(s)
+    if safe_tap(s, name="目录", timeout=2):
+        time.sleep(2)
+        # 滑动目录列表
+        for _ in range(random.randint(2, 8)):
+            s.swipe_up()
+            time.sleep(0.5)
+        # 点击一个章节 (目录区域 y=200-500)
+        s.tap(W // 2, random.randint(200, 500))
+        time.sleep(3)
+        stats["chapters_jumped"] += 1
+        read_pages(s, random.randint(15, 40))
+    exit_reader(s)
+
+
+def action_auto_read(s):
+    """自动翻页模式 — 开启后等待一段时间"""
+    enter_book_from_shelf(s)
+    show_reader_menu(s)
+    if safe_tap(s, name="更多", timeout=2):
+        time.sleep(1)
+        # 自动翻页通常在更多菜单里
+        safe_tap(s, labelContains="自动", timeout=2)
+        time.sleep(1)
+    # 让自动翻页跑 30-90 秒
+    duration = random.uniform(30, 90)
+    time.sleep(duration)
+    stats["pages_read"] += int(duration / 5)
+    # 点击停止
+    s.tap(W // 2, H // 2)
+    time.sleep(1)
+    exit_reader(s)
 
 
 # ═══════════════════════════════════════════════════════
-# 搜书 → 加书架 → 阅读
+# 书源/网络类 (15%)
 # ═══════════════════════════════════════════════════════
 
-def action_search_and_add(session):
-    """搜索书籍并加入书架后阅读"""
-    tap_tab_shelf(session)
-    if not safe_tap(session, name="magnifyingglass", timeout=3):
+def action_search_add(s):
+    """搜索 → 加书架 → 阅读"""
+    go_shelf(s)
+    if not safe_tap(s, name="magnifyingglass", timeout=3):
         return
     time.sleep(1.5)
     keywords = ["修仙", "都市", "玄幻", "穿越", "系统", "重生", "武侠", "科幻",
-                "末日", "仙侠", "悬疑", "言情", "推理", "历史", "军事"]
-    kw = random.choice(keywords)
-    tf = session(type="TextField")
+                "末日", "仙侠", "悬疑", "言情", "推理", "历史", "军事", "异界"]
+    tf = s(type="TextField")
     if not tf.exists:
-        session.swipe(0.05, 0.5, 0.9, 0.5)
-        time.sleep(0.5)
+        go_back(s)
         return
-    tf.set_text(kw)
+    tf.set_text(random.choice(keywords))
     time.sleep(0.5)
-    safe_tap(session, name="Search", type="Button", timeout=3)
+    safe_tap(s, name="Search", type="Button", timeout=3)
     stats["books_searched"] += 1
     time.sleep(random.uniform(6, 12))
-
-    # 点击搜索结果区域的第一个结果 (大约在 y=150-250 的位置)
-    session.tap(SCREEN_W // 2, 200)
+    # 点搜索结果
+    s.tap(W // 2, 200)
     time.sleep(3)
-    # 尝试加书架
-    if safe_tap(session, name="加书架", timeout=2):
+    if safe_tap(s, name="加书架", timeout=2):
         stats["books_added"] += 1
         time.sleep(0.5)
-    # 开始阅读
-    if safe_tap(session, name="开始阅读", timeout=2):
+    if safe_tap(s, name="开始阅读", timeout=2):
         time.sleep(3)
-        pages = random.randint(10, 30)
-        read_pages(session, pages)
-        exit_reader(session)
-    # 返回
-    session.swipe(0.05, 0.5, 0.9, 0.5)
-    time.sleep(0.5)
-    session.swipe(0.05, 0.5, 0.9, 0.5)
-    time.sleep(0.5)
+        read_pages(s, random.randint(10, 30))
+        exit_reader(s)
+    go_back(s)
+    go_back(s)
+
+
+def action_change_source(s):
+    """在阅读器中换源"""
+    enter_book_from_shelf(s)
+    read_pages(s, random.randint(3, 8))
+    show_reader_menu(s)
+    if safe_tap(s, name="更多", timeout=2):
+        time.sleep(1)
+        # 找换源选项
+        if safe_tap(s, labelContains="换源", timeout=2):
+            time.sleep(3)
+            # 选第一个源 (坐标点击源列表区域)
+            s.tap(W // 2, 300)
+            time.sleep(3)
+            stats["sources_changed"] += 1
+            read_pages(s, random.randint(5, 15))
+    exit_reader(s)
+
+
+def action_download(s):
+    """下载章节"""
+    go_store(s)
+    # 点击一本书
+    s.tap(W // 2, 430)
+    time.sleep(3)
+    # 尝试下载
+    if safe_tap(s, labelContains="下载", timeout=2):
+        time.sleep(2)
+        # 如果弹出下载范围选择，直接确认
+        safe_tap(s, labelContains="全部", timeout=2) or safe_tap(s, labelContains="确认", timeout=2)
+        stats["downloads"] += 1
+        time.sleep(5)
+    go_back(s)
 
 
 # ═══════════════════════════════════════════════════════
-# 书城浏览 → 开书阅读
+# 书城 (5%)
 # ═══════════════════════════════════════════════════════
 
-def action_browse_and_read(session):
-    """书城浏览书单/排行榜，选一本读"""
-    tap_tab_store(session)
-    # 滑动浏览
-    for _ in range(random.randint(1, 3)):
-        session.swipe_up()
+def action_browse_read(s):
+    """书城浏览 → 读书"""
+    go_store(s)
+    for _ in range(random.randint(1, 4)):
+        s.swipe_up()
         time.sleep(0.8)
-    # 点击一本书 (书城书籍区域 y=400-580)
     y = random.randint(400, 560)
     x = random.randint(30, 340)
-    session.tap(x, y)
+    s.tap(x, y)
     time.sleep(3)
-    # 如果进了详情页
     if random.random() > 0.4:
-        if safe_tap(session, name="加书架", timeout=2):
+        if safe_tap(s, name="加书架", timeout=2):
             stats["books_added"] += 1
-            time.sleep(0.5)
-    if safe_tap(session, name="开始阅读", timeout=2):
+    if safe_tap(s, name="开始阅读", timeout=2):
         time.sleep(3)
-        pages = random.randint(15, 50)
-        read_pages(session, pages)
-        exit_reader(session)
-    # 返回
-    session.swipe(0.05, 0.5, 0.9, 0.5)
-    time.sleep(0.5)
+        read_pages(s, random.randint(15, 50))
+        exit_reader(s)
+    go_back(s)
+
+
+def action_rankings(s):
+    """排行榜浏览"""
+    go_store(s)
+    # 点热门排行 (y≈265)
+    safe_tap(s, labelContains="热门排行", timeout=2) or s.tap(130, 310)
+    time.sleep(2)
+    # 浏览排行
+    for _ in range(random.randint(3, 8)):
+        s.swipe_up()
+        time.sleep(1)
+    # 随机点一本
+    s.tap(W // 2, random.randint(200, 500))
+    time.sleep(3)
+    if safe_tap(s, name="开始阅读", timeout=2):
+        time.sleep(3)
+        read_pages(s, random.randint(5, 20))
+        exit_reader(s)
+    go_back(s)
+    go_back(s)
 
 
 # ═══════════════════════════════════════════════════════
-# 辅助
+# 设置/UI 类 (5%)
 # ═══════════════════════════════════════════════════════
 
-def action_background_return(session):
-    """后台再回来"""
-    duration = random.uniform(5, 20)
+def action_theme_font(s):
+    """阅读中切换主题/字号"""
+    enter_book_from_shelf(s)
+    read_pages(s, random.randint(5, 15))
+    show_reader_menu(s)
+    if safe_tap(s, name="设置", timeout=2):
+        time.sleep(1)
+        # 切主题
+        themes = ["阅、默认", "阅、护眼", "阅、夜间", "阅、羊皮纸"]
+        safe_tap(s, name=random.choice(themes), timeout=2)
+        time.sleep(1)
+        # 调字号
+        if random.random() > 0.5:
+            safe_tap(s, name="A+", timeout=1)
+        else:
+            safe_tap(s, name="A-", timeout=1)
+        time.sleep(0.5)
+        # 完成
+        safe_tap(s, name="完成", timeout=2)
+        time.sleep(1)
+    read_pages(s, random.randint(10, 30))
+    exit_reader(s)
+
+
+def action_eye_care(s):
+    """护眼模式开关"""
+    go_my(s)
+    # 护眼模式 switch
+    safe_tap(s, labelContains="护眼模式", timeout=2)
+    time.sleep(2)
+    # 切回去
+    safe_tap(s, labelContains="护眼模式", timeout=2)
+    time.sleep(1)
+    stats["actions"] += 1
+
+
+def action_tts(s):
+    """TTS 语音朗读"""
+    enter_book_from_shelf(s)
+    show_reader_menu(s)
+    # 点 speaker 按钮
+    if safe_tap(s, name="speaker.wave.2.fill", timeout=2):
+        time.sleep(2)
+        # 让 TTS 读 30-60 秒
+        tts_duration = random.uniform(30, 60)
+        time.sleep(tts_duration)
+        stats["tts_sessions"] += 1
+        stats["pages_read"] += int(tts_duration / 8)
+        # 停止 TTS (点击屏幕)
+        s.tap(W // 2, H // 2)
+        time.sleep(1)
+    exit_reader(s)
+
+
+# ═══════════════════════════════════════════════════════
+# 其他 (5%)
+# ═══════════════════════════════════════════════════════
+
+def action_background(s):
+    """后台/锁屏再回来"""
+    duration = random.uniform(5, 30)
     try:
-        session.deactivate(duration)
+        s.deactivate(duration)
     except Exception:
         time.sleep(duration)
     time.sleep(1)
+    stats["actions"] += 1
+
+
+def action_bookmark(s):
+    """添加书签"""
+    enter_book_from_shelf(s)
+    read_pages(s, random.randint(5, 15))
+    show_reader_menu(s)
+    if safe_tap(s, name="更多", timeout=2):
+        time.sleep(1)
+        if safe_tap(s, labelContains="书签", timeout=2):
+            stats["bookmarks"] += 1
+            time.sleep(1)
+    # 继续读
+    s.tap(W // 2, H // 2)
+    time.sleep(0.5)
+    read_pages(s, random.randint(5, 10))
+    exit_reader(s)
+
+
+def action_search_content(s):
+    """书内全文搜索"""
+    enter_book_from_shelf(s)
+    read_pages(s, random.randint(3, 8))
+    show_reader_menu(s)
+    if safe_tap(s, name="magnifyingglass", timeout=2):
+        time.sleep(1)
+        tf = s(type="TextField")
+        if tf.exists:
+            tf.set_text(random.choice(["的", "他", "了", "是", "在"]))
+            time.sleep(0.5)
+            safe_tap(s, name="Search", type="Button", timeout=2)
+            time.sleep(3)
+            # 点击一个搜索结果
+            s.tap(W // 2, 300)
+            time.sleep(2)
+            read_pages(s, random.randint(5, 15))
+    exit_reader(s)
+
+
+def action_shelf_manage(s):
+    """书架管理 (更新目录/布局)"""
+    go_shelf(s)
+    # 点更多
+    safe_tap(s, name="更多", type="Button", timeout=2)
+    time.sleep(1)
+    choice = random.choice(["更新目录", "书架布局", "分组管理"])
+    if choice == "更新目录":
+        safe_tap(s, labelContains="更新目录", timeout=2)
+        time.sleep(5)
+    elif choice == "书架布局":
+        safe_tap(s, labelContains="书架布局", timeout=2)
+        time.sleep(2)
+        go_back(s)
+    else:
+        safe_tap(s, labelContains="分组管理", timeout=2)
+        time.sleep(2)
+        go_back(s)
+    stats["actions"] += 1
+
+
+def action_reading_record(s):
+    """查看阅读记录"""
+    go_my(s)
+    safe_tap(s, name="my.row.read_record", timeout=2)
+    time.sleep(2)
+    # 浏览记录
+    for _ in range(random.randint(1, 3)):
+        s.swipe_up()
+        time.sleep(0.8)
+    go_back(s)
     stats["actions"] += 1
 
 
@@ -267,100 +494,112 @@ def action_background_return(session):
 # 主循环
 # ═══════════════════════════════════════════════════════
 
-def print_final_report():
+def report():
     elapsed = time.time() - start_time
     hours = int(elapsed // 3600)
     minutes = int((elapsed % 3600) // 60)
     rate = stats["pages_read"] / (elapsed / 60) if elapsed > 0 else 0
     print(f"\n╔══════════════════════════════════════════════╗")
-    print(f"║  测试完成: {hours}h {minutes:02d}m                            ║")
-    print(f"║  翻页: {stats['pages_read']:5d} ({rate:.1f}页/分)              ║")
-    print(f"║  搜书: {stats['books_searched']:3d}  加架: {stats['books_added']:3d}              ║")
-    print(f"║  崩溃: {stats['crashes']:5d}                                ║")
-    print(f"║  WDA断连: {stats['wda_failures']:5d}                          ║")
+    print(f"║  测试: {hours}h{minutes:02d}m  页:{stats['pages_read']}({rate:.1f}/m)")
+    print(f"║  搜:{stats['books_searched']} 架:{stats['books_added']} "
+          f"跳章:{stats['chapters_jumped']} 换源:{stats['sources_changed']}")
+    print(f"║  TTS:{stats['tts_sessions']} 下载:{stats['downloads']} "
+          f"书签:{stats['bookmarks']}")
+    print(f"║  崩溃:{stats['crashes']} WDA断:{stats['wda_failures']} "
+          f"错误:{stats['errors']}")
     print(f"╚══════════════════════════════════════════════╝")
-    print(f"\n日志: {LOG_FILE}")
 
 
 def main():
     global start_time, current_action, last_action
 
-    parser = argparse.ArgumentParser(description="真实用户模拟 (10倍速阅读)")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--wda-url", default=DEFAULT_WDA_URL)
-    parser.add_argument("--duration", type=int, default=43200, help="测试时长(秒)")
+    parser.add_argument("--duration", type=int, default=43200)
     args = parser.parse_args()
 
     print("╔══════════════════════════════════════════════╗")
-    print("║  万象书屋 — 真实用户模拟 (10倍速阅读)       ║")
+    print("║  万象书屋 — 全功能用户模拟 (10倍速)        ║")
     print("╚══════════════════════════════════════════════╝")
-    print(f"WDA: {args.wda_url}")
-    print(f"时长: {args.duration // 3600}h {(args.duration % 3600) // 60}m")
-    print(f"阅读速度: 3-6秒/页 (正常用户10倍)")
-    print(f"日志: {LOG_FILE}")
+    print(f"WDA: {args.wda_url}  时长: {args.duration//3600}h")
+    print(f"阅读: 3-6s/页  覆盖: 20+场景")
 
     client = wda.Client(args.wda_url)
     try:
-        status = client.status()
-        print(f"设备: iOS {status.get('os', {}).get('version', '?')}")
+        st = client.status()
+        print(f"设备: iOS {st.get('os', {}).get('version', '?')}")
     except Exception as e:
-        print(f"✗ 无法连接 WDA: {e}")
+        print(f"✗ WDA: {e}")
         sys.exit(1)
 
     session = client.session(BUNDLE_ID)
     time.sleep(3)
-    print(f"App 已启动，开始模拟...\n")
+    print("App 已启动，开始模拟...\n")
 
     start_time = time.time()
-    log_event("test_started", duration_planned=args.duration, version="reader-sim-v3")
+    log_event("test_started", duration_planned=args.duration, version="reader-sim-v4-full")
 
-    # 权重: 阅读为主 (70%), 搜书 (15%), 书城 (10%), 其他 (5%)
+    # 场景权重分配
     actions = [
-        (action_read_from_shelf, "read_shelf", 35),
-        (action_read_long_session, "read_long", 20),
-        (action_switch_book, "switch_book", 15),
-        (action_search_and_add, "search_add", 15),
-        (action_browse_and_read, "browse_read", 10),
-        (action_background_return, "background", 5),
+        # 阅读 (70%)
+        (action_read_shelf, "read_shelf", 22),
+        (action_read_long, "read_long", 13),
+        (action_switch_book, "switch_book", 8),
+        (action_chapter_jump, "chapter_jump", 12),
+        (action_toc_jump, "toc_jump", 7),
+        (action_auto_read, "auto_read", 5),
+        (action_tts, "tts", 3),
+        # 书源/网络 (15%)
+        (action_search_add, "search_add", 7),
+        (action_change_source, "change_source", 4),
+        (action_download, "download", 2),
+        (action_browse_read, "browse_read", 2),
+        # 书城 (5%)
+        (action_rankings, "rankings", 3),
+        (action_browse_read, "browse_read2", 2),
+        # 设置/UI (5%)
+        (action_theme_font, "theme_font", 2),
+        (action_eye_care, "eye_care", 1),
+        # 其他 (5%)
+        (action_background, "background", 2),
+        (action_bookmark, "bookmark", 1),
+        (action_search_content, "search_content", 1),
+        (action_shelf_manage, "shelf_manage", 1),
+        (action_reading_record, "reading_record", 1),
     ]
-    action_list = []
-    for act, name, weight in actions:
-        action_list.extend([(act, name)] * weight)
+    pool = []
+    for fn, name, weight in actions:
+        pool.extend([(fn, name)] * weight)
 
     last_report = start_time
 
     while time.time() - start_time < args.duration:
         try:
-            act_fn, act_name = random.choice(action_list)
+            fn, name = random.choice(pool)
             last_action = current_action
-            current_action = act_name
-            act_fn(session)
+            current_action = name
+            fn(session)
             stats["cycles"] += 1
-            session = ensure_app_alive(client, session)
+            session = ensure_alive(client, session)
         except Exception as e:
             stats["errors"] += 1
             log_event("action_error", error=str(e)[:200])
-            session = ensure_app_alive(client, session)
+            session = ensure_alive(client, session)
 
         if time.time() - last_report >= 600:
             elapsed = time.time() - start_time
-            hours = int(elapsed // 3600)
-            minutes = int((elapsed % 3600) // 60)
+            h = int(elapsed // 3600)
+            m = int((elapsed % 3600) // 60)
             rate = stats["pages_read"] / (elapsed / 60) if elapsed > 0 else 0
-            print(f"  [{hours:02d}h{minutes:02d}m] 页:{stats['pages_read']}({rate:.1f}/m)  "
-                  f"搜:{stats['books_searched']}  架:{stats['books_added']}  "
-                  f"崩:{stats['crashes']}")
+            print(f"  [{h:02d}h{m:02d}m] 页:{stats['pages_read']}({rate:.1f}/m) "
+                  f"跳:{stats['chapters_jumped']} 源:{stats['sources_changed']} "
+                  f"TTS:{stats['tts_sessions']} 崩:{stats['crashes']}")
             log_event("periodic_report", stats=dict(stats))
             last_report = time.time()
 
-    print_final_report()
+    report()
     log_event("test_finished", stats=dict(stats))
-
-    if stats["crashes"] > 0:
-        print(f"\n⚠ 崩溃 {stats['crashes']} 次")
-        sys.exit(1)
-    else:
-        print(f"\n✓ App 稳定")
-        sys.exit(0)
+    sys.exit(1 if stats["crashes"] > 0 else 0)
 
 
 if __name__ == "__main__":
