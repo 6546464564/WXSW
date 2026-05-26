@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
-万象书屋 — 全功能真实用户模拟 v7 (100倍速)
-覆盖所有可交互功能: 50+ 场景 + 深层 UI (7级以下全覆盖) + 广告识别跳过
+万象书屋 — 全功能真实用户模拟 v8 (100倍速 + 自适应进化)
+覆盖所有可交互功能: 50+ 预设场景 + 自动发现未知UI + 进化学习
+
+核心能力:
+  1. 预设 50+ 场景覆盖已知功能
+  2. 探索引擎: 定期 dump UI 层级, 发现新的可交互元素
+  3. 进化记忆: 记录每个元素的交互结果(成功/失败/导航/崩溃)
+  4. 自动恢复: 探索导致异常时安全回退
 
 设备: iPhone SE (375x667)
-WDA 元素定位: 坐标 + accessibilityIdentifier/name/label
-广告: 开屏等待 + 章节解锁"先跳过" + 激励广告"跳过"
 """
 
 import argparse
@@ -14,11 +18,16 @@ import sys
 import random
 import json
 import os
+import re
+import hashlib
+import signal
+from xml.etree import ElementTree as ET
 import wda
 
 BUNDLE_ID = "com.wanxiang.reader"
 DEFAULT_WDA_URL = "http://192.168.88.166:8100"
 LOG_FILE = os.path.join(os.path.dirname(__file__), "simulation_crash_log.jsonl")
+MEMORY_FILE = os.path.join(os.path.dirname(__file__), "evolution_memory.json")
 
 W, H = 375, 667
 SHELF_BOOKS = [(66, 234), (187, 234), (308, 234)]
@@ -30,10 +39,343 @@ stats = {
     "wda_failures": 0, "pages_read": 0, "books_searched": 0,
     "books_added": 0, "chapters_jumped": 0, "sources_changed": 0,
     "tts_sessions": 0, "downloads": 0, "bookmarks": 0,
+    "explored": 0, "new_elements_found": 0, "explore_success": 0,
 }
 current_action = "idle"
 last_action = "idle"
 start_time = time.time()
+
+
+# ═══════════════════════════════════════════════════════
+# 进化记忆系统
+# ═══════════════════════════════════════════════════════
+
+class EvolutionMemory:
+    """持久化记忆: 记录已发现的UI元素及其交互结果"""
+
+    def __init__(self, path):
+        self.path = path
+        self.elements = {}
+        self.screens = {}
+        self.load()
+
+    def load(self):
+        try:
+            with open(self.path, "r") as f:
+                data = json.load(f)
+                self.elements = data.get("elements", {})
+                self.screens = data.get("screens", {})
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.elements = {}
+            self.screens = {}
+
+    def save(self):
+        try:
+            with open(self.path, "w") as f:
+                json.dump({
+                    "elements": self.elements,
+                    "screens": self.screens,
+                    "last_updated": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "stats": {"total": len(self.elements),
+                              "safe": sum(1 for e in self.elements.values() if e.get("safe")),
+                              "dangerous": sum(1 for e in self.elements.values() if e.get("dangerous"))},
+                }, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def element_key(self, el_info):
+        raw = f"{el_info.get('type','')}|{el_info.get('name','')}|{el_info.get('label','')}"
+        return hashlib.md5(raw.encode()).hexdigest()[:12]
+
+    def is_known(self, el_info):
+        return self.element_key(el_info) in self.elements
+
+    def record(self, el_info, result):
+        key = self.element_key(el_info)
+        if key not in self.elements:
+            self.elements[key] = {
+                "type": el_info.get("type", ""),
+                "name": el_info.get("name", ""),
+                "label": el_info.get("label", ""),
+                "first_seen": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "attempts": 0, "successes": 0, "failures": 0,
+                "safe": False, "dangerous": False,
+                "results": [],
+            }
+        entry = self.elements[key]
+        entry["attempts"] += 1
+        entry["last_seen"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        if result in ("ok", "navigated", "sheet_opened", "toggle"):
+            entry["successes"] += 1
+            entry["safe"] = entry["successes"] >= 2
+        elif result in ("crash", "stuck"):
+            entry["failures"] += 1
+            entry["dangerous"] = entry["failures"] >= 2
+        entry["results"] = (entry.get("results", []) + [result])[-5:]
+
+    def record_screen(self, screen_sig, elements_found):
+        self.screens[screen_sig] = {
+            "last_seen": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "element_count": elements_found,
+        }
+
+    def get_safe_elements(self):
+        return {k: v for k, v in self.elements.items() if v.get("safe")}
+
+    def get_unexplored(self, el_list):
+        unknown = []
+        for el in el_list:
+            key = self.element_key(el)
+            entry = self.elements.get(key)
+            if entry is None:
+                unknown.append(el)
+            elif not entry.get("dangerous") and entry["attempts"] < 3:
+                unknown.append(el)
+        return unknown
+
+
+memory = EvolutionMemory(MEMORY_FILE)
+
+
+# ═══════════════════════════════════════════════════════
+# UI 发现引擎
+# ═══════════════════════════════════════════════════════
+
+INTERACTIVE_TYPES = {"Button", "Cell", "Switch", "Link", "TextField",
+                     "SecureTextField", "Slider", "Stepper", "Toggle",
+                     "MenuItem", "SegmentedControl", "Tab", "Image"}
+SKIP_LABELS = {"", "nil", "null", "返回", "Back"}
+SKIP_NAMES = {"", "nil", "null"}
+
+def parse_ui_tree(xml_source):
+    """解析 WDA source XML, 提取所有可交互元素"""
+    elements = []
+    try:
+        root = ET.fromstring(xml_source)
+    except ET.ParseError:
+        return elements
+
+    def walk(node, depth=0):
+        el_type = node.get("type", "")
+        name = node.get("name", "") or ""
+        label = node.get("label", "") or ""
+        enabled = node.get("enabled", "true") == "true"
+        visible = node.get("visible", "true") == "true"
+        x = node.get("x", "0")
+        y = node.get("y", "0")
+        w = node.get("width", "0")
+        h = node.get("height", "0")
+
+        is_interactive = (
+            el_type in INTERACTIVE_TYPES
+            or "Button" in el_type
+            or "Cell" in el_type
+            or "Switch" in el_type
+            or "Link" in el_type
+            or node.get("accessible", "") == "true"
+        )
+
+        if is_interactive and enabled and visible:
+            try:
+                cx = int(float(x)) + int(float(w)) // 2
+                cy = int(float(y)) + int(float(h)) // 2
+                if 5 < cx < W - 5 and 50 < cy < H - 20:
+                    el_info = {
+                        "type": el_type, "name": name, "label": label,
+                        "x": cx, "y": cy, "depth": depth,
+                    }
+                    if name not in SKIP_NAMES or label not in SKIP_LABELS:
+                        elements.append(el_info)
+            except (ValueError, TypeError):
+                pass
+
+        for child in node:
+            walk(child, depth + 1)
+
+    walk(root)
+    return elements
+
+
+def get_screen_signature(elements):
+    """生成当前屏幕的签名 (用于识别重复页面)"""
+    sig_parts = sorted(set(f"{e['type']}:{e.get('name','')}" for e in elements[:20]))
+    return hashlib.md5("|".join(sig_parts).encode()).hexdigest()[:8]
+
+
+class TimeoutError(Exception):
+    pass
+
+def _timeout_handler(signum, frame):
+    raise TimeoutError("source() timeout")
+
+
+def safe_source(s, timeout=10):
+    """获取 UI 层级 XML，带超时保护"""
+    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(timeout)
+    try:
+        xml = s.source(format="xml")
+        signal.alarm(0)
+        return xml
+    except TimeoutError:
+        return None
+    except Exception:
+        signal.alarm(0)
+        try:
+            signal.alarm(timeout)
+            xml = s.source()
+            signal.alarm(0)
+            return xml
+        except Exception:
+            signal.alarm(0)
+            return None
+    finally:
+        signal.signal(signal.SIGALRM, old_handler)
+
+
+def explore_current_screen(s, client, session):
+    """探索当前屏幕: 发现新元素并尝试交互"""
+    global current_action
+    current_action = "explore"
+
+    xml = safe_source(s, timeout=10)
+    if not xml:
+        return session
+
+    elements = parse_ui_tree(xml)
+    if not elements:
+        return session
+
+    screen_sig = get_screen_signature(elements)
+    memory.record_screen(screen_sig, len(elements))
+    stats["explored"] += 1
+
+    unknown = memory.get_unexplored(elements)
+    if not unknown:
+        return session
+
+    stats["new_elements_found"] += len(unknown)
+
+    to_try = random.sample(unknown, min(3, len(unknown)))
+
+    for el in to_try:
+        try:
+            pre_bid = ""
+            try:
+                info = client.app_current()
+                pre_bid = info.get("bundleId") or info.get("bundleID") or ""
+            except Exception:
+                pass
+
+            s.tap(el["x"], el["y"])
+            time.sleep(1.0)
+
+            post_bid = ""
+            try:
+                info = client.app_current()
+                post_bid = info.get("bundleId") or info.get("bundleID") or ""
+            except Exception:
+                post_bid = ""
+
+            if post_bid and post_bid != BUNDLE_ID:
+                memory.record(el, "crash")
+                session = ensure_alive(client, session)
+                break
+            elif post_bid == BUNDLE_ID:
+                try:
+                    new_xml = safe_source(s, timeout=8)
+                    if new_xml:
+                        new_elements = parse_ui_tree(new_xml)
+                        new_sig = get_screen_signature(new_elements)
+                        if new_sig != screen_sig:
+                            memory.record(el, "navigated")
+                            stats["explore_success"] += 1
+                            log_event("explore_navigate",
+                                      element=f"{el['type']}:{el.get('name','')}:{el.get('label','')}",
+                                      from_screen=screen_sig, to_screen=new_sig)
+                            time.sleep(0.5)
+                            go_back(s)
+                            time.sleep(0.5)
+                        else:
+                            memory.record(el, "ok")
+                            stats["explore_success"] += 1
+                    else:
+                        memory.record(el, "ok")
+                        stats["explore_success"] += 1
+                except Exception:
+                    memory.record(el, "ok")
+                    stats["explore_success"] += 1
+            else:
+                memory.record(el, "unknown")
+        except Exception:
+            memory.record(el, "error")
+
+    memory.save()
+    return session
+
+
+def action_explore(s, client, session):
+    """主动探索: 在当前 tab 页面发现新元素"""
+    tabs = [go_shelf, go_store, go_my]
+    random.choice(tabs)(s)
+    time.sleep(0.5)
+    return explore_current_screen(s, client, session)
+
+
+def action_deep_explore(s, client, session):
+    """深度探索: 进入子页面后探索"""
+    choice = random.choice(["reader_menu", "store_detail", "settings", "search"])
+
+    if choice == "reader_menu":
+        enter_reader(s)
+        show_menu(s)
+        session = explore_current_screen(s, client, session)
+        exit_reader(s)
+    elif choice == "store_detail":
+        go_store(s)
+        s.tap(random.randint(30, 340), random.randint(200, 400))
+        time.sleep(2)
+        session = explore_current_screen(s, client, session)
+        go_back(s)
+    elif choice == "settings":
+        go_my(s)
+        time.sleep(0.5)
+        s.swipe_up()
+        time.sleep(0.5)
+        session = explore_current_screen(s, client, session)
+    elif choice == "search":
+        go_shelf(s)
+        safe_tap(s, name="magnifyingglass", timeout=2)
+        time.sleep(1)
+        session = explore_current_screen(s, client, session)
+        go_back(s)
+
+    return session
+
+
+def action_explore_reader_settings(s, client, session):
+    """探索阅读器设置面板"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="设置", timeout=2) or safe_tap(s, name="textformat.size", timeout=2):
+        time.sleep(1)
+        session = explore_current_screen(s, client, session)
+        safe_tap(s, labelContains="完成", timeout=2)
+    exit_reader(s)
+    return session
+
+
+def action_explore_more_menu(s, client, session):
+    """探索阅读器更多菜单"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="更多", timeout=2) or safe_tap(s, name="ellipsis.circle", timeout=2):
+        time.sleep(1)
+        session = explore_current_screen(s, client, session)
+    s.tap(W // 2, H // 2)
+    time.sleep(0.5)
+    exit_reader(s)
+    return session
 
 
 def log_event(event_type, **data):
@@ -70,8 +412,8 @@ def ensure_alive(client, session):
     if not check_wda(client):
         stats["wda_failures"] += 1
         log_event("wda_disconnected")
-        for i in range(20):
-            time.sleep(5)
+        for i in range(30):
+            time.sleep(10)
             if check_wda(client):
                 log_event("wda_reconnected", attempt=i + 1)
                 break
@@ -81,7 +423,10 @@ def ensure_alive(client, session):
             sys.exit(2)
         try:
             session = client.session(BUNDLE_ID)
-            time.sleep(3)
+            time.sleep(5)
+            wait_splash(session)
+            go_shelf(session)
+            time.sleep(2)
         except Exception:
             pass
         return session
@@ -98,8 +443,10 @@ def ensure_alive(client, session):
         log_event("app_crash_check_failed", error=str(e)[:200])
     try:
         session = client.session(BUNDLE_ID)
-        time.sleep(3)
+        time.sleep(5)
         wait_splash(session)
+        go_shelf(session)
+        time.sleep(2)
         log_event("app_restarted")
     except Exception:
         pass
@@ -1129,6 +1476,8 @@ def report():
     h = int(elapsed // 3600)
     m = int((elapsed % 3600) // 60)
     rate = stats["pages_read"] / (elapsed / 60) if elapsed > 0 else 0
+    known = len(memory.elements)
+    safe = sum(1 for e in memory.elements.values() if e.get("safe"))
     print(f"\n╔══════════════════════════════════════════════╗")
     print(f"║  {h}h{m:02d}m  页:{stats['pages_read']}({rate:.1f}/m)")
     print(f"║  搜:{stats['books_searched']} 架:{stats['books_added']} "
@@ -1137,6 +1486,9 @@ def report():
           f"签:{stats['bookmarks']}")
     print(f"║  崩:{stats['crashes']} WDA:{stats['wda_failures']} "
           f"错:{stats['errors']}")
+    print(f"║  🧬 探索:{stats['explored']} 新元素:{stats['new_elements_found']} "
+          f"成功:{stats['explore_success']}")
+    print(f"║  🧠 记忆: {known}元素已知 / {safe}安全")
     print(f"╚══════════════════════════════════════════════╝")
 
 
@@ -1149,10 +1501,11 @@ def main():
     args = parser.parse_args()
 
     print("╔══════════════════════════════════════════════╗")
-    print("║  万象书屋 — 全功能用户模拟 v7 (100倍速)    ║")
+    print("║  万象书屋 — 自适应模拟 v8 (100x + 进化)   ║")
     print("╚══════════════════════════════════════════════╝")
     print(f"WDA: {args.wda_url}  时长: {args.duration//3600}h")
-    print(f"覆盖: 50+场景  阅读: 0.3-0.6s/页(100倍速)  广告: 自动跳过")
+    print(f"覆盖: 50+预设 + 自动探索进化  阅读: 0.3-0.6s/页  广告: 自动跳过")
+    print(f"记忆: {len(memory.elements)}个已知元素 / {MEMORY_FILE}")
 
     client = wda.Client(args.wda_url)
     try:
@@ -1163,11 +1516,13 @@ def main():
         sys.exit(1)
 
     session = client.session(BUNDLE_ID)
-    time.sleep(3)
+    time.sleep(5)
     wait_splash(session)
+    go_shelf(session)
+    time.sleep(2)
     print("App 启动，广告已跳过，开始模拟...\n")
     start_time = time.time()
-    log_event("test_started", duration_planned=args.duration, version="reader-sim-v7-full-deep+ad")
+    log_event("test_started", duration_planned=args.duration, version="reader-sim-v8-evolve")
 
     # 50+ 场景, 总权重 ~160
     pool_def = [
@@ -1244,34 +1599,59 @@ def main():
     for fn, name, w in pool_def:
         pool.extend([(fn, name)] * w)
 
+    EXPLORE_INTERVAL = 8
     last_report = start_time
+    cycle_count = 0
 
     while time.time() - start_time < args.duration:
         try:
-            fn, name = random.choice(pool)
-            last_action = current_action
-            current_action = name
-            fn(session)
-            stats["cycles"] += 1
-            session = ensure_alive(client, session)
+            cycle_count += 1
+
+            if cycle_count % EXPLORE_INTERVAL == 0:
+                explore_type = random.choice(["surface", "surface", "deep",
+                                              "reader_settings", "more_menu"])
+                last_action = current_action
+                current_action = f"explore_{explore_type}"
+                if explore_type == "surface":
+                    session = action_explore(session, client, session)
+                elif explore_type == "deep":
+                    session = action_deep_explore(session, client, session)
+                elif explore_type == "reader_settings":
+                    session = action_explore_reader_settings(session, client, session)
+                elif explore_type == "more_menu":
+                    session = action_explore_more_menu(session, client, session)
+                stats["cycles"] += 1
+                session = ensure_alive(client, session)
+            else:
+                fn, name = random.choice(pool)
+                last_action = current_action
+                current_action = name
+                fn(session)
+                stats["cycles"] += 1
+                session = ensure_alive(client, session)
         except Exception as e:
             stats["errors"] += 1
             log_event("action_error", error=str(e)[:200])
             session = ensure_alive(client, session)
 
-        if time.time() - last_report >= 600:
+        if time.time() - last_report >= 300:
             elapsed = time.time() - start_time
             h = int(elapsed // 3600)
             m = int((elapsed % 3600) // 60)
             rate = stats["pages_read"] / (elapsed / 60) if elapsed > 0 else 0
+            known = len(memory.elements)
             print(f"  [{h:02d}h{m:02d}m] 页:{stats['pages_read']}({rate:.1f}/m) "
                   f"跳:{stats['chapters_jumped']} 源:{stats['sources_changed']} "
-                  f"TTS:{stats['tts_sessions']} 崩:{stats['crashes']}")
-            log_event("periodic_report", stats=dict(stats))
+                  f"崩:{stats['crashes']} 🧬探:{stats['explored']}/{known}已知")
+            log_event("periodic_report", stats=dict(stats),
+                      memory_size=known)
             last_report = time.time()
+            memory.save()
 
     report()
-    log_event("test_finished", stats=dict(stats))
+    memory.save()
+    log_event("test_finished", stats=dict(stats),
+              memory_size=len(memory.elements))
     sys.exit(1 if stats["crashes"] > 0 else 0)
 
 
