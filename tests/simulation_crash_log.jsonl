@@ -3,3 +3,16 @@
 {"ts": "2026-05-26 15:09:33", "elapsed_s": 410, "type": "app_restarted", "action": "switch_tabs", "last_action": "search"}
 {"ts": "2026-05-26 15:12:48", "elapsed_s": 605, "type": "periodic_report", "action": "read_book", "last_action": "browse_store", "stats": {"cycles": 34, "errors": 0, "crashes": 1, "actions": 55, "wda_failures": 0}}
 {"ts": "2026-05-26 15:12:48", "elapsed_s": 605, "type": "test_finished", "action": "read_book", "last_action": "browse_store", "stats": {"cycles": 34, "errors": 0, "crashes": 1, "actions": 55, "wda_failures": 0}}
+{"ts": "2026-05-26 17:38:36", "elapsed_s": 0, "type": "test_started", "action": "idle", "last_action": "idle", "duration_planned": 600}
+{"ts": "2026-05-26 17:43:06", "elapsed_s": 269, "type": "app_crash", "action": "idle", "last_action": "search", "current_app": "com.apple.springboard", "stats": {"cycles": 14, "errors": 0, "crashes": 1, "actions": 24, "wda_failures": 0}}
+{"ts": "2026-05-26 17:43:10", "elapsed_s": 274, "type": "app_restarted", "action": "idle", "last_action": "search"}
+{"ts": "2026-05-26 17:48:39", "elapsed_s": 603, "type": "periodic_report", "action": "idle", "last_action": "switch_tabs", "stats": {"cycles": 33, "errors": 0, "crashes": 1, "actions": 52, "wda_failures": 0}}
+{"ts": "2026-05-26 17:48:39", "elapsed_s": 603, "type": "test_finished", "action": "idle", "last_action": "switch_tabs", "stats": {"cycles": 33, "errors": 0, "crashes": 1, "actions": 52, "wda_failures": 0}}
+{"ts": "2026-05-26 18:01:29", "elapsed_s": 0, "type": "test_started", "action": "idle", "last_action": "idle", "duration_planned": 600}
+{"ts": "2026-05-26 18:06:21", "elapsed_s": 292, "type": "app_crash", "action": "search", "last_action": "browse_store", "current_app": "com.apple.springboard", "stats": {"cycles": 20, "errors": 0, "crashes": 1, "actions": 27, "wda_failures": 0}}
+{"ts": "2026-05-26 18:06:26", "elapsed_s": 296, "type": "app_restarted", "action": "search", "last_action": "browse_store"}
+{"ts": "2026-05-26 18:11:54", "elapsed_s": 624, "type": "periodic_report", "action": "idle", "last_action": "read_book", "stats": {"cycles": 38, "errors": 0, "crashes": 1, "actions": 61, "wda_failures": 0}}
+{"ts": "2026-05-26 18:11:54", "elapsed_s": 624, "type": "test_finished", "action": "idle", "last_action": "read_book", "stats": {"cycles": 38, "errors": 0, "crashes": 1, "actions": 61, "wda_failures": 0}}
+{"ts": "2026-05-26 18:21:49", "elapsed_s": 0, "type": "test_started", "action": "idle", "last_action": "idle", "duration_planned": 600}
+{"ts": "2026-05-26 18:31:53", "elapsed_s": 604, "type": "periodic_report", "action": "browse_store", "last_action": "switch_tabs", "stats": {"cycles": 37, "errors": 0, "crashes": 0, "actions": 66, "wda_failures": 0}}
+{"ts": "2026-05-26 18:31:53", "elapsed_s": 604, "type": "test_finished", "action": "browse_store", "last_action": "switch_tabs", "stats": {"cycles": 37, "errors": 0, "crashes": 0, "actions": 66, "wda_failures": 0}}

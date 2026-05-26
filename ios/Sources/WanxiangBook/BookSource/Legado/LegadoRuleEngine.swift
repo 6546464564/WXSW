@@ -362,9 +362,13 @@ public actor LegadoRuleEngine {
             midResult = toStringList(r)
         case .css:
             if listMode {
-                midResult = (try? css.selectList(rule: resolvedRule, source: srcStr, baseUrl: ctx.baseUrl)) ?? []
+                midResult = await LegadoHTMLParse.withWorkPermit {
+                    (try? css.selectList(rule: resolvedRule, source: srcStr, baseUrl: ctx.baseUrl)) ?? []
+                }
             } else {
-                midResult = [(try? css.selectString(rule: resolvedRule, source: srcStr, baseUrl: ctx.baseUrl)) ?? ""].filter { !$0.isEmpty }
+                midResult = await LegadoHTMLParse.withWorkPermit {
+                    [(try? css.selectString(rule: resolvedRule, source: srcStr, baseUrl: ctx.baseUrl)) ?? ""].filter { !$0.isEmpty }
+                }
             }
             // 万象书屋: source 看起来是 JSON 时, 默认 CSS 跑空就 fallback 到 JsonPath
             // (legado bookList JS 返回数组后, 元素是 JSON 串, ruleSearch.name="n" 等是隐式 JsonPath 键)
@@ -691,7 +695,10 @@ public actor LegadoRuleEngine {
             } else if inner.hasPrefix("//") {
                 value = (try? xpath.selectString(rule: inner, source: stringify(input), baseUrl: ctx.baseUrl)) ?? ""
             } else if inner.hasPrefix("@") || inner.hasPrefix(".") || inner.hasPrefix("#") {
-                value = (try? css.selectString(rule: inner, source: stringify(input), baseUrl: ctx.baseUrl)) ?? ""
+                let src = stringify(input)
+                value = await LegadoHTMLParse.withWorkPermit {
+                    (try? css.selectString(rule: inner, source: src, baseUrl: ctx.baseUrl)) ?? ""
+                }
             } else if inner.hasPrefix("result.") {
                 // 万象书屋 (M2.8 fix bug): legado 模板 `{{result.x.y}}` 是字段路径简写, 在
                 // input (JSON 字符串) 上走 JSONPath 取. 之前直接当 JS 跑, scope.result 是

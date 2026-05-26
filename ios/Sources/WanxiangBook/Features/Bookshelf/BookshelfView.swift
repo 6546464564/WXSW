@@ -130,7 +130,14 @@ struct BookshelfView: View {
             // 万象书屋 (UX): 搜索改成 NavigationStack push 的全屏单独页, 不再用 sheet 弹框.
             .navigationDestination(isPresented: $searchPresented) {
                 SearchView(embedded: true)
-                    .onDisappear { Task { await vm.refresh(sort: sort) } }
+                    .onDisappear {
+                        DebugSessionLog.logDevice(
+                            location: "Bookshelf.searchOnDisappear",
+                            message: "SearchView disappeared",
+                            hypothesisId: "CRASH-B"
+                        )
+                        Task { await vm.refresh(sort: sort) }
+                    }
             }
             // 书架布局 (configBookshelf)
             .sheet(isPresented: $showLayoutConfig) {

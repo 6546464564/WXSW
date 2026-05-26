@@ -63,8 +63,10 @@ enum CrashHandler {
         installSignalHandlers()
 
         // 3. 上次启动崩溃的延后上报
+        // 先读旧 breadcrumbs（崩溃前的状态），再写新 breadcrumb 避免覆盖
+        let oldCrumbs = CrashBreadcrumb.snapshot()
         CrashBreadcrumb.leave("app.launch")
-        Task.detached { await flushPending() }
+        Task.detached { await flushPending(previousBreadcrumbs: oldCrumbs) }
     }
 
     // MARK: - 异常格式化
@@ -171,7 +173,7 @@ enum CrashHandler {
 
     // MARK: - 延后上报
 
-    private static func flushPending() async {
+    private static func flushPending(previousBreadcrumbs: String) async {
         var dump: String?
         // 优先读 NSException 文件 (内容更丰富)
         if let path = exceptionCrashFilePath {
@@ -197,7 +199,11 @@ enum CrashHandler {
             let sigName = String(cString: path).hasSuffix(".sig") ? readSignalMarker(path) : nil
             if let sigName { dump = "[Signal \(sigName)]" }
         }
-        dump = enrichWithBreadcrumbs(dump)
+        // 用崩溃前保存的 breadcrumbs（而非当前 session 的）
+        if var text = dump, !text.isEmpty, !previousBreadcrumbs.isEmpty, !text.contains("breadcrumbs:") {
+            text += "\nbreadcrumbs:\n\(previousBreadcrumbs)"
+            dump = text
+        }
         guard let dump, !dump.isEmpty else { return }
         saveLocalCrashLog(dump)
         await MainActor.run {
@@ -208,7 +214,6 @@ enum CrashHandler {
     }
 
     private static func saveLocalCrashLog(_ dump: String) {
-        // 万象书屋 (2026-05-25): 用 .first ?? temp 兜底, 沙盒未就绪时不在崩溃保存路径里再次崩.
         let baseDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         let dir = baseDir.appendingPathComponent("CrashLogs", isDirectory: true)
@@ -216,6 +221,12 @@ enum CrashHandler {
         let file = dir.appendingPathComponent("last_crash.txt")
         try? dump.write(to: file, atomically: true, encoding: .utf8)
         NSLog("[WX-CRASH] saved local crash log → %@", file.path)
+        DebugSessionLog.logDevice(
+            location: "CrashHandler.flushPending",
+            message: "prev crash found",
+            hypothesisId: "CRASH-C",
+            data: ["dump": String(dump.prefix(500))]
+        )
     }
 
     private static func enrichWithBreadcrumbs(_ dump: String?) -> String? {

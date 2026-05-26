@@ -185,6 +185,12 @@ struct SearchView: View {
             }
         }
         .onAppear {
+            DebugSessionLog.logDevice(
+                location: "SearchView.onAppear",
+                message: "appeared",
+                hypothesisId: "CRASH-B",
+                data: ["embedded": embedded]
+            )
             inputFocused = true
             if !initialKeyword.isEmpty && vm.results.isEmpty {
                 Task { await vm.search(key: initialKeyword, precisionSearch: precisionSearch) }
@@ -728,6 +734,12 @@ final class SearchViewModel: ObservableObject {
     /// 安全清空搜索结果并取消正在运行的搜索任务。
     /// View 层清空关键词时必须调用此方法，而非直接赋值 `results = []`。
     func cancelAndClear() {
+        DebugSessionLog.logDevice(
+            location: "SearchVM.cancelAndClear",
+            message: "called",
+            hypothesisId: "CRASH-A",
+            data: ["hadTask": currentTask != nil, "resultCount": results.count]
+        )
         currentTask?.cancel()
         currentTask = nil
         enrichmentTask?.cancel()
@@ -807,6 +819,12 @@ final class SearchViewModel: ObservableObject {
         }
 
         currentTask = Task {
+            DebugSessionLog.logDevice(
+                location: "SearchVM.searchTask",
+                message: "stream start",
+                hypothesisId: "CRASH-A",
+                data: ["key": key, "sourceCount": sources.count]
+            )
             let stream = await BookSourceEngine.shared.searchAll(in: sources, key: key)
             var hitSourceCount = 0
             for await (source, result) in stream {
@@ -906,12 +924,13 @@ final class SearchViewModel: ObservableObject {
             if generation == self.searchGeneration {
                 self.applyLegadoStyleOrdering()
                 self.isSearching = false
-                // 万象书屋 (M2.8): 把这次 search 的 stats 落盘, 下次启动也能用上排序.
+                DebugSessionLog.logDevice(
+                    location: "SearchVM.searchTask",
+                    message: "stream done",
+                    hypothesisId: "CRASH-A",
+                    data: ["resultCount": self.results.count]
+                )
                 SourcePerformanceTracker.shared.persistToDisk()
-                // 万象书屋 (2026-05-11): 搜索结束后给前 12 行做一轮 info 富化, 给那些
-                // 搜索接口没返 cover/kind/wordCount 的源补全字段. Android 之所以"全有真封面"
-                // 是因为 searchBookDao 里历史数据也帮充, 加上很多源 search 接口本身就带 cover;
-                // iOS 这里靠主动 fetchInfo 在背景补完, 不阻塞主流程.
                 self.scheduleResultEnrichment(generation: generation)
             }
         }

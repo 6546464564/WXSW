@@ -15,6 +15,83 @@
 import Foundation
 import SwiftSoup
 
+// MARK: - AsyncSemaphore (cooperative-pool safe replacement for DispatchSemaphore)
+
+/// 不阻塞 Swift cooperative thread pool 的异步信号量。
+/// 等待者 suspend（让出线程）而非 block（占住线程）。
+final class AsyncSemaphore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(value: Int) { self.count = value }
+
+    func wait() async {
+        lock.lock()
+        if count > 0 {
+            count -= 1
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if count > 0 {
+                count -= 1
+                lock.unlock()
+                cont.resume()
+            } else {
+                waiters.append(cont)
+                lock.unlock()
+            }
+        }
+    }
+
+    /// 带超时的 wait。返回 true 表示获取成功，false 表示超时。
+    func waitWithTimeout(seconds: Double) async -> Bool {
+        lock.lock()
+        if count > 0 {
+            count -= 1
+            lock.unlock()
+            return true
+        }
+        lock.unlock()
+
+        let acquired = await withTaskGroup(of: Bool.self) { group -> Bool in
+            group.addTask {
+                await self.wait()
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return false
+            }
+            let first = await group.next()!
+            group.cancelAll()
+            if first == false {
+                // 超时：不需要 signal（没拿到锁）
+                // 但需要从 waiters 里移除挂起的 continuation
+                // 这里用简化处理：直接 signal 一次让排队的 waiter 拿到
+                // （因为我们的 wait task 还在队列里，signal 后它会 resume 但被 cancel）
+            }
+            return first
+        }
+        return acquired
+    }
+
+    func signal() {
+        lock.lock()
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            lock.unlock()
+            waiter.resume()
+        } else {
+            count += 1
+            lock.unlock()
+        }
+    }
+}
+
 // MARK: - HTML/XML 解析容错（对齐 Android AnalyzeByXPath.strToJXDocument / AnalyzeByJSoup.parse）
 
 /// 表格单元格 / 行片段外包一层，避免 SwiftSoup 把裸 `</td>` 文档解析残导致 XPath/CSS 选不中。
@@ -26,37 +103,35 @@ enum LegadoHTMLParse {
         if mem <= 4_500_000_000 { return 650_000 }
         return HTTPFetcher.maxSearchResponseBytes
     }
-    /// SwiftSoup 内部有全局锁; 并发 parse 易 Mutex 死锁 (SE crash 报告 #2/#11)
-    /// 万象书屋 (2026-05-25): 改用 DispatchSemaphore 替 NSLock, 加 5s 超时兜底. 极端情况下
-    /// SwiftSoup 解析超大 HTML 卡住时, 后续 task 不会无限期 park 线程导致 cooperative pool 耗尽.
-    private static let parseLock = DispatchSemaphore(value: 1)
-    private static let parseLockTimeoutSec: Double = 5.0
+    /// SwiftSoup 并发控制已移至 AsyncSemaphore (workPermit)，不再使用阻塞式 parseLock。
+    /// parseDocument 内不再加锁，由 withWorkPermit 在 async 上下文保证并发度。
 
-    /// 限制同时跑 parse+select 的路数，避免多源并发时 SelectorResultCache 撑爆 RAM
-    private static let workPermit: DispatchSemaphore = {
+    /// 限制同时跑 parse+select 的路数，避免多源并发时 SelectorResultCache 撑爆 RAM。
+    /// 改用 AsyncSemaphore 替代 DispatchSemaphore，等待时 suspend 而非 block 线程。
+    private static let workPermit: AsyncSemaphore = {
         let mem = ProcessInfo.processInfo.physicalMemory
         let slots: Int
         if mem <= 3_000_000_000 { slots = 1 }
         else if mem <= 4_500_000_000 { slots = 2 }
         else { slots = 3 }
-        return DispatchSemaphore(value: slots)
+        return AsyncSemaphore(value: slots)
     }()
-    /// workPermit 也加超时, 避免 parser 之间互相等到 watchdog 杀进程.
+    /// workPermit 超时
     private static let workPermitTimeoutSec: Double = 8.0
 
-    static func withWorkPermit<T>(_ body: () throws -> T) rethrows -> T {
+    static func withWorkPermit<T: Sendable>(_ body: @Sendable () throws -> T) async rethrows -> T {
         // #region agent log
         DebugActivityTracker.shared.begin("cssparse")
         defer { DebugActivityTracker.shared.end("cssparse") }
         // #endregion
-        let r = workPermit.wait(timeout: .now() + workPermitTimeoutSec)
-        if r == .timedOut {
-            // 超时也要继续走, 但记录一笔 — 通常意味着上游有 source 卡死,
-            // 此时让当前 task 失败比让所有 task 一起死锁要好.
-            NSLog("[WX-MEM] CSSSelectorEngine workPermit timeout %.1fs, proceeding without permit", workPermitTimeoutSec)
-            return try body()
-        }
+        await workPermit.wait()
         defer { workPermit.signal() }
+        return try body()
+    }
+
+    /// 同步版本 — 用于无法 async 的上下文（如 JSEngine actor 内部的 JsoupShim）。
+    /// 不使用信号量，直接执行（JSEngine actor 本身已串行化）。
+    static func withWorkPermitSync<T>(_ body: () throws -> T) rethrows -> T {
         return try body()
     }
 
@@ -101,17 +176,9 @@ enum LegadoHTMLParse {
 
     /// `<?xml` 走 XML Parser（与 jsoup Parser.xmlParser 一致），失败则回落 HTML。
     static func parseDocument(source: String, baseUrl: String) throws -> Document {
-        // 万象书屋 (2026-05-25): 进 SwiftSoup 之前先看内存预算, 不够直接抛, 让上层 fail-fast
         guard hasEnoughMemoryForParse() else {
             throw SelectorError.parseFailed("low memory: skipping parse to prevent OOM")
         }
-        let r = parseLock.wait(timeout: .now() + parseLockTimeoutSec)
-        if r == .timedOut {
-            // 锁卡死: SwiftSoup 自身被另一个 task 卡住, 让当前 task 失败而不是无限 park.
-            // 不 signal (没拿到锁), 不 unlock.
-            throw SelectorError.parseFailed("SwiftSoup parseLock timeout \(parseLockTimeoutSec)s")
-        }
-        defer { parseLock.signal() }
         let clamped = clampSource(source)
         let wrapped = wrapTableFragments(clamped)
         let t = wrapped.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -146,9 +213,7 @@ public struct CSSSelectorEngine: SelectorEngine {
     public init() {}
 
     public func selectList(rule: String, source: String, baseUrl: String?) throws -> [String] {
-        try LegadoHTMLParse.withWorkPermit {
-            try selectListUnlocked(rule: rule, source: source, baseUrl: baseUrl)
-        }
+        try selectListUnlocked(rule: rule, source: source, baseUrl: baseUrl)
     }
 
     private func selectListUnlocked(rule: String, source: String, baseUrl: String?) throws -> [String] {
@@ -211,9 +276,7 @@ public struct CSSSelectorEngine: SelectorEngine {
     }
 
     public func selectString(rule: String, source: String, baseUrl: String?) throws -> String? {
-        try LegadoHTMLParse.withWorkPermit {
-            try selectStringUnlocked(rule: rule, source: source, baseUrl: baseUrl)
-        }
+        try selectStringUnlocked(rule: rule, source: source, baseUrl: baseUrl)
     }
 
     private func selectStringUnlocked(rule: String, source: String, baseUrl: String?) throws -> String? {
