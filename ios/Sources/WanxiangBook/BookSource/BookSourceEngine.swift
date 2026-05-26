@@ -259,10 +259,27 @@ public final class BookSourceEngine: @unchecked Sendable {
         }
     }
 
+    /// 全局搜索执行信号量: 限制跨所有 searchAll 实例同时在做 HTTP+JS 阻塞操作的源数量。
+    /// 防止快速连续搜索(如用户快速换关键词)导致多个旧搜索的 SyncHTTP 同时阻塞协作线程池。
+    private static let globalSearchGate: AsyncSemaphore = {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 4_000_000_000 { return AsyncSemaphore(value: 1) }   // ≤3GB: 全局只允许1个源执行
+        if mem <= 5_000_000_000 { return AsyncSemaphore(value: 2) }   // 4GB
+        return AsyncSemaphore(value: 3)                                // 6GB+
+    }()
+
     /// 单源搜索 + 硬超时. 超时 = 失败 (上报 health timeout), 不阻塞其他源.
     private static func searchWithTimeout(
         engine: BookSourceEngine, source: BookSource, key: String, timeoutSec: TimeInterval
     ) async -> (BookSource, Result<[SearchBook], Error>) {
+        // 全局门控: 确保跨多个 searchAll 调用，同时阻塞线程的源数不超过安全值
+        await globalSearchGate.wait()
+        defer { globalSearchGate.signal() }
+
+        guard !Task.isCancelled else {
+            return (source, .failure(CancellationError()))
+        }
+
         let t0 = Date()
         let result = await withTaskGroup(of: (BookSource, Result<[SearchBook], Error>)?.self) { inner -> (BookSource, Result<[SearchBook], Error>) in
             inner.addTask {

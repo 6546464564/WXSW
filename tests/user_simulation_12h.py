@@ -115,7 +115,7 @@ def ensure_app_alive(client, session):
 
 
 def random_pause():
-    time.sleep(random.uniform(0.8, 4.0))
+    time.sleep(random.uniform(0.3, 1.5))
 
 
 def go_home(session):
@@ -131,47 +131,47 @@ def go_home(session):
 def action_read_book(session):
     """模拟阅读：进入书籍，翻几页，退出"""
     go_home(session)
-    wait(0.5)
+    wait(0.3)
     cells = session(type="Cell")
     if not cells.exists:
         return
     cells.tap()
-    wait(2)
+    wait(1)
     if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
-        wait(2)
-        pages = random.randint(3, 20)
+        wait(1)
+        pages = random.randint(3, 10)
         for _ in range(pages):
             session.swipe_left()
-            time.sleep(random.uniform(0.3, 2.5))
+            time.sleep(random.uniform(0.2, 1.0))
         stats["actions"] += pages
         safe_tap(session, label="返回") or safe_tap(session, label="Back")
-        wait(1)
+        wait(0.5)
     safe_tap(session, label="返回") or safe_tap(session, label="Back")
-    wait(0.5)
+    wait(0.3)
 
 
 def action_read_long(session):
-    """长时间阅读 — 模拟用户沉浸阅读 30-60 页"""
+    """长时间阅读 — 模拟用户沉浸阅读 15-30 页"""
     go_home(session)
-    wait(0.5)
+    wait(0.3)
     cells = session(type="Cell")
     if not cells.exists:
         return
     cells.tap()
-    wait(2)
+    wait(1)
     if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
-        wait(2)
-        pages = random.randint(30, 60)
+        wait(1)
+        pages = random.randint(15, 30)
         for i in range(pages):
             session.swipe_left()
-            time.sleep(random.uniform(1.0, 5.0))
+            time.sleep(random.uniform(0.3, 1.5))
             if i % 10 == 0:
                 stats["actions"] += 10
         stats["actions"] += pages % 10
         safe_tap(session, label="返回") or safe_tap(session, label="Back")
-        wait(1)
+        wait(0.5)
     safe_tap(session, label="返回") or safe_tap(session, label="Back")
-    wait(0.5)
+    wait(0.3)
 
 
 def action_read_change_settings(session):
@@ -260,10 +260,10 @@ def action_read_chapter_jump(session):
 def action_search(session):
     """模拟搜索"""
     go_home(session)
-    wait(0.5)
+    wait(0.3)
     if not (safe_tap(session, label="Search") or safe_tap(session, label="搜索")):
         return
-    wait(1)
+    wait(0.5)
     keywords = ["修仙", "都市", "玄幻", "穿越", "系统", "重生", "武侠", "科幻",
                 "末日", "网游", "仙侠", "悬疑", "推理", "言情", "历史", "军事"]
     kw = random.choice(keywords)
@@ -272,16 +272,16 @@ def action_search(session):
         tf = session(type="TextField")
     if tf.exists:
         tf.set_text(kw)
-        wait(0.5)
+        wait(0.3)
         safe_tap(session, label="search") or safe_tap(session, label="搜索")
-        wait(random.uniform(5, 12))
+        wait(random.uniform(3, 7))
         # 有时滚动结果
         if random.random() > 0.5:
             session.swipe_up()
-            wait(1)
+            wait(0.5)
         stats["actions"] += 1
     safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
-    wait(0.5)
+    wait(0.3)
 
 
 def action_search_rapid(session):
@@ -515,15 +515,15 @@ def action_background(session):
 
 def action_background_long(session):
     """长时间后台 — 模拟用户离开一段时间"""
-    duration = random.uniform(30, 120)
+    duration = random.uniform(10, 30)
     session.deactivate(duration)
-    wait(2)
+    wait(1)
     stats["actions"] += 1
 
 
 def action_idle(session):
     """模拟用户放下手机"""
-    idle_time = random.uniform(5, 30)
+    idle_time = random.uniform(3, 10)
     time.sleep(idle_time)
     stats["actions"] += 1
 
