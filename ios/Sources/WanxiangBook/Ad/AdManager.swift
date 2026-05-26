@@ -123,8 +123,9 @@ public final class AdManager: ObservableObject {
     }
 
     private func parseSlot(_ dict: [String: Any]) -> ProviderSlot? {
-        guard let name = dict["name"] as? String,
-              let posId = dict["posId"] as? String, !posId.isEmpty else { return nil }
+        guard let name = dict["name"] as? String else { return nil }
+        let posId = (dict["iosPosId"] as? String) ?? (dict["posId"] as? String) ?? ""
+        guard !posId.isEmpty else { return nil }
         let weight = dict["weight"] as? Int ?? 0
         guard weight > 0 else { return nil }
         return ProviderSlot(name: name, weight: weight, posId: posId)
@@ -215,10 +216,12 @@ public final class AdManager: ObservableObject {
             return
         }
 
-        let csjAppId = (config["csj"] as? [String: Any])?["appId"] as? String
+        let csjAppId = (config["csj"] as? [String: Any])?["iosAppId"] as? String
+            ?? (config["sdk"] as? [String: Any]).flatMap { ($0["csj"] as? [String: Any])?["iosAppId"] as? String }
             ?? (config["sdk"] as? [String: Any]).flatMap { ($0["csj"] as? [String: Any])?["appId"] as? String }
             ?? ""
-        let gdtAppId = (config["ylh"] as? [String: Any])?["appId"] as? String
+        let gdtAppId = (config["ylh"] as? [String: Any])?["iosAppId"] as? String
+            ?? (config["sdk"] as? [String: Any]).flatMap { ($0["ylh"] as? [String: Any])?["iosAppId"] as? String }
             ?? (config["sdk"] as? [String: Any]).flatMap { ($0["ylh"] as? [String: Any])?["appId"] as? String }
             ?? ""
 
