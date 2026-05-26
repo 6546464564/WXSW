@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-万象书屋 — 全功能真实用户模拟 v5 (10倍速)
-覆盖所有可交互功能: 28 个独立场景
+万象书屋 — 全功能真实用户模拟 v6 (10倍速)
+覆盖所有可交互功能: 28+ 场景 + 广告识别跳过
 
 设备: iPhone SE (375x667)
 WDA 元素定位: 坐标 + accessibilityIdentifier/name
+广告: 开屏等待 + 章节解锁"先跳过" + 激励广告"跳过"
 """
 
 import argparse
@@ -98,6 +99,7 @@ def ensure_alive(client, session):
     try:
         session = client.session(BUNDLE_ID)
         time.sleep(3)
+        wait_splash(session)
         log_event("app_restarted")
     except Exception:
         pass
@@ -129,17 +131,41 @@ def show_menu(s):
     s.tap(W // 2, H // 2)
     time.sleep(1.0)
 
+def handle_ad(s):
+    """检测并处理广告/解锁弹窗 — 优先跳过"""
+    # 章节解锁 overlay: "先跳过"
+    if safe_tap(s, labelContains="先跳过", timeout=1):
+        time.sleep(0.5)
+        return "chapter_skip"
+    # 激励广告 alert: "跳过"
+    if safe_tap(s, name="跳过", timeout=1):
+        time.sleep(0.5)
+        return "reward_skip"
+    # 读完页
+    if safe_tap(s, labelContains="去书架", timeout=1):
+        time.sleep(0.5)
+        return "book_finished"
+    return None
+
+def wait_splash(s):
+    """等待开屏广告自动消失 (最多6秒)"""
+    time.sleep(6)
+
 def enter_reader(s):
     go_shelf(s)
     s.tap(*random.choice(SHELF_BOOKS))
     time.sleep(2.5)
+    handle_ad(s)
 
 def read_pages(s, count):
-    for _ in range(count):
+    for i in range(count):
         s.swipe_left()
         time.sleep(random.uniform(3.0, 6.0))
         stats["pages_read"] += 1
         stats["actions"] += 1
+        # 每 10 页检测一次广告弹窗
+        if (i + 1) % 10 == 0:
+            handle_ad(s)
 
 
 # ═══════════════════════════════════════════════════════
@@ -594,10 +620,10 @@ def main():
     args = parser.parse_args()
 
     print("╔══════════════════════════════════════════════╗")
-    print("║  万象书屋 — 全功能用户模拟 v5 (10倍速)     ║")
+    print("║  万象书屋 — 全功能用户模拟 v6 (10倍速)     ║")
     print("╚══════════════════════════════════════════════╝")
     print(f"WDA: {args.wda_url}  时长: {args.duration//3600}h")
-    print(f"覆盖: 28场景  阅读: 3-6s/页")
+    print(f"覆盖: 28+场景  阅读: 3-6s/页  广告: 自动跳过")
 
     client = wda.Client(args.wda_url)
     try:
@@ -609,9 +635,10 @@ def main():
 
     session = client.session(BUNDLE_ID)
     time.sleep(3)
-    print("App 启动，开始模拟...\n")
+    wait_splash(session)
+    print("App 启动，广告已跳过，开始模拟...\n")
     start_time = time.time()
-    log_event("test_started", duration_planned=args.duration, version="reader-sim-v5-full")
+    log_event("test_started", duration_planned=args.duration, version="reader-sim-v6-full+ad")
 
     # 28 个场景, 总权重 100
     pool_def = [
