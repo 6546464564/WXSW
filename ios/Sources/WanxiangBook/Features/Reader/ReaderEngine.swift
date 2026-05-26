@@ -355,6 +355,10 @@ public final class ReaderEngine: ObservableObject {
     /// - Parameter silent: 万象书屋 (M2.8 A2): prefetch 路径传 true, fail 不写 lastError —
     ///   避免后台预拉前后章失败把用户当前正在读的章节屏幕替换成 errorState.
     private func loadChapter(index: Int, silent: Bool = false) async {
+        // #region agent log
+        DebugActivityTracker.shared.begin("loadCh")
+        defer { DebugActivityTracker.shared.end("loadCh") }
+        // #endregion
         guard index >= 0 else { return }
         if backgroundLoadsSuspended, silent, index != currentChapterIndex { return }
         if let cached = contentCache[index] {

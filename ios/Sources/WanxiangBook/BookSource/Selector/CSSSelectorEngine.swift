@@ -45,6 +45,10 @@ enum LegadoHTMLParse {
     private static let workPermitTimeoutSec: Double = 8.0
 
     static func withWorkPermit<T>(_ body: () throws -> T) rethrows -> T {
+        // #region agent log
+        DebugActivityTracker.shared.begin("cssparse")
+        defer { DebugActivityTracker.shared.end("cssparse") }
+        // #endregion
         let r = workPermit.wait(timeout: .now() + workPermitTimeoutSec)
         if r == .timedOut {
             // 超时也要继续走, 但记录一笔 — 通常意味着上游有 source 卡死,

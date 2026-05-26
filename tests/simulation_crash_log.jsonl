@@ -1,0 +1,5 @@
+{"ts": "2026-05-26 15:02:43", "elapsed_s": 0, "type": "test_started", "action": "idle", "last_action": "idle", "duration_planned": 600}
+{"ts": "2026-05-26 15:09:27", "elapsed_s": 404, "type": "app_crash", "action": "switch_tabs", "last_action": "search", "current_app": "com.apple.springboard", "stats": {"cycles": 22, "errors": 0, "crashes": 1, "actions": 32, "wda_failures": 0}}
+{"ts": "2026-05-26 15:09:33", "elapsed_s": 410, "type": "app_restarted", "action": "switch_tabs", "last_action": "search"}
+{"ts": "2026-05-26 15:12:48", "elapsed_s": 605, "type": "periodic_report", "action": "read_book", "last_action": "browse_store", "stats": {"cycles": 34, "errors": 0, "crashes": 1, "actions": 55, "wda_failures": 0}}
+{"ts": "2026-05-26 15:12:48", "elapsed_s": 605, "type": "test_finished", "action": "read_book", "last_action": "browse_store", "stats": {"cycles": 34, "errors": 0, "crashes": 1, "actions": 55, "wda_failures": 0}}

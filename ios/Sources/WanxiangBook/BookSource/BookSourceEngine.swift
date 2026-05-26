@@ -38,18 +38,14 @@ public final class BookSourceEngine: @unchecked Sendable {
     /// 万象书屋: JS pool 大小. 默认 4 (4 个 JSEngine 实例真并发). CLI 批量探测时可通过
     /// 环境变量 `WX_JS_POOL_SIZE` 调大到 16+, 让 1500 源探测从 80min → 20min.
     private static let JS_POOL_SIZE: Int = {
-        #if TESTLAB
-        return 1
-        #else
         if let env = ProcessInfo.processInfo.environment["WX_JS_POOL_SIZE"],
            let n = Int(env), n > 0, n <= 64 {
             return n
         }
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 2 }
-        if mem <= 4_500_000_000 { return 3 }
-        return 4
-        #endif
+        if mem <= 3_000_000_000 { return 1 }
+        if mem <= 4_500_000_000 { return 2 }
+        return 2
     }()
     private let searchParserPool: [SearchParser]
     private let poolCounter = ManagedAtomicLite()
@@ -70,26 +66,18 @@ public final class BookSourceEngine: @unchecked Sendable {
     /// 即便单源解析有 workPermit slots=1, 但 HTTP 响应/JSContext 缓冲仍并发占用,
     /// 进一步降到 1 — 牺牲一点搜索体感, 换稳定不闪退.
     public static let defaultSearchConcurrency: Int = {
-        #if TESTLAB
-        return 1
-        #else
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 3_000_000_000 { return 1 }
-        if mem <= 4_500_000_000 { return 4 }
-        return 9
-        #endif
+        if mem <= 3_000_000_000 { return 1 }    // 3GB — 实测串行安全
+        if mem <= 4_500_000_000 { return 3 }
+        return 4
     }()
 
     /// 换源页专用搜索并发 (比全站搜索更保守, 避免多路 HTML/JS 解析 OOM)
     public static let changeSourceSearchConcurrency: Int = {
-        #if TESTLAB
-        return 1
-        #else
         let mem = ProcessInfo.processInfo.physicalMemory
         if mem <= 3_000_000_000 { return 1 }
-        if mem <= 4_500_000_000 { return 3 }
-        return 4
-        #endif
+        if mem <= 4_500_000_000 { return 2 }
+        return 2
     }()
 
     /// 换源 info-fill 并发 (fetchInfo 比 search 更吃内存)
@@ -98,6 +86,15 @@ public final class BookSourceEngine: @unchecked Sendable {
         if mem <= 3_000_000_000 { return 1 }
         if mem <= 4_500_000_000 { return 4 }
         return 8
+    }()
+
+    /// 搜索时最多使用的源数量（按设备内存动态调整，防止低内存设备 OOM）
+    public static let maxSearchSourceCount: Int = {
+        let mem = ProcessInfo.processInfo.physicalMemory
+        if mem <= 3_000_000_000 { return 5 }    // 3GB (SE) — 实测安全值
+        if mem <= 4_500_000_000 { return 10 }   // 4-4.5GB (iPhone 11, XR)
+        if mem <= 6_500_000_000 { return 15 }   // 6GB (iPhone 12 Pro, 13 Pro)
+        return 20                                // 8GB+ (iPhone 14 Pro+)
     }()
 
     /// 详情页 TOC fallback 等窄场景搜索并发
@@ -226,6 +223,10 @@ public final class BookSourceEngine: @unchecked Sendable {
                           perSourceTimeoutSec: TimeInterval = 30) -> AsyncStream<(BookSource, Result<[SearchBook], Error>)> {
         AsyncStream { continuation in
             let innerTask = Task {
+                // #region agent log
+                DebugActivityTracker.shared.begin("searchAll(\(sources.count)s)")
+                defer { DebugActivityTracker.shared.end("searchAll(\(sources.count)s)") }
+                // #endregion
                 await withTaskGroup(of: (BookSource, Result<[SearchBook], Error>).self) { group in
                     var iter = sources.makeIterator()
                     let cap = max(1, min(maxConcurrency, sources.count))

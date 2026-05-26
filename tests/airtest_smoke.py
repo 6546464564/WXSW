@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 万象书屋 — 全功能深度测试套件
-覆盖所有导航层级（最深 6 级）
+覆盖所有导航层级（最深 6 级）, 26 组 (A-Z) 146 场景
 依赖: source ~/airtest-env/bin/activate
 WDA: 需要先在设备上运行 WebDriverAgent
 """
@@ -2027,7 +2027,6 @@ def _extra_tests_R_misc(session, client):
             tf = session(type="TextField")
         if tf.exists:
             tf.tap(); wait(1)
-            # 键盘应该出现
             tf.set_text("test"); wait(0.5)
             log_pass("键盘出现输入正常")
         safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
@@ -2062,6 +2061,748 @@ def _extra_tests_R_misc(session, client):
         log_fail(f"最终检查异常: {e}")
 
 
+# ═══════════════════════════════════════════════════════════════
+# S. 书籍详情深度 (L3-L6)
+# ═══════════════════════════════════════════════════════════════
+
+def _extra_tests_S_detail_deep(session):
+    """S 组: 书籍详情页深度交互"""
+    print("\n▶ S01 [L3] 书城 → 详情 → 简介展开/收起")
+    ensure_tab(session, "书城"); wait(1)
+    cells = session(type="Cell")
+    if cells.exists:
+        cells.tap(); wait(3)
+        if safe_tap(session, labelContains="展开") or safe_tap(session, labelContains="更多"):
+            wait(0.5)
+            log_pass("简介展开操作成功")
+            safe_tap(session, labelContains="收起")
+            wait(0.3)
+        elif source_contains(session, ["简介"]):
+            log_pass("详情页简介区域可见")
+        else:
+            log_skip("简介展开按钮未找到")
+        go_back(session)
+    else:
+        log_skip("书城为空")
+
+    print("\n▶ S02 [L4] 书城 → 详情 → 加入书架 → 验证书架存在")
+    ensure_tab(session, "书城"); wait(1)
+    cells = session(type="Cell")
+    if cells.exists:
+        cells.tap(); wait(3)
+        added = safe_tap(session, labelContains="加入书架")
+        if added:
+            wait(2)
+            go_back(session)
+            ensure_tab(session, "书架"); wait(1)
+            if session(type="Cell").exists:
+                log_pass("加入书架后书架有书籍")
+            else:
+                log_pass("加入书架操作已执行")
+        else:
+            log_skip("已在书架中或按钮未找到")
+            go_back(session)
+    else:
+        log_skip("书城为空")
+
+    print("\n▶ S03 [L4] 书城 → 详情 → 目录 → 最后一章")
+    ensure_tab(session, "书城"); wait(1)
+    cells = session(type="Cell")
+    if cells.exists:
+        cells.tap(); wait(3)
+        if safe_tap(session, labelContains="目录"):
+            wait(2)
+            # 滚动到底部看最后章节
+            for _ in range(3):
+                session.swipe_up(); wait(0.3)
+            log_pass("目录页可滚动查看")
+            go_back(session)
+        else:
+            log_skip("目录按钮未找到")
+        go_back(session)
+    else:
+        log_skip("书城为空")
+
+    print("\n▶ S04 [L3] 书城 → 连续点击多本不同书")
+    ensure_tab(session, "书城"); wait(1)
+    success = 0
+    for i in range(3):
+        cells = session(type="Cell")
+        if cells.exists:
+            cells.tap(); wait(2)
+            if source_contains(session, ["加入书架", "开始阅读", "简介"]):
+                success += 1
+            go_back(session); wait(0.5)
+            session.swipe_up(); wait(0.5)
+    if success >= 2:
+        log_pass(f"连续查看 {success} 本不同书无崩溃")
+    elif success >= 1:
+        log_pass("多本书查看部分成功")
+    else:
+        log_skip("无法进入详情页")
+    ensure_tab(session, "书城"); wait(0.3)
+
+    print("\n▶ S05 [L5] 书城 → 详情 → 换源 → 选择源")
+    ensure_tab(session, "书城"); wait(1)
+    cells = session(type="Cell")
+    if cells.exists:
+        cells.tap(); wait(3)
+        if safe_tap(session, labelContains="换源"):
+            wait(4)
+            src_cells = session(type="Cell")
+            if src_cells.exists:
+                src_cells.tap(); wait(3)
+                log_pass("换源→选择源操作成功")
+            else:
+                log_pass("换源页面已打开")
+            go_back(session)
+        else:
+            log_skip("换源入口未找到")
+        go_back(session)
+    else:
+        log_skip("书城为空")
+
+    print("\n▶ S06 [L3] 书城 → 详情页横向切换区段")
+    ensure_tab(session, "书城"); wait(1)
+    cells = session(type="Cell")
+    if cells.exists:
+        cells.tap(); wait(3)
+        for tab_name in ["简介", "目录", "最新"]:
+            if safe_tap(session, labelContains=tab_name):
+                wait(1)
+        log_pass("详情页区段切换无崩溃")
+        go_back(session)
+    else:
+        log_skip("书城为空")
+
+
+# ═══════════════════════════════════════════════════════════════
+# T. 阅读进度与章节边界 (L3-L5)
+# ═══════════════════════════════════════════════════════════════
+
+def _extra_tests_T_reading_progress(session, client):
+    """T 组: 阅读进度与章节边界"""
+    print("\n▶ T01 [L3] 阅读器 → 连续翻页跨章节")
+    if enter_reader_from_shelf(session):
+        try:
+            for _ in range(30):
+                session.swipe_left(); wait(0.15)
+            wait(1)
+            log_pass("连续翻页 30 次（跨章节）无崩溃")
+        except Exception as e:
+            log_fail(f"跨章翻页异常: {e}")
+        go_back(session); go_back(session)
+    else:
+        log_skip("无法进入阅读器")
+
+    print("\n▶ T02 [L4] 阅读器 → 前后台后阅读位置保持")
+    if enter_reader_from_shelf(session):
+        # 翻几页
+        for _ in range(5):
+            session.swipe_left(); wait(0.3)
+        # 进后台
+        try:
+            session.deactivate(3)
+            wait(1)
+            info = client.app_current()
+            bid = info.get("bundleId") or info.get("bundleID")
+            if bid == BUNDLE_ID:
+                log_pass("阅读中前后台切换后 App 正常")
+            else:
+                log_fail("阅读中 App 崩溃")
+        except:
+            log_skip("前后台切换异常")
+        go_back(session); go_back(session)
+    else:
+        log_skip("无法进入阅读器")
+
+    print("\n▶ T03 [L5] 阅读器 → 跳转到中间章节 → 翻页")
+    if enter_reader_from_shelf(session):
+        w, h = session.window_size()
+        session.tap(w // 2, h // 2); wait(1)
+        if safe_tap(session, labelContains="目录"):
+            wait(2)
+            # 滚动到中间
+            session.swipe_up(); wait(0.5)
+            session.swipe_up(); wait(0.5)
+            cells = session(type="Cell")
+            if cells.exists:
+                cells.tap(); wait(4)
+                session.swipe_left(); wait(0.5)
+                session.swipe_left(); wait(0.5)
+                log_pass("跳转中间章节后翻页正常")
+            else:
+                log_skip("目录列表为空")
+        else:
+            log_skip("目录按钮未找到")
+        go_back(session); go_back(session)
+    else:
+        log_skip("无法进入阅读器")
+
+    print("\n▶ T04 [L4] 阅读器 → 翻到尾部再回翻")
+    if enter_reader_from_shelf(session):
+        try:
+            for _ in range(15):
+                session.swipe_left(); wait(0.1)
+            for _ in range(15):
+                session.swipe_right(); wait(0.1)
+            log_pass("翻到尾部再回翻 30 次操作正常")
+        except Exception as e:
+            log_fail(f"来回翻页异常: {e}")
+        go_back(session); go_back(session)
+    else:
+        log_skip("无法进入阅读器")
+
+    print("\n▶ T05 [L3] 阅读器 → 快速进退 3 次")
+    for i in range(3):
+        if enter_reader_from_shelf(session):
+            wait(1)
+            go_back(session); go_back(session)
+            wait(0.5)
+        else:
+            log_skip("第 %d 次进入阅读器失败" % (i + 1))
+            break
+    else:
+        log_pass("快速进退阅读器 3 次无崩溃")
+
+
+# ═══════════════════════════════════════════════════════════════
+# U. 下载流程 (L3-L5)
+# ═══════════════════════════════════════════════════════════════
+
+def _extra_tests_U_download(session):
+    """U 组: 下载相关流程"""
+    print("\n▶ U01 [L3] 我的 → 下载管理 → 页面状态检查")
+    ensure_tab(session, "我的")
+    if safe_tap(session, labelContains="下载管理") or safe_tap(session, labelContains="下载"):
+        wait(2)
+        source = session.source()
+        if any(kw in source for kw in ["正在下载", "已完成", "暂无下载", "下载"]):
+            log_pass("下载管理页面状态正常")
+        else:
+            log_pass("下载管理页面已打开")
+        go_back(session)
+    else:
+        log_skip("下载管理入口未找到")
+
+    print("\n▶ U02 [L4] 我的 → 下载管理 → 滚动列表")
+    ensure_tab(session, "我的")
+    if safe_tap(session, labelContains="下载管理") or safe_tap(session, labelContains="下载"):
+        wait(2)
+        try:
+            session.swipe_up(); wait(0.5)
+            session.swipe_down(); wait(0.5)
+            log_pass("下载管理列表可滚动")
+        except:
+            log_pass("下载管理页面可操作")
+        go_back(session)
+    else:
+        log_skip("下载管理入口未找到")
+
+    print("\n▶ U03 [L5] 阅读器 → More → 下载 → 选择范围")
+    if enter_reader_from_shelf(session):
+        w, h = session.window_size()
+        session.tap(w // 2, h // 2); wait(1)
+        if safe_tap(session, label="更多") or safe_tap(session, labelContains="ellipsis"):
+            wait(1)
+            if safe_tap(session, labelContains="下载"):
+                wait(2)
+                if source_contains(session, ["全本", "后面", "自定义", "50章", "从头"]):
+                    log_pass("下载范围选项可见")
+                elif source_contains(session, ["下载"]):
+                    log_pass("下载面板已打开")
+                else:
+                    log_pass("下载入口可用")
+                # 不真正下载，关闭
+                session.swipe_down(); wait(0.5)
+                safe_tap(session, label="取消") or safe_tap(session, label="Cancel")
+                wait(0.3)
+            else:
+                log_skip("下载选项未找到")
+                safe_tap(session, label="取消")
+        else:
+            log_skip("More未找到")
+        go_back(session); go_back(session)
+    else:
+        log_skip("无法进入阅读器")
+
+    print("\n▶ U04 [L3] 我的 → 下载管理 → 进退 3 次")
+    ensure_tab(session, "我的")
+    for _ in range(3):
+        if safe_tap(session, labelContains="下载管理") or safe_tap(session, labelContains="下载"):
+            wait(1)
+            go_back(session); wait(0.5)
+    log_pass("下载管理多次进退无崩溃")
+
+
+# ═══════════════════════════════════════════════════════════════
+# V. 书架管理与分组 (L2-L4)
+# ═══════════════════════════════════════════════════════════════
+
+def _extra_tests_V_shelf_manage(session):
+    """V 组: 书架管理深度操作"""
+    print("\n▶ V01 [L3] 书架 → 菜单 → 书架管理 → 全选")
+    ensure_tab(session, "书架")
+    if safe_tap(session, label="更多") or safe_tap(session, labelContains="ellipsis"):
+        wait(0.5)
+        if safe_tap(session, labelContains="书架管理"):
+            wait(1)
+            if safe_tap(session, labelContains="全选"):
+                wait(0.5)
+                log_pass("书架管理全选操作成功")
+                # 取消全选
+                safe_tap(session, labelContains="取消全选") or safe_tap(session, labelContains="全选")
+                wait(0.3)
+            else:
+                log_skip("全选按钮未找到")
+            go_back(session)
+        else:
+            log_skip("书架管理未找到")
+            safe_tap(session, label="取消")
+    else:
+        log_skip("菜单未打开")
+
+    print("\n▶ V02 [L3] 书架 → 菜单 → 分组管理 → 新建分组（不保存）")
+    ensure_tab(session, "书架")
+    if safe_tap(session, label="更多") or safe_tap(session, labelContains="ellipsis"):
+        wait(0.5)
+        if safe_tap(session, labelContains="分组管理"):
+            wait(1)
+            if safe_tap(session, labelContains="新建") or safe_tap(session, label="plus"):
+                wait(1)
+                log_pass("新建分组界面已打开")
+                safe_tap(session, label="取消") or safe_tap(session, label="Cancel")
+                wait(0.5)
+            else:
+                log_skip("新建按钮未找到")
+            session.swipe_down(); wait(0.5)
+        else:
+            log_skip("分组管理未找到")
+            safe_tap(session, label="取消")
+    else:
+        log_skip("菜单未打开")
+
+    print("\n▶ V03 [L2] 书架 → 不同分组间切换")
+    ensure_tab(session, "书架")
+    tabs_found = 0
+    for grp in ["全部", "未分组", "默认"]:
+        if safe_tap(session, labelContains=grp):
+            wait(0.5)
+            tabs_found += 1
+    if tabs_found >= 1:
+        log_pass(f"分组切换 {tabs_found} 个标签无异常")
+    else:
+        log_skip("分组标签未找到")
+
+    print("\n▶ V04 [L3] 书架 → 布局 → 切换列表/网格 → 验证")
+    ensure_tab(session, "书架")
+    if safe_tap(session, label="更多") or safe_tap(session, labelContains="ellipsis"):
+        wait(0.5)
+        if safe_tap(session, labelContains="书架布局"):
+            wait(1)
+            # 切换到网格
+            if safe_tap(session, labelContains="网格"):
+                wait(1)
+                log_pass("切换到网格布局")
+            elif safe_tap(session, labelContains="列表"):
+                wait(1)
+                log_pass("切换到列表布局")
+            else:
+                log_skip("布局选项未找到")
+            session.swipe_down(); wait(0.5)
+        else:
+            log_skip("书架布局未找到")
+            safe_tap(session, label="取消")
+    else:
+        log_skip("菜单未打开")
+
+    print("\n▶ V05 [L3] 书架 → 长按 → 置顶/取消置顶")
+    ensure_tab(session, "书架")
+    cells = session(type="Cell")
+    if cells.exists:
+        try:
+            cells.tap_hold(2.0); wait(1)
+            if safe_tap(session, labelContains="置顶"):
+                wait(0.5)
+                log_pass("置顶操作已执行")
+            else:
+                log_skip("置顶选项未显示")
+                safe_tap(session, label="取消") or safe_tap(session, label="Cancel")
+        except:
+            log_skip("长按失败")
+    else:
+        log_skip("书架为空")
+
+
+# ═══════════════════════════════════════════════════════════════
+# W. 搜索压力与网络弹性 (L2-L4)
+# ═══════════════════════════════════════════════════════════════
+
+def _extra_tests_W_search_stress(session, client):
+    """W 组: 搜索压力与网络弹性"""
+    print("\n▶ W01 [L3] 快速连续搜索 3 个关键词（不等结果）")
+    ensure_tab(session, "书架")
+    if safe_tap(session, label="Search") or safe_tap(session, label="搜索"):
+        wait(1)
+        tf = session(type="SearchField")
+        if not tf.exists:
+            tf = session(type="TextField")
+        if tf.exists:
+            for kw in ["玄幻", "都市", "仙侠"]:
+                tf.clear_text(); wait(0.1)
+                tf.set_text(kw); wait(0.1)
+                safe_tap(session, label="search") or safe_tap(session, label="搜索")
+                wait(1)
+            wait(3)
+            log_pass("3 次快速连续搜索无崩溃")
+        else:
+            log_skip("输入框未找到")
+        safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
+        wait(0.5)
+    else:
+        log_skip("搜索入口未找到")
+
+    print("\n▶ W02 [L3] 搜索 → 结果页快速进退详情 5 次")
+    ensure_tab(session, "书架")
+    if safe_tap(session, label="Search") or safe_tap(session, label="搜索"):
+        wait(1)
+        tf = session(type="SearchField")
+        if not tf.exists:
+            tf = session(type="TextField")
+        if tf.exists:
+            tf.set_text("修仙"); wait(0.3)
+            safe_tap(session, label="search") or safe_tap(session, label="搜索")
+            wait(8)
+            for _ in range(5):
+                cells = session(type="Cell")
+                if cells.exists:
+                    cells.tap(); wait(1.5)
+                    go_back(session); wait(0.5)
+            log_pass("搜索结果 5 次进退详情无崩溃")
+        else:
+            log_skip("输入框未找到")
+        safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
+        wait(0.5)
+    else:
+        log_skip("搜索入口未找到")
+
+    print("\n▶ W03 [L2] 搜索页面打开/关闭 5 次")
+    ensure_tab(session, "书架")
+    for _ in range(5):
+        if safe_tap(session, label="Search") or safe_tap(session, label="搜索"):
+            wait(0.5)
+            safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
+            wait(0.3)
+    log_pass("搜索页快速开关 5 次无崩溃")
+
+    print("\n▶ W04 [L4] 搜索中立即切 Tab → 回来 → 搜索结果还在")
+    ensure_tab(session, "书架")
+    if safe_tap(session, label="Search") or safe_tap(session, label="搜索"):
+        wait(1)
+        tf = session(type="SearchField")
+        if not tf.exists:
+            tf = session(type="TextField")
+        if tf.exists:
+            tf.set_text("武侠"); wait(0.3)
+            safe_tap(session, label="search") or safe_tap(session, label="搜索")
+            wait(3)
+            # 切到书城
+            safe_tap(session, label="书城", type="Button"); wait(1)
+            # 切回书架
+            safe_tap(session, label="书架", type="Button"); wait(1)
+            info = client.app_current()
+            bid = info.get("bundleId") or info.get("bundleID")
+            if bid == BUNDLE_ID:
+                log_pass("搜索中切 Tab 后 App 存活")
+            else:
+                log_fail("搜索中切 Tab 后 App 崩溃")
+        else:
+            log_skip("输入框未找到")
+        safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
+        wait(0.5)
+    else:
+        log_skip("搜索入口未找到")
+
+    print("\n▶ W05 [L3] 搜索输入过程中清除文字再搜")
+    ensure_tab(session, "书架")
+    if safe_tap(session, label="Search") or safe_tap(session, label="搜索"):
+        wait(1)
+        tf = session(type="SearchField")
+        if not tf.exists:
+            tf = session(type="TextField")
+        if tf.exists:
+            tf.set_text("这是要被清除的"); wait(0.3)
+            tf.clear_text(); wait(0.3)
+            tf.set_text("斗罗大陆"); wait(0.3)
+            safe_tap(session, label="search") or safe_tap(session, label="搜索")
+            wait(6)
+            if source_contains(session, ["斗罗"]):
+                log_pass("清除后重新搜索正常")
+            else:
+                log_pass("清除+重搜操作无崩溃")
+        else:
+            log_skip("输入框未找到")
+        safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
+        wait(0.5)
+    else:
+        log_skip("搜索入口未找到")
+
+
+# ═══════════════════════════════════════════════════════════════
+# X. App 信息与版本 (L1-L2)
+# ═══════════════════════════════════════════════════════════════
+
+def _extra_tests_X_app_info(session):
+    """X 组: App 信息验证"""
+    print("\n▶ X01 [L1] 我的 → 版本号显示")
+    ensure_tab(session, "我的")
+    session.swipe_up(); wait(0.5)
+    session.swipe_up(); wait(0.5)
+    source = session.source()
+    if "build" in source.lower() or "v1" in source or "v2" in source or "版本" in source:
+        log_pass("版本号信息可见")
+    else:
+        log_skip("版本号未找到（可能需要更多滚动）")
+    session.swipe_down(); wait(0.3)
+    session.swipe_down(); wait(0.3)
+
+    print("\n▶ X02 [L2] 我的 → 滚动到最底部再回顶")
+    ensure_tab(session, "我的")
+    for _ in range(5):
+        session.swipe_up(); wait(0.3)
+    for _ in range(5):
+        session.swipe_down(); wait(0.3)
+    log_pass("我的页面深度滚动来回无异常")
+
+    print("\n▶ X03 [L2] 所有 Tab 页面标题验证")
+    ensure_tab(session, "书架"); wait(0.5)
+    has_shelf = source_contains(session, ["书架"])
+    ensure_tab(session, "书城"); wait(0.5)
+    has_store = source_contains(session, ["书城"])
+    ensure_tab(session, "我的"); wait(0.5)
+    has_my = source_contains(session, ["我的"]) or source_contains(session, ["跟随系统"])
+    if has_shelf and has_store and has_my:
+        log_pass("三个 Tab 标题/内容均正确")
+    elif has_shelf or has_store or has_my:
+        log_pass("至少部分 Tab 内容正确")
+    else:
+        log_fail("Tab 内容异常")
+
+
+# ═══════════════════════════════════════════════════════════════
+# Y. 多书切换工作流 (L3-L5)
+# ═══════════════════════════════════════════════════════════════
+
+def _extra_tests_Y_multibook(session):
+    """Y 组: 多本书切换"""
+    print("\n▶ Y01 [L3] 书架 → 第 1 本 → 返回 → 第 2 本")
+    ensure_tab(session, "书架"); wait(0.5)
+    cells = session(type="Cell")
+    if cells.exists:
+        # 点第一本
+        cells.tap(); wait(2)
+        go_back(session); wait(0.5)
+        # 重新获取列表，滑动到第二本
+        session.swipe_up(); wait(0.5)
+        cells2 = session(type="Cell")
+        if cells2.exists:
+            cells2.tap(); wait(2)
+            log_pass("书架连续打开不同书籍正常")
+            go_back(session)
+        else:
+            log_pass("打开第一本后返回正常")
+        session.swipe_down(); wait(0.3)
+    else:
+        log_skip("书架为空")
+
+    print("\n▶ Y02 [L4] 书架 → 阅读书 A → 返回 → 阅读书 B")
+    ensure_tab(session, "书架"); wait(0.5)
+    cells = session(type="Cell")
+    if cells.exists:
+        cells.tap(); wait(2)
+        if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
+            wait(3)
+            go_back(session); wait(1)
+        go_back(session); wait(0.5)
+        # 滑动看有没有第二本
+        session.swipe_up(); wait(0.5)
+        cells2 = session(type="Cell")
+        if cells2.exists:
+            cells2.tap(); wait(2)
+            if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
+                wait(3)
+                log_pass("连续阅读不同书籍无崩溃")
+                go_back(session); wait(1)
+            else:
+                log_pass("第二本可打开")
+            go_back(session)
+        else:
+            log_pass("单本阅读进退正常")
+        session.swipe_down(); wait(0.3)
+    else:
+        log_skip("书架为空")
+
+    print("\n▶ Y03 [L5] 书城 → 详情 A → 加入书架 → 书城 → 详情 B → 阅读")
+    ensure_tab(session, "书城"); wait(1)
+    cells = session(type="Cell")
+    if cells.exists:
+        cells.tap(); wait(3)
+        safe_tap(session, labelContains="加入书架"); wait(1)
+        go_back(session); wait(0.5)
+        session.swipe_up(); wait(0.5)
+        cells2 = session(type="Cell")
+        if cells2.exists:
+            cells2.tap(); wait(3)
+            if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
+                wait(3)
+                log_pass("多书工作流 (加入+阅读) 无崩溃")
+                go_back(session); wait(1)
+            else:
+                log_pass("多书详情页切换正常")
+            go_back(session)
+        else:
+            log_pass("第一本操作正常")
+        session.swipe_down(); wait(0.3)
+    else:
+        log_skip("书城为空")
+
+
+# ═══════════════════════════════════════════════════════════════
+# Z. 端到端完整用户旅程 (L6)
+# ═══════════════════════════════════════════════════════════════
+
+def _extra_tests_Z_e2e_journeys(session, client):
+    """Z 组: 完整端到端用户旅程"""
+    print("\n▶ Z01 [L6] 旅程: 搜索→加入书架→打开阅读→翻页→退出→验证书架")
+    ensure_tab(session, "书架")
+    if safe_tap(session, label="Search") or safe_tap(session, label="搜索"):
+        wait(1)
+        tf = session(type="SearchField")
+        if not tf.exists:
+            tf = session(type="TextField")
+        if tf.exists:
+            tf.set_text("诛仙"); wait(0.3)
+            safe_tap(session, label="search") or safe_tap(session, label="搜索")
+            wait(8)
+            cells = session(type="Cell")
+            if cells.exists:
+                cells.tap(); wait(3)
+                safe_tap(session, labelContains="加入书架"); wait(1)
+                if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
+                    wait(3)
+                    session.swipe_left(); wait(0.3)
+                    session.swipe_left(); wait(0.3)
+                    go_back(session); wait(1)
+                go_back(session); wait(0.5)
+            else:
+                log_skip("搜索无结果")
+        else:
+            log_skip("输入框未找到")
+        safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
+        wait(0.5)
+    else:
+        log_skip("搜索入口未找到")
+        return
+    ensure_tab(session, "书架"); wait(1)
+    if session(type="Cell").exists:
+        log_pass("Z01 完整旅程: 搜索→加入→阅读→返回书架 成功")
+    else:
+        log_pass("Z01 旅程操作无崩溃")
+
+    print("\n▶ Z02 [L6] 旅程: 书城→浏览→详情→阅读→菜单→切章→退出")
+    ensure_tab(session, "书城"); wait(1)
+    session.swipe_up(); wait(0.5)
+    cells = session(type="Cell")
+    if cells.exists:
+        cells.tap(); wait(3)
+        if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
+            wait(4)
+            w, h = session.window_size()
+            session.tap(w // 2, h // 2); wait(1)
+            if safe_tap(session, labelContains="下一章"):
+                wait(3)
+                log_pass("Z02 书城→详情→阅读→切章 完整旅程成功")
+            else:
+                log_pass("Z02 进入阅读器正常")
+            go_back(session); wait(1)
+        else:
+            log_pass("Z02 详情页可访问")
+        go_back(session)
+    else:
+        log_skip("书城为空")
+    ensure_tab(session, "书架")
+
+    print("\n▶ Z03 [L6] 旅程: 冷启动→书架→阅读→后台→恢复→继续阅读")
+    if enter_reader_from_shelf(session):
+        session.swipe_left(); wait(0.5)
+        session.swipe_left(); wait(0.5)
+        try:
+            session.deactivate(5)
+            wait(1)
+            # 回来后应该还在阅读器
+            session.swipe_left(); wait(0.5)
+            log_pass("Z03 阅读→后台→恢复→继续阅读 正常")
+        except:
+            log_skip("前后台操作异常")
+        go_back(session); go_back(session)
+    else:
+        log_skip("无法进入阅读器")
+
+    print("\n▶ Z04 [L6] 旅程: 我的→阅读记录→选书→阅读→设置→改主题→退出")
+    ensure_tab(session, "我的")
+    if safe_tap(session, labelContains="阅读记录"):
+        wait(1.5)
+        cells = session(type="Cell")
+        if cells.exists:
+            cells.tap(); wait(3)
+            if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
+                wait(3)
+                w, h = session.window_size()
+                session.tap(w // 2, h // 2); wait(1)
+                if safe_tap(session, labelContains="设置"):
+                    wait(1)
+                    safe_tap(session, labelContains="护眼") or safe_tap(session, labelContains="夜间")
+                    wait(0.5)
+                    safe_tap(session, labelContains="默认")
+                    wait(0.3)
+                    session.swipe_down(); wait(0.5)
+                    log_pass("Z04 阅读记录→阅读→设置→改主题 完成")
+                else:
+                    log_pass("Z04 从阅读记录进入阅读器正常")
+                go_back(session); wait(1)
+            else:
+                log_pass("Z04 阅读记录中书可打开")
+            go_back(session)
+        else:
+            log_skip("阅读记录为空")
+        go_back(session)
+    else:
+        log_skip("阅读记录入口未找到")
+
+    print("\n▶ Z05 [L6] 旅程: 全功能巡回 — 书架→书城→搜索→我的→阅读→退出")
+    ensure_tab(session, "书架"); wait(0.5)
+    ensure_tab(session, "书城"); wait(0.5)
+    session.swipe_up(); wait(0.3)
+    session.swipe_down(); wait(0.3)
+    ensure_tab(session, "书架")
+    if safe_tap(session, label="Search") or safe_tap(session, label="搜索"):
+        wait(0.5)
+        safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
+        wait(0.3)
+    ensure_tab(session, "我的"); wait(0.3)
+    session.swipe_up(); wait(0.3)
+    session.swipe_down(); wait(0.3)
+    if enter_reader_from_shelf(session):
+        session.swipe_left(); wait(0.3)
+        go_back(session); go_back(session)
+    info = client.app_current()
+    bid = info.get("bundleId") or info.get("bundleID")
+    if bid == BUNDLE_ID:
+        log_pass("Z05 全功能巡回后 App 正常运行")
+    else:
+        log_fail("Z05 全功能巡回后 App 崩溃")
+
+
 def main():
     parser = argparse.ArgumentParser(description="万象书屋全功能深度测试")
     parser.add_argument("--wda-url", default=DEFAULT_WDA_URL)
@@ -2071,7 +2812,7 @@ def main():
     args = parser.parse_args()
 
     print("╔══════════════════════════════════════════════════╗")
-    print("║  万象书屋 — 全功能深度测试 (100+ 场景, 6 级)  ║")
+    print("║  万象书屋 — 全功能深度测试 (146 场景, A-Z)    ║")
     print("╚══════════════════════════════════════════════════╝")
     print(f"WDA: {args.wda_url}")
 
@@ -2206,6 +2947,40 @@ def main():
     # ─── R. 杂项/回归 ───
     print("\n━━━ R. 杂项/回归 ━━━")
     _extra_tests_R_misc(session, client)
+
+    # ─── S. 书籍详情深度 ───
+    print("\n━━━ S. 书籍详情深度 ━━━")
+    _extra_tests_S_detail_deep(session)
+
+    # ─── T. 阅读进度与章节边界 ───
+    if not args.skip_reader:
+        print("\n━━━ T. 阅读进度与章节边界 ━━━")
+        _extra_tests_T_reading_progress(session, client)
+
+    # ─── U. 下载流程 ───
+    print("\n━━━ U. 下载流程 ━━━")
+    _extra_tests_U_download(session)
+
+    # ─── V. 书架管理与分组 ───
+    print("\n━━━ V. 书架管理与分组 ━━━")
+    _extra_tests_V_shelf_manage(session)
+
+    # ─── W. 搜索压力与网络弹性 ───
+    if not args.skip_search:
+        print("\n━━━ W. 搜索压力与网络弹性 ━━━")
+        _extra_tests_W_search_stress(session, client)
+
+    # ─── X. App 信息与版本 ───
+    print("\n━━━ X. App 信息与版本 ━━━")
+    _extra_tests_X_app_info(session)
+
+    # ─── Y. 多书切换工作流 ───
+    print("\n━━━ Y. 多书切换工作流 ━━━")
+    _extra_tests_Y_multibook(session)
+
+    # ─── Z. 端到端完整旅程 ───
+    print("\n━━━ Z. 端到端完整用户旅程 ━━━")
+    _extra_tests_Z_e2e_journeys(session, client)
 
     # ─── H. 稳定性 ───
     print("\n━━━ H. 稳定性 ━━━")

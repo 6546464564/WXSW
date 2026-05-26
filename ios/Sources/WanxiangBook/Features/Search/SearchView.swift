@@ -715,6 +715,17 @@ final class SearchViewModel: ObservableObject {
         loadHistory()
     }
 
+    // #region agent log
+    deinit {
+        DebugSessionLog.logDevice(
+            location: "SearchViewModel.deinit",
+            message: "VM destroyed",
+            hypothesisId: "CRASH-A",
+            data: ["isSearching": isSearching, "resultCount": results.count]
+        )
+    }
+    // #endregion
+
     /// 安全清空搜索结果并取消正在运行的搜索任务。
     /// View 层清空关键词时必须调用此方法，而非直接赋值 `results = []`。
     func cancelAndClear() {
@@ -786,9 +797,7 @@ final class SearchViewModel: ObservableObject {
         // 84 源里很多反爬/死站, 没排序时用户得等所有源 timeout. 排序后头几条结果
         // 通常是历史好源, 用户感知速度显著提升.
         var sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
-        #if TESTLAB
-        sources = Array(sources.prefix(15))
-        #endif
+        sources = Array(sources.prefix(BookSourceEngine.maxSearchSourceCount))
         activeSources = sources
 
         // 3. 没源时直接 stub 一条提示

@@ -408,6 +408,11 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
         // 万象书屋 (2026-05-25): 低内存设备 (SE/iPhone 6/7) 主动监控可用内存,
         // 比系统 didReceiveMemoryWarning 更早触发清理, 避免被 jetsam 直接 SIGKILL.
         LowMemoryGuard.shared.start()
+        // #region agent log
+        #if DEBUG
+        DebugSessionLog.startMemoryMonitor()
+        #endif
+        // #endregion
         return true
     }
 
@@ -417,8 +422,11 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
         DebugSessionLog.log(
             location: "WanxiangBookApp.applicationDidReceiveMemoryWarning",
             message: "memory warning",
-            hypothesisId: "H5",
-            data: ["memMB": ProcessInfo.processInfo.physicalMemory / 1_048_576]
+            hypothesisId: "MEM",
+            data: [
+                "availMB": Int(os_proc_available_memory()) / 1_048_576,
+                "physicalGB": ProcessInfo.processInfo.physicalMemory / 1_073_741_824
+            ]
         )
         // #endregion
         URLCache.shared.removeAllCachedResponses()

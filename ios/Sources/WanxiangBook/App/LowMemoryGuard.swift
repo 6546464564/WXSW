@@ -104,12 +104,28 @@ public final class LowMemoryGuard {
             if let last = lastHardFireAt, now.timeIntervalSince(last) < cooldown { return }
             lastHardFireAt = now
             NSLog("[WX-MEM] HARD pressure: avail=%lluKB → emergency cleanup", avail / 1024)
+            // #region agent log
+            DebugSessionLog.logDevice(
+                location: "LowMemoryGuard.checkOnce",
+                message: "HARD threshold",
+                hypothesisId: "MEM",
+                data: ["availMB": Int(avail) / 1_048_576, "threshold": "hard"]
+            )
+            // #endregion
             NotificationCenter.default.post(name: .wanxiangMemoryWarning, object: nil)
             URLCache.shared.removeAllCachedResponses()
         } else if avail < Self.softThresholdBytes {
             if let last = lastSoftFireAt, now.timeIntervalSince(last) < cooldown { return }
             lastSoftFireAt = now
             NSLog("[WX-MEM] SOFT pressure: avail=%lluKB → preemptive cleanup", avail / 1024)
+            // #region agent log
+            DebugSessionLog.logDevice(
+                location: "LowMemoryGuard.checkOnce",
+                message: "SOFT threshold",
+                hypothesisId: "MEM",
+                data: ["availMB": Int(avail) / 1_048_576, "threshold": "soft"]
+            )
+            // #endregion
             NotificationCenter.default.post(name: .wanxiangMemoryWarning, object: nil)
         }
     }

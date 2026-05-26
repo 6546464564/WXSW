@@ -33,7 +33,7 @@ public final class SourceHealthChecker: ObservableObject {
     private static let lastCheckKey = "wx.sourceHealth.lastCheckAt"
 
     /// 检测间隔（秒）
-    private let checkInterval: TimeInterval = 2 * 60 * 60  // 2 小时
+    private let checkInterval: TimeInterval = 24 * 60 * 60  // 24 小时
 
     /// 当前是否在跑健康检测
     @Published public var isChecking = false
@@ -64,6 +64,10 @@ public final class SourceHealthChecker: ObservableObject {
         let now = Date().timeIntervalSince1970
         guard now - last >= checkInterval else { return }
         guard !isChecking else { return }
+        let hour = Calendar.current.component(.hour, from: Date())
+        let isNight = hour >= 0 && hour < 5
+        let overdue = now - last >= checkInterval * 2 // >48h 兜底
+        guard isNight || overdue else { return }
         startHealthCheck()
         #endif
     }
@@ -72,6 +76,10 @@ public final class SourceHealthChecker: ObservableObject {
     public func startHealthCheck() {
         checkTask?.cancel()
         checkTask = Task.detached(priority: .background) { [weak self] in
+            // #region agent log
+            DebugActivityTracker.shared.begin("healthCheck")
+            defer { DebugActivityTracker.shared.end("healthCheck") }
+            // #endregion
             await self?.runHealthProbe()
         }
     }
@@ -190,12 +198,20 @@ public final class SourceHealthChecker: ObservableObject {
 
         // 并发上限（原固定 7，SE 上易 OOM）
         let maxConcurrency = Self.healthCheckConcurrency
+        let memSafetyBytes: UInt64 = 500 * 1024 * 1024 // 可用 < 500MB 时中止
 
         await withTaskGroup(of: Void.self) { group in
             var iter = enabled.makeIterator()
+            var aborted = false
 
             func addNextSource() {
-                guard let source = iter.next() else { return }
+                guard !aborted, let source = iter.next() else { return }
+                let avail = UInt64(os_proc_available_memory())
+                if avail > 0 && avail < memSafetyBytes {
+                    NSLog("[WX-MEM] SourceHealthChecker: 可用内存 %lluMB < 500MB, 中止本轮", avail / 1_048_576)
+                    aborted = true
+                    return
+                }
                 group.addTask { [keyword, timeout] in
                     await self.checkOneSource(source, keyword: keyword, timeoutSec: timeout)
                 }
@@ -205,8 +221,10 @@ public final class SourceHealthChecker: ObservableObject {
                 addNextSource()
             }
             for await _ in group {
+                if Task.isCancelled || aborted { break }
                 addNextSource()
             }
+            if aborted { group.cancelAll() }
         }
 
         SourcePerformanceTracker.shared.persistToDisk()

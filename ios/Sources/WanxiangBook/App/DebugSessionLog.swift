@@ -1,22 +1,42 @@
 //
 //  DebugSessionLog.swift
-//  万象书屋 iOS · Debug 会话 NDJSON 上报 (仅 DEBUG 构建)
+//  万象书屋 iOS · Debug 会话 NDJSON 日志（设备本地 + 主机双写）
 //
-//  万象书屋 (2026-05-25): 端点是开发机 127.0.0.1:7532, 真机/无网络环境下原生
-//  URLSession 默认 60s timeout 会导致 task 累积 → 占内存 + 卡 networkd. 改为:
-//   - 仅在 DEBUG 构建生效 (#if DEBUG)
-//   - 共享一个 1s 超时 URLSession, 真机连不上时秒失败不堆积
-//   - 仅在模拟器或显式开 `WX_DEBUG_REMOTE_LOG` 时才发网络, 真机默认只写本地文件
+//  session 08d799: 用于诊断 12h 模拟测试中的内存相关崩溃.
+//  设备上日志写入 Documents/debug_memory.jsonl, 测试后可通过 xcrun devicectl 拉取.
 //
 
 import Foundation
+import UIKit
+
+// #region agent log
+/// 全局活动追踪 — 记录当前 app 正在做什么操作，内存采样时一并输出
+final class DebugActivityTracker: @unchecked Sendable {
+    static let shared = DebugActivityTracker()
+    private let lock = NSLock()
+    private var activities: [String: Int] = [:]
+
+    func begin(_ tag: String) {
+        lock.lock(); defer { lock.unlock() }
+        activities[tag, default: 0] += 1
+    }
+    func end(_ tag: String) {
+        lock.lock(); defer { lock.unlock() }
+        if let c = activities[tag], c > 1 { activities[tag] = c - 1 }
+        else { activities.removeValue(forKey: tag) }
+    }
+    func snapshot() -> [String: Int] {
+        lock.lock(); defer { lock.unlock() }
+        return activities
+    }
+}
+// #endregion
 
 enum DebugSessionLog {
-    private static let sessionId = "c2a488"
+    private static let sessionId = "08d799"
     private static let endpoint = URL(string: "http://127.0.0.1:7532/ingest/158dd9d1-7177-49ee-9212-91afccd69b9e")!
-    private static let logPath = "/Users/stark/Desktop/WXSW/.cursor/debug-c2a488.log"
+    private static let hostLogPath = "/Users/stark/Desktop/WXSW/.cursor/debug-08d799.log"
 
-    /// 短超时 session: 真机连不上 dev host 时秒失败, 不堆积 task.
     private static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 1.0
@@ -26,7 +46,6 @@ enum DebugSessionLog {
         return URLSession(configuration: config)
     }()
 
-    /// 是否往 dev host 发请求. 真机默认 false (避免 60s 累积), 模拟器或显式打开才 true.
     private static let remoteEnabled: Bool = {
         #if targetEnvironment(simulator)
         return true
@@ -34,6 +53,61 @@ enum DebugSessionLog {
         return ProcessInfo.processInfo.environment["WX_DEBUG_REMOTE_LOG"] != nil
         #endif
     }()
+
+    // #region agent log
+    /// 设备本地日志路径 (Documents/debug_memory.jsonl)
+    private static let deviceLogPath: String = {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent("debug_memory.jsonl").path
+    }()
+
+    private static var memoryMonitorTask: Task<Void, Never>?
+
+    /// 启动每 10 秒一次的内存采样
+    static func startMemoryMonitor() {
+        guard memoryMonitorTask == nil else { return }
+        // 记录启动时状态
+        let avail = os_proc_available_memory()
+        let footprint = getFootprint()
+        log(location: "app_launch", message: "App started",
+            hypothesisId: "MEM", data: [
+                "availMB": Int(avail) / 1_048_576,
+                "footprintMB": footprint / 1_048_576,
+                "physicalGB": ProcessInfo.processInfo.physicalMemory / 1_073_741_824
+            ])
+
+        memoryMonitorTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
+                let a = os_proc_available_memory()
+                let f = getFootprint()
+                let acts = DebugActivityTracker.shared.snapshot()
+                var d: [String: Any] = [
+                    "availMB": Int(a) / 1_048_576,
+                    "footprintMB": f / 1_048_576
+                ]
+                if !acts.isEmpty { d["acts"] = acts }
+                logDevice(location: "mem_sample", message: "periodic",
+                          hypothesisId: "MEM", data: d)
+            }
+        }
+    }
+
+    /// 获取进程 footprint (实际占用物理内存)
+    private static func getFootprint() -> Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<Int32>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        if kr == KERN_SUCCESS {
+            return Int(info.phys_footprint)
+        }
+        return 0
+    }
+    // #endregion
 
     static func log(
         location: String,
@@ -54,7 +128,12 @@ enum DebugSessionLog {
         if !data.isEmpty { payload["data"] = data }
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
         let line = String(data: body, encoding: .utf8) ?? ""
+
+        // 写入设备本地日志
+        appendDeviceLog(line)
+        // 写入主机日志 (模拟器时有效)
         appendHostLog(line)
+
         if remoteEnabled {
             var req = URLRequest(url: endpoint)
             req.httpMethod = "POST"
@@ -64,12 +143,48 @@ enum DebugSessionLog {
             req.httpBody = body
             session.dataTask(with: req).resume()
         }
-        NSLog("[DEBUG-\(sessionId)] \(hypothesisId) \(location): \(message) \(data)")
         #endif
     }
 
+    /// 轻量级设备本地日志（不走网络），用于高频内存采样
+    static func logDevice(
+        location: String,
+        message: String,
+        hypothesisId: String,
+        data: [String: Any] = [:]
+    ) {
+        #if DEBUG
+        var payload: [String: Any] = [
+            "sessionId": sessionId,
+            "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+            "location": location,
+            "message": message,
+            "hypothesisId": hypothesisId,
+        ]
+        if !data.isEmpty { payload["data"] = data }
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        let line = String(data: body, encoding: .utf8) ?? ""
+        appendDeviceLog(line)
+        #endif
+    }
+
+    // #region agent log
+    private static func appendDeviceLog(_ line: String) {
+        let path = deviceLogPath
+        guard let data = (line + "\n").data(using: .utf8) else { return }
+        if FileManager.default.fileExists(atPath: path) {
+            guard let handle = FileHandle(forWritingAtPath: path) else { return }
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            FileManager.default.createFile(atPath: path, contents: data)
+        }
+    }
+    // #endregion
+
     private static func appendHostLog(_ line: String) {
-        let path = logPath
+        let path = hostLogPath
         guard let handle = FileHandle(forWritingAtPath: path) else {
             FileManager.default.createFile(atPath: path, contents: (line + "\n").data(using: .utf8))
             return

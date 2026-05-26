@@ -794,6 +794,10 @@ final class BookStoreViewModel: ObservableObject {
 
     /// 加载当前 channel 的 9 + 4 榜单
     func loadIfNeeded(force: Bool) async {
+        // #region agent log
+        DebugActivityTracker.shared.begin("storeLoad")
+        defer { DebugActivityTracker.shared.end("storeLoad") }
+        // #endregion
         let ch = currentChannel
         loadTask?.cancel()
 

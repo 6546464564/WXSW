@@ -54,8 +54,6 @@ struct RootView: View {
     private var mainContent: some View {
         VStack(spacing: 0) {
             Group {
-                // 万象书屋: 跟 Android `BaseActivity.trackPageName` 自动 PV 埋点等价.
-                // 命名跟 Android 同步使用 snake_case (page_*).
                 switch selectedTab {
                 case .bookshelf: BookshelfView().trackPageView("page_bookshelf")
                 case .bookStore: BookStoreView().trackPageView("page_bookstore")
@@ -63,6 +61,16 @@ struct RootView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // #region agent log
+            .onChange(of: selectedTab) { newTab in
+                DebugSessionLog.logDevice(
+                    location: "RootView.tabChange",
+                    message: "tab switched",
+                    hypothesisId: "CRASH-B",
+                    data: ["to": "\(newTab)"]
+                )
+            }
+            // #endregion
             // 万象书屋: 不再把 tabBar 放 safeAreaInset.
             // 实测 iOS 26 Simulator 下内容 switch 会刷新, 但 safeAreaInset 的自定义 tabBar
             // 手点切换后偶发不重绘颜色。放回普通 VStack 主树里, selectedTab 改变时一定重算。

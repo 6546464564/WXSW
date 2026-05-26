@@ -625,6 +625,10 @@ struct BookDetailView: View {
     ///   3. 无需额外超时逻辑: 15 源 / 8 并发 = 2 批次 × 6s = 自然 ~12s 上限.
     private func resolveSourceIfNeeded() async {
         guard currentSource == nil else { return }
+        // #region agent log
+        DebugActivityTracker.shared.begin("resolveSource")
+        defer { DebugActivityTracker.shared.end("resolveSource") }
+        // #endregion
         await MainActor.run { isResolvingSource = true }
 
         let bookName = currentBook.name
