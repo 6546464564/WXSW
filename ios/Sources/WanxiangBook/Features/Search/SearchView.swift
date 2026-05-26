@@ -720,8 +720,7 @@ final class SearchViewModel: ObservableObject {
         DebugSessionLog.logDevice(
             location: "SearchViewModel.deinit",
             message: "VM destroyed",
-            hypothesisId: "CRASH-A",
-            data: ["isSearching": isSearching, "resultCount": results.count]
+            hypothesisId: "CRASH-A"
         )
     }
     // #endregion
