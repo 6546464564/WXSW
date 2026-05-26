@@ -3,6 +3,15 @@
 万象书屋 — 真实用户模拟 (10倍速阅读)
 核心流程: 搜书 → 加书架 → 沉浸阅读翻页 → 偶尔书城浏览
 阅读速度: 正常用户30-60秒/页, 10倍速 = 3-6秒/页
+
+UI 元素映射 (通过 WDA source 实测):
+- Tab: name="tab.bookshelf" / "tab.bookstore" / "tab.my"
+- 书架书籍: type=Button, height>100, y>100 区域内
+- 搜索按钮: name="magnifyingglass"
+- 搜索输入: type=TextField (键盘自动弹出)
+- 搜索提交: name="Search" type=Button (键盘上)
+- 书详情页: "加书架"按钮, "开始阅读"按钮, "BackButton"返回
+- 阅读器: swipe_left 翻页, swipe(0.05,0.5,0.9,0.5) 退出
 """
 
 import argparse
@@ -21,6 +30,7 @@ stats = {"cycles": 0, "errors": 0, "crashes": 0, "actions": 0, "wda_failures": 0
          "pages_read": 0, "books_searched": 0, "books_added": 0}
 current_action = "idle"
 last_action = "idle"
+start_time = time.time()
 
 
 def wait(sec=1.0):
@@ -30,7 +40,7 @@ def wait(sec=1.0):
 def log_event(event_type, **data):
     entry = {
         "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "elapsed_s": int(time.time() - start_time) if 'start_time' in globals() else 0,
+        "elapsed_s": int(time.time() - start_time),
         "type": event_type,
         "action": current_action,
         "last_action": last_action,
@@ -40,31 +50,39 @@ def log_event(event_type, **data):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def safe_tap(session, **kwargs):
+def safe_tap(session, timeout=5, **kwargs):
     try:
         el = session(**kwargs)
+        el.wait(timeout=timeout)
         if el.exists:
             el.tap()
             return True
-    except:
+    except Exception:
         pass
     return False
+
+
+def el_exists(session, timeout=2, **kwargs):
+    try:
+        el = session(**kwargs)
+        return el.wait(timeout=timeout).exists if hasattr(el, 'wait') else el.exists
+    except Exception:
+        return False
 
 
 def check_wda_alive(client):
     try:
         client.status()
         return True
-    except:
+    except Exception:
         return False
 
 
 def ensure_app_alive(client, session):
-    global current_action
     if not check_wda_alive(client):
         stats["wda_failures"] += 1
         log_event("wda_disconnected")
-        for attempt in range(5):
+        for attempt in range(10):
             wait(3)
             if check_wda_alive(client):
                 log_event("wda_reconnected", attempt=attempt + 1)
@@ -76,7 +94,7 @@ def ensure_app_alive(client, session):
         try:
             session = client.session(BUNDLE_ID)
             wait(3)
-        except:
+        except Exception:
             pass
         return session
 
@@ -96,14 +114,34 @@ def ensure_app_alive(client, session):
         session = client.session(BUNDLE_ID)
         wait(3)
         log_event("app_restarted")
-    except:
+    except Exception:
         pass
     return session
 
 
-def go_home(session):
-    safe_tap(session, label="书架", type="Button")
-    wait(0.5)
+def go_to_shelf(session):
+    safe_tap(session, name="tab.bookshelf")
+    wait(0.8)
+
+
+def go_to_store(session):
+    safe_tap(session, name="tab.bookstore")
+    wait(1.5)
+
+
+def exit_reader(session):
+    """从阅读器退出 - 使用右滑手势"""
+    session.swipe(0.05, 0.5, 0.9, 0.5)
+    wait(1)
+
+
+def go_back(session):
+    """通用返回：BackButton → 右滑"""
+    if safe_tap(session, name="BackButton", timeout=2):
+        wait(0.8)
+        return
+    session.swipe(0.05, 0.5, 0.9, 0.5)
+    wait(0.8)
 
 
 # ═══════════════════════════════════════════════════════
@@ -121,89 +159,107 @@ def read_pages(session, count):
 
 def action_read_from_shelf(session):
     """从书架打开书阅读 — 主要场景"""
-    go_home(session)
-    wait(0.5)
-    cells = session(type="Cell")
-    if not cells.exists:
+    go_to_shelf(session)
+    try:
+        source = session.source()
+    except Exception:
         return
-    # 随机选一本书
-    cells.tap()
-    wait(1.5)
-    if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
-        wait(2)
-        # 10倍速阅读 20-80 页
+    import re
+    books = re.findall(
+        r'<XCUIElementTypeButton[^>]*name="([^"]+)"[^>]*accessible="true"[^>]*x="(\d+)"[^>]*y="(\d+)"[^>]*width="(\d+)"[^>]*height="(\d+)"',
+        source
+    )
+    shelf_books = [(name, int(x), int(y)) for name, x, y, w, h in books
+                   if int(h) > 100 and 100 < int(y) < 600]
+    if not shelf_books:
+        return
+    book_name = random.choice(shelf_books)[0]
+    if safe_tap(session, name=book_name, type="Button", timeout=3):
+        wait(3)
         pages = random.randint(20, 80)
         read_pages(session, pages)
-        # 退出阅读
-        safe_tap(session, label="返回") or safe_tap(session, label="Back")
-        wait(0.5)
-    safe_tap(session, label="返回") or safe_tap(session, label="Back")
-    wait(0.5)
+        exit_reader(session)
 
 
 def action_read_long_session(session):
-    """长阅读会话 — 模拟用户连续看100-200页"""
-    go_home(session)
-    wait(0.5)
-    cells = session(type="Cell")
-    if not cells.exists:
+    """长阅读 — 连续看100-200页"""
+    go_to_shelf(session)
+    try:
+        source = session.source()
+    except Exception:
         return
-    cells.tap()
-    wait(1.5)
-    if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
-        wait(2)
+    import re
+    books = re.findall(
+        r'<XCUIElementTypeButton[^>]*name="([^"]+)"[^>]*accessible="true"[^>]*x="(\d+)"[^>]*y="(\d+)"[^>]*width="(\d+)"[^>]*height="(\d+)"',
+        source
+    )
+    shelf_books = [(name, int(x), int(y)) for name, x, y, w, h in books
+                   if int(h) > 100 and 100 < int(y) < 600]
+    if not shelf_books:
+        return
+    book_name = random.choice(shelf_books)[0]
+    if safe_tap(session, name=book_name, type="Button", timeout=3):
+        wait(3)
         pages = random.randint(100, 200)
         read_pages(session, pages)
-        safe_tap(session, label="返回") or safe_tap(session, label="Back")
-        wait(0.5)
-    safe_tap(session, label="返回") or safe_tap(session, label="Back")
-    wait(0.5)
+        exit_reader(session)
 
 
 # ═══════════════════════════════════════════════════════
-# 搜书 → 加书架
+# 搜书 → 加书架 → 阅读
 # ═══════════════════════════════════════════════════════
 
 def action_search_and_add(session):
     """搜索书籍并加入书架"""
-    go_home(session)
-    wait(0.5)
-    if not (safe_tap(session, label="Search") or safe_tap(session, label="搜索")):
+    go_to_shelf(session)
+    if not safe_tap(session, name="magnifyingglass", timeout=3):
         return
-    wait(0.8)
+    wait(1.5)
     keywords = ["修仙", "都市", "玄幻", "穿越", "系统", "重生", "武侠", "科幻",
-                "末日", "仙侠", "悬疑", "言情"]
+                "末日", "仙侠", "悬疑", "言情", "推理", "历史", "军事"]
     kw = random.choice(keywords)
-    tf = session(type="SearchField")
+    tf = session(type="TextField")
     if not tf.exists:
-        tf = session(type="TextField")
-    if tf.exists:
-        tf.set_text(kw)
-        wait(0.5)
-        safe_tap(session, label="search") or safe_tap(session, label="搜索")
-        stats["books_searched"] += 1
-        # 等搜索结果
-        wait(random.uniform(5, 10))
-        # 点击一个结果
-        cells = session(type="Cell")
-        if cells.exists:
-            cells.tap()
+        go_back(session)
+        return
+    tf.set_text(kw)
+    wait(0.5)
+    safe_tap(session, name="Search", type="Button", timeout=3)
+    stats["books_searched"] += 1
+    wait(random.uniform(6, 12))
+
+    # 查找搜索结果中的书
+    try:
+        source = session.source()
+    except Exception:
+        go_back(session)
+        return
+    import re
+    results = re.findall(
+        r'<XCUIElementTypeButton[^>]*name="([^"]+)"[^>]*accessible="true"[^>]*x="(\d+)"[^>]*y="(\d+)"[^>]*width="(\d+)"[^>]*height="(\d+)"',
+        source
+    )
+    book_results = [(name, int(y)) for name, x, y, w, h in results
+                    if int(h) > 50 and 100 < int(y) < 600
+                    and "tab." not in name and "magnifyingglass" not in name
+                    and "BackButton" not in name]
+    if book_results:
+        chosen = random.choice(book_results)[0]
+        if safe_tap(session, name=chosen, type="Button", timeout=3):
             wait(2)
-            # 加入书架
-            if safe_tap(session, labelContains="加入书架") or safe_tap(session, labelContains="收藏"):
+            # 加书架
+            if safe_tap(session, name="加书架", timeout=2):
                 stats["books_added"] += 1
                 wait(1)
-            # 开始阅读这本书
-            if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
-                wait(2)
+            # 开始阅读
+            if safe_tap(session, name="开始阅读", timeout=2):
+                wait(3)
                 pages = random.randint(10, 30)
                 read_pages(session, pages)
-                safe_tap(session, label="返回") or safe_tap(session, label="Back")
+                exit_reader(session)
                 wait(0.5)
-            safe_tap(session, label="返回") or safe_tap(session, label="Back")
-            wait(0.5)
-    safe_tap(session, label="Cancel") or safe_tap(session, label="取消")
-    wait(0.5)
+            go_back(session)
+    go_back(session)
     stats["actions"] += 1
 
 
@@ -213,31 +269,42 @@ def action_search_and_add(session):
 
 def action_browse_and_read(session):
     """书城浏览，找到书开始读"""
-    safe_tap(session, label="书城", type="Button")
-    wait(1.5)
+    go_to_store(session)
     # 滑动浏览
-    for _ in range(random.randint(2, 5)):
+    for _ in range(random.randint(1, 3)):
         session.swipe_up()
         wait(1)
-    # 点击一本感兴趣的书
-    cells = session(type="Cell")
-    if cells.exists:
-        cells.tap()
-        wait(2)
-        # 加书架
+    # 找书城中的书
+    try:
+        source = session.source()
+    except Exception:
+        return
+    import re
+    results = re.findall(
+        r'<XCUIElementTypeButton[^>]*name="([^"]+)"[^>]*accessible="true"[^>]*x="(\d+)"[^>]*y="(\d+)"[^>]*width="(\d+)"[^>]*height="(\d+)"',
+        source
+    )
+    store_books = [(name, int(y)) for name, x, y, w, h in results
+                   if int(h) > 80 and 80 < int(y) < 600
+                   and "tab." not in name and "热门" not in name and "完本" not in name
+                   and "换一批" not in name and "全部" not in name]
+    if not store_books:
+        return
+    chosen = random.choice(store_books)[0]
+    if safe_tap(session, name=chosen, type="Button", timeout=3):
+        wait(3)
+        # 随机加书架
         if random.random() > 0.5:
-            safe_tap(session, labelContains="加入书架") or safe_tap(session, labelContains="收藏")
-            wait(0.5)
-            stats["books_added"] += 1
+            if safe_tap(session, name="加书架", timeout=2):
+                stats["books_added"] += 1
+                wait(0.5)
         # 开始阅读
-        if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
-            wait(2)
+        if safe_tap(session, name="开始阅读", timeout=2):
+            wait(3)
             pages = random.randint(15, 50)
             read_pages(session, pages)
-            safe_tap(session, label="返回") or safe_tap(session, label="Back")
-            wait(0.5)
-        safe_tap(session, label="返回") or safe_tap(session, label="Back")
-        wait(0.5)
+            exit_reader(session)
+        go_back(session)
     stats["actions"] += 1
 
 
@@ -246,31 +313,39 @@ def action_browse_and_read(session):
 # ═══════════════════════════════════════════════════════
 
 def action_switch_book(session):
-    """切换到另一本书继续读"""
-    go_home(session)
-    wait(0.5)
-    # 滑动书架
+    """换一本书继续读"""
+    go_to_shelf(session)
     session.swipe_up()
     wait(0.5)
-    cells = session(type="Cell")
-    if cells.exists:
-        cells.tap()
-        wait(1.5)
-        if safe_tap(session, labelContains="开始阅读") or safe_tap(session, labelContains="继续阅读"):
-            wait(2)
-            pages = random.randint(10, 40)
-            read_pages(session, pages)
-            safe_tap(session, label="返回") or safe_tap(session, label="Back")
-            wait(0.5)
-        safe_tap(session, label="返回") or safe_tap(session, label="Back")
-        wait(0.5)
+    try:
+        source = session.source()
+    except Exception:
+        return
+    import re
+    books = re.findall(
+        r'<XCUIElementTypeButton[^>]*name="([^"]+)"[^>]*accessible="true"[^>]*x="(\d+)"[^>]*y="(\d+)"[^>]*width="(\d+)"[^>]*height="(\d+)"',
+        source
+    )
+    shelf_books = [name for name, x, y, w, h in books
+                   if int(h) > 100 and 100 < int(y) < 600]
+    if not shelf_books:
+        return
+    book_name = random.choice(shelf_books)
+    if safe_tap(session, name=book_name, type="Button", timeout=3):
+        wait(3)
+        pages = random.randint(10, 40)
+        read_pages(session, pages)
+        exit_reader(session)
     stats["actions"] += 1
 
 
 def action_background_return(session):
-    """放下手机一会儿再回来继续看"""
-    duration = random.uniform(5, 30)
-    session.deactivate(duration)
+    """放下手机再回来"""
+    duration = random.uniform(5, 20)
+    try:
+        session.deactivate(duration)
+    except Exception:
+        wait(duration)
     wait(1)
     stats["actions"] += 1
 
@@ -278,9 +353,6 @@ def action_background_return(session):
 # ═══════════════════════════════════════════════════════
 # 主循环
 # ═══════════════════════════════════════════════════════
-
-start_time = time.time()
-
 
 def print_final_report():
     elapsed = time.time() - start_time
@@ -324,7 +396,7 @@ def main():
     print(f"App 已启动，开始模拟...\n")
 
     start_time = time.time()
-    log_event("test_started", duration_planned=args.duration, version="reader-v1")
+    log_event("test_started", duration_planned=args.duration, version="reader-sim-v2")
 
     # 权重: 阅读为主 (70%), 搜书加架 (15%), 书城 (10%), 其他 (5%)
     actions = [
@@ -348,9 +420,7 @@ def main():
             current_action = act_name
             act_fn(session)
             stats["cycles"] += 1
-
             session = ensure_app_alive(client, session)
-
         except Exception as e:
             stats["errors"] += 1
             log_event("action_error", error=str(e)[:200])
