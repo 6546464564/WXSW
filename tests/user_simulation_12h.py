@@ -109,27 +109,27 @@ def ensure_alive(client, session):
 # ─── 基础导航 ─────────────────────────────────────
 def go_shelf(s):
     s.tap(TAB_SHELF_X, TAB_Y)
-    time.sleep(0.8)
+    time.sleep(0.3)
 
 def go_store(s):
     s.tap(TAB_STORE_X, TAB_Y)
-    time.sleep(1.0)
+    time.sleep(0.5)
 
 def go_my(s):
     s.tap(TAB_MY_X, TAB_Y)
-    time.sleep(1.0)
+    time.sleep(0.5)
 
 def exit_reader(s):
     s.swipe(0.05, 0.5, 0.9, 0.5)
-    time.sleep(1.0)
+    time.sleep(0.5)
 
 def go_back(s):
     s.swipe(0.05, 0.5, 0.9, 0.5)
-    time.sleep(0.8)
+    time.sleep(0.3)
 
 def show_menu(s):
     s.tap(W // 2, H // 2)
-    time.sleep(1.0)
+    time.sleep(0.5)
 
 def handle_ad(s):
     """检测并处理广告/解锁弹窗 — 优先跳过"""
@@ -154,16 +154,15 @@ def wait_splash(s):
 def enter_reader(s):
     go_shelf(s)
     s.tap(*random.choice(SHELF_BOOKS))
-    time.sleep(2.5)
+    time.sleep(1.5)
     handle_ad(s)
 
 def read_pages(s, count):
     for i in range(count):
         s.swipe_left()
-        time.sleep(random.uniform(3.0, 6.0))
+        time.sleep(random.uniform(0.3, 0.6))
         stats["pages_read"] += 1
         stats["actions"] += 1
-        # 每 10 页检测一次广告弹窗
         if (i + 1) % 10 == 0:
             handle_ad(s)
 
@@ -228,14 +227,14 @@ def action_auto_read(s):
     enter_reader(s)
     show_menu(s)
     if safe_tap(s, name="更多", timeout=2):
-        time.sleep(0.8)
+        time.sleep(0.5)
         safe_tap(s, name="play.circle", timeout=2)
-        time.sleep(1)
-    duration = random.uniform(30, 90)
+        time.sleep(0.5)
+    duration = random.uniform(10, 30)
     time.sleep(duration)
-    stats["pages_read"] += int(duration / 5)
+    stats["pages_read"] += int(duration / 3)
     s.tap(W // 2, H // 2)
-    time.sleep(1)
+    time.sleep(0.5)
     exit_reader(s)
 
 def action_auto_read_settings(s):
@@ -475,13 +474,13 @@ def action_tts(s):
     enter_reader(s)
     show_menu(s)
     if safe_tap(s, name="speaker.wave.2.fill", timeout=2):
-        time.sleep(2)
-        dur = random.uniform(30, 60)
+        time.sleep(1)
+        dur = random.uniform(10, 30)
         time.sleep(dur)
         stats["tts_sessions"] += 1
-        stats["pages_read"] += int(dur / 8)
+        stats["pages_read"] += int(dur / 4)
         s.tap(W // 2, H // 2)
-        time.sleep(1)
+        time.sleep(0.5)
     exit_reader(s)
 
 def action_disguise(s):
@@ -500,12 +499,12 @@ def action_disguise(s):
 
 def action_background(s):
     """后台切回"""
-    dur = random.uniform(5, 30)
+    dur = random.uniform(2, 10)
     try:
         s.deactivate(dur)
     except Exception:
         time.sleep(dur)
-    time.sleep(1)
+    time.sleep(0.5)
     stats["actions"] += 1
 
 def action_bookmark(s):
@@ -623,7 +622,7 @@ def main():
     print("║  万象书屋 — 全功能用户模拟 v6 (10倍速)     ║")
     print("╚══════════════════════════════════════════════╝")
     print(f"WDA: {args.wda_url}  时长: {args.duration//3600}h")
-    print(f"覆盖: 28+场景  阅读: 3-6s/页  广告: 自动跳过")
+    print(f"覆盖: 28+场景  阅读: 0.3-0.6s/页(100倍速)  广告: 自动跳过")
 
     client = wda.Client(args.wda_url)
     try:
