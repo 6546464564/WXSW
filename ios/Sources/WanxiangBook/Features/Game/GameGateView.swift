@@ -5,7 +5,14 @@ private extension Notification.Name {
 }
 
 struct GameGateView: View {
-    @State private var unlocked: Bool = UserDefaults.standard.bool(forKey: "wx.game.unlocked")
+    @State private var unlocked: Bool = {
+        #if TESTLAB
+        return true
+        #else
+        if CommandLine.arguments.contains("-wxUnlocked") { return true }
+        return UserDefaults.standard.bool(forKey: "wx.game.unlocked")
+        #endif
+    }()
     @EnvironmentObject var appState: AppState
 
     var body: some View {
