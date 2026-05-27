@@ -8,7 +8,7 @@
 import Foundation
 
 public enum ReadingSettings {
-    /// 与 `ThemeSettingsView` 中 `@AppStorage("wanxiang.read.auto_change_source")` 同一键; 默认 true (对齐 Android).
+    /// 与 `@AppStorage("wanxiang.read.auto_change_source")` 同一键; 默认 true (对齐 Android).
     private static let autoChangeSourceKey = "wanxiang.read.auto_change_source"
 
     /// 无可用源时自动换源、正文失败时静默尝试换源 — 与 Legado「自动换源」一致, 默认开启.

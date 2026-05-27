@@ -13,12 +13,12 @@
 "tab.my" = "我的";
 
 // MARK: - 我的页
-"my.theme_follow_system" = "跟随系统";
-"my.theme_follow_system_summary" = "开启后随系统自动切换日间/夜间";
+"my.theme_mode" = "主题模式";
+"my.theme_mode_summary_system" = "跟随系统浅色/深色";
+"my.theme_mode_summary_day" = "始终使用日间配色";
+"my.theme_mode_summary_night" = "始终使用夜间配色";
 "my.eye_care_mode" = "护眼模式";
-"my.eye_care_mode_summary" = "全屏暖色滤镜,长时间阅读更舒适";
-"my.read_record" = "阅读记录";
-"my.read_record_summary" = "查看每日阅读时长统计";
+"my.eye_care_mode_summary" = "自动暖色滤镜, 随环境与时段调节";
 "my.feedback" = "意见反馈";
 "my.feedback_summary" = "向我们提建议或报告问题";
 "my.download_manage" = "下载管理";
@@ -32,10 +32,6 @@
 "my.app_disguise_confirm_message" = "启用后将立即切换到伪装界面（二维码生成器），需重新输入密码才能返回。";
 "my.app_disguise_confirm_action" = "确认伪装";
 "my.app_name_ios" = "万象书屋 iOS";
-"my.import_source_title" = "书源导入";
-"my.import_source_success" = "已合并导入 %d 个书源(与服务器书源共存,仅本地多出的 URL 会保留)";
-"my.import_source_failed" = "导入失败:%@";
-"my.import_source_open_failed" = "无法打开文件:%@";
 "my.ok" = "好的";
 "my.cancel" = "取消";
 

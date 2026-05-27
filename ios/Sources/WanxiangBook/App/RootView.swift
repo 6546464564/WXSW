@@ -72,8 +72,8 @@ struct RootView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        // 万象书屋: 显式背景色 — 防止暗模式下 Tab 切换间隙漏出黑色 WindowGroup 背景
-        .background(Color(.systemBackground).ignoresSafeArea())
+        // 万象书屋: 与 WanxiangColors 动态色一致, 避免 Tab 切换间隙漏色
+        .background(WanxiangColors.background.ignoresSafeArea())
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .wanxiangThemed(theme)
         .overlay(alignment: .top) {
@@ -325,7 +325,7 @@ private struct CustomTabBar: View {
                 .ignoresSafeArea(edges: .bottom)
         }
         .overlay(alignment: .top) {
-            Rectangle().fill(Color.black.opacity(0.06)).frame(height: 0.5)
+            Rectangle().fill(WanxiangColors.divider.opacity(0.85)).frame(height: 0.5)
         }
     }
 
@@ -333,7 +333,7 @@ private struct CustomTabBar: View {
     private func tabButton(item: (tab: RootView.Tab, iconOff: String, iconOn: String, label: String)) -> some View {
         let isSelected = selected == item.tab
         let activeColor = WanxiangColors.primary
-        let inactiveColor = Color.gray.opacity(0.52)
+        let inactiveColor = WanxiangColors.textSecondary.opacity(0.72)
         let tabColor = isSelected ? activeColor : inactiveColor
         Button {
             selected = item.tab

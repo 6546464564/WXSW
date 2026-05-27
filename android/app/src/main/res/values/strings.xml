@@ -557,7 +557,7 @@
     <string name="theme_follow_system">Theme follows system</string>
     <string name="theme_follow_system_summary">When enabled, switch light/dark with system settings</string>
     <string name="eye_care_mode">Eye care mode</string>
-    <string name="eye_care_mode_summary">Warm tint overlay to reduce blue light, intensity auto-adjusts to ambient light</string>
+    <string name="eye_care_mode_summary">Auto warm tint; adapts to ambient light and time of day</string>
     <string name="join_qq_group">Join QQ group</string>
     <string name="bg_image_per">Set the background image requires storage permission</string>
     <string name="input_book_source_url">Input book source address</string>

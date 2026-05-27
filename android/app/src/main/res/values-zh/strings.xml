@@ -573,7 +573,7 @@
     <string name="theme_follow_system">主题模式跟随系统</string>
     <string name="theme_follow_system_summary">开启后,跟随系统设置中浅色/深色模式同步切换</string>
     <string name="eye_care_mode">护眼模式</string>
-    <string name="eye_care_mode_summary">开启后显示暖色滤镜减少蓝光,亮度强弱自适应环境光</string>
+    <string name="eye_care_mode_summary">自动暖色滤镜, 随环境与时段调节</string>
     <string name="join_qq_group">加入 QQ 群</string>
     <string name="bg_image_per">获取背景图片需存储权限</string>
     <string name="input_book_source_url">输入书源网址</string>

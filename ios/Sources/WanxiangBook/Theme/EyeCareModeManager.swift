@@ -1,23 +1,9 @@
 //
 //  EyeCareModeManager.swift
-//  万象书屋 iOS · 护眼模式 — 全屏暖色滤镜
+//  万象书屋 iOS · 护眼模式 — 暖色滤镜 + 节律 + 阅读联动
 //
-//  对应 Android: io.legado.app.help.EyeCareHelper (D-18 v1 + D-20 自适应)
-//
-//  实现策略:
-//   - SwiftUI 顶层 ZStack 加一个 .allowsHitTesting(false) 的 Color overlay
-//   - 颜色 #FAF0DC (跟 Android v1 完全一致)
-//   - **alpha 自适应** (D-20 iOS 等价):
-//       Android 用 Sensor.TYPE_LIGHT (lux) → alpha 映射;
-//       iOS 没公开 ALS API, 用 UIScreen.main.brightness (0.0-1.0) 间接推断:
-//          系统开了"自动亮度"时, brightness 跟环境光高度相关 (Apple ALS 输出)
-//          用户没开自动亮度时, brightness 反映用户主观偏好 (深夜调暗, 白天调亮)
-//          两种场景下 brightness 越低 → alpha 越高 (越暗的环境下加强滤镜) 都成立.
-//
-//   - 监听 UIScreen.brightnessDidChangeNotification, 跨档 (>0.05 差异) 才更新 alpha
-//     避免 brightness slider 微调时 overlay 频繁刷新.
-//
-//  开关存 UserDefaults `wanxiang.eye_care_mode`
+//  对应 Android: io.legado.app.help.EyeCareHelper (D-18~D-22)
+//  强度由亮度 + 时段自动决定, 不提供手动档位.
 //
 
 import SwiftUI
@@ -26,49 +12,80 @@ import Combine
 import UIKit
 #endif
 
+// MARK: - 阅读器 overlay 衰减 (Environment)
+
+private struct WanxiangInReaderKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// 当前在 ReaderView 内 — overlay 强度 ×0.35, 避免与阅读主题双重滤镜
+    var wanxiangInReader: Bool {
+        get { self[WanxiangInReaderKey.self] }
+        set { self[WanxiangInReaderKey.self] = newValue }
+    }
+}
+
+// MARK: - Manager
+
 @MainActor
 final class EyeCareModeManager: ObservableObject {
 
     static let shared = EyeCareModeManager()
 
-    /// 开/关. UI 直接 `$EyeCareModeManager.shared.enabled` 双向绑.
     @Published var enabled: Bool {
         didSet {
-            UserDefaults.standard.set(enabled, forKey: Self.kKey)
-            // 开/关时立即重算 alpha (避免开了之后还是默认 30%)
-            recomputeAlphaFromBrightness()
+            UserDefaults.standard.set(enabled, forKey: Self.kEnabled)
+            if enabled {
+                let prev = ReadConfig.shared.theme
+                savedReaderTheme = prev
+                UserDefaults.standard.set(prev.rawValue, forKey: Self.kSavedTheme)
+                applySmartReaderTheme()
+            } else if let saved = savedReaderTheme {
+                ReadConfig.shared.theme = saved
+                savedReaderTheme = nil
+                UserDefaults.standard.removeObject(forKey: Self.kSavedTheme)
+            }
+            recomputeOverlay()
         }
     }
 
-    /// 当前应用的 alpha (0.0-1.0). 0.30 是默认 (跟 Android DEFAULT_ALPHA 0x4D 同).
     @Published private(set) var currentAlpha: Double = 0x4D / 255.0
+    @Published private(set) var baseColor: Color = Color(red: 0xFA / 255.0, green: 0xF0 / 255.0, blue: 0xDC / 255.0)
 
-    private static let kKey = "wanxiang.eye_care_mode"
-
-    /// 跟 Android `BASE_RGB = 0xFAF0DC` 等价
-    let baseColor: Color = Color(red: 0xFA / 255.0, green: 0xF0 / 255.0, blue: 0xDC / 255.0)
-
-    /// 节流: alpha 跨 0.05 (≈ Android 0x10/255) 才重算
+    private static let kEnabled = "wanxiang.eye_care_mode"
+    private static let kSavedTheme = "wanxiang.eye_care.saved_reader_theme"
     private static let alphaStepThreshold: Double = 0.05
+    private static let readerOverlayFactor: Double = 0.35
 
+    private static let standardTint = Color(red: 0xFA / 255.0, green: 0xF0 / 255.0, blue: 0xDC / 255.0)
+    private static let deepNightTint = Color(red: 1.0, green: 0.88, blue: 0.70)
+
+    private var savedReaderTheme: ReaderThemeKind?
     private var brightnessObserver: NSObjectProtocol?
+    private var timer: Timer?
 
     private init() {
-        self.enabled = UserDefaults.standard.bool(forKey: Self.kKey)
+        self.enabled = UserDefaults.standard.bool(forKey: Self.kEnabled)
+        if enabled, let saved = UserDefaults.standard.object(forKey: Self.kSavedTheme) as? Int,
+           let theme = ReaderThemeKind(rawValue: saved) {
+            savedReaderTheme = theme
+        }
         installBrightnessObserver()
-        recomputeAlphaFromBrightness()
+        startCircadianTimer()
+        recomputeOverlay()
     }
 
-    // MARK: - Brightness adaptive
+    func overlayAlpha(inReader: Bool) -> Double {
+        guard enabled else { return 0 }
+        var alpha = currentAlpha
+        if inReader { alpha *= Self.readerOverlayFactor }
+        return alpha
+    }
 
-    /// 跟 Android `LightSensorMonitor.computeAlphaFromLux` 等价 — 输入空间不同 (brightness 0-1
-    /// 而不是 lux), 但映射档位语义对齐:
-    ///   brightness < 0.10 (深夜暗室)  → alpha 0x66 (40%)
-    ///   brightness < 0.30 (昏暗)      → alpha 0x4D (30%)  ← 默认
-    ///   brightness < 0.60 (普通室内)  → alpha 0x40 (25%)
-    ///   brightness < 0.85 (明亮)      → alpha 0x33 (20%)
-    ///   brightness >= 0.85 (强光/户外) → alpha 0x26 (15%)
-    private static func computeAlpha(forBrightness b: Double) -> Double {
+    // MARK: - 自动强度 (亮度 + 时段)
+
+    private static func computeBaseAlpha(forBrightness b: Double) -> Double {
         switch b {
         case ..<0.10: return 0x66 / 255.0
         case ..<0.30: return 0x4D / 255.0
@@ -78,6 +95,34 @@ final class EyeCareModeManager: ObservableObject {
         }
     }
 
+    private static func circadianMultiplier() -> Double {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 22...23, 0...6: return 1.15
+        case 7...17: return 0.85
+        default: return 1.0
+        }
+    }
+
+    /// 深夜 / 极暗环境略加强暖色; 白天保持标准色
+    private static func autoTint(forBrightness b: Double) -> Color {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let deepNight = hour >= 22 || hour < 6 || b < 0.15
+        return deepNight ? deepNightTint : standardTint
+    }
+
+    private func recomputeOverlay() {
+        #if canImport(UIKit)
+        let b = Double(UIScreen.main.brightness)
+        baseColor = Self.autoTint(forBrightness: b)
+        let raw = Self.computeBaseAlpha(forBrightness: b) * Self.circadianMultiplier()
+        let newAlpha = raw.coerceIn(min: 0.10, max: 0.55)
+        if abs(newAlpha - currentAlpha) >= Self.alphaStepThreshold {
+            currentAlpha = newAlpha
+        }
+        #endif
+    }
+
     private func installBrightnessObserver() {
         #if canImport(UIKit)
         brightnessObserver = NotificationCenter.default.addObserver(
@@ -85,20 +130,29 @@ final class EyeCareModeManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.recomputeAlphaFromBrightness() }
+            Task { @MainActor in self?.recomputeOverlay() }
         }
         #endif
     }
 
-    private func recomputeAlphaFromBrightness() {
+    private func startCircadianTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.recomputeOverlay() }
+        }
+    }
+
+    // MARK: - 阅读主题联动
+
+    private func applySmartReaderTheme() {
         #if canImport(UIKit)
         let b = Double(UIScreen.main.brightness)
-        let newAlpha = Self.computeAlpha(forBrightness: b).coerceIn(min: 0.12, max: 0.50)
-        // 节流: 跨档才更新 (避免亮度滑块连续滑动时 overlay 闪烁)
-        if abs(newAlpha - currentAlpha) >= Self.alphaStepThreshold {
-            currentAlpha = newAlpha
-        }
+        #else
+        let b = 0.5
         #endif
+        let hour = Calendar.current.component(.hour, from: Date())
+        let isNightContext = b < 0.35 || hour >= 20 || hour < 7
+        ReadConfig.shared.theme = isNightContext ? .night : .parchment
     }
 }
 
@@ -108,18 +162,26 @@ private extension Double {
     }
 }
 
-// MARK: - View 修饰器: 给 Root 树加全屏暖色 overlay
+// MARK: - View 修饰器
 
 extension View {
 
-    /// 万象书屋: 在视图最顶层叠一层暖色滤镜 (跟 Android EyeCareHelper.apply 等价).
-    /// 调用方应把它放在 RootView body 最外层, 让所有子页面都受影响.
     @ViewBuilder
     func wanxiangEyeCareOverlay(_ manager: EyeCareModeManager = .shared) -> some View {
-        self.overlay {
+        modifier(WanxiangEyeCareOverlayModifier(manager: manager))
+    }
+}
+
+private struct WanxiangEyeCareOverlayModifier: ViewModifier {
+    @ObservedObject var manager: EyeCareModeManager
+    @Environment(\.wanxiangInReader) private var inReader
+
+    func body(content: Content) -> some View {
+        content.overlay {
             if manager.enabled {
                 manager.baseColor
-                    .opacity(manager.currentAlpha)
+                    .opacity(manager.overlayAlpha(inReader: inReader))
+                    .blendMode(.multiply)
                     .allowsHitTesting(false)
                     .ignoresSafeArea()
             }

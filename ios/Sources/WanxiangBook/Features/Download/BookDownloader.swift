@@ -45,7 +45,7 @@ public final class BookDownloader: ObservableObject {
         public var lastRange: ClosedRange<Int>? = nil
 
         public enum Status: String, Sendable {
-            case running, paused, finished, error, cancelled
+            case running, finished, error, cancelled
         }
 
         public var progress: Double {

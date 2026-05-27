@@ -2,12 +2,10 @@
 //  MyView.swift
 //  万象书屋 iOS · "我的" Tab — 1:1 对齐 Android `MyFragment` (D-17/D-18 简化态)
 //
-//  可见项: 解锁卡 (广告 consent 时) + 跟随系统 / 护眼 / 阅读记录 / 意见反馈 / 下载管理 / 应用伪装
-//  隐藏项: 见 MyViewHiddenSections.swift (`MyFeatureFlags.showHiddenItems`)
+//  可见项: 主题模式 / 护眼 / 意见反馈 / 下载管理 / 应用伪装
 //
 
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct MyView: View {
 
@@ -18,9 +16,6 @@ struct MyView: View {
 
     @State private var unlockToast: String? = nil
     @State private var showRelockConfirm = false
-
-    @State private var showBookSourceImporter = false
-    @State private var importSourceMessage: String?
 
     private var downloadSummarySubtitle: String {
         let running = downloader.jobs.values.filter { $0.status == .running }.count
@@ -49,14 +44,18 @@ struct MyView: View {
                 }
 
                 Section {
-                    Toggle(isOn: themeFollowSystemBinding) {
+                    Picker(selection: $theme.mode) {
+                        ForEach(ThemeManager.Mode.allCases) { m in
+                            Text(m.displayName).tag(m)
+                        }
+                    } label: {
                         MyRowLabel(
                             icon: "circle.lefthalf.filled",
-                            title: "my.theme_follow_system",
-                            subtitle: "my.theme_follow_system_summary"
+                            title: "my.theme_mode",
+                            subtitleText: themeModeSummary
                         )
                     }
-                    .tint(WanxiangColors.primary)
+                    .accessibilityIdentifier("my.row.theme_mode")
 
                     Toggle(isOn: $eyeCare.enabled) {
                         MyRowLabel(
@@ -66,19 +65,6 @@ struct MyView: View {
                         )
                     }
                     .tint(WanxiangColors.primary)
-
-                    NavigationLink {
-                        ReadRecordView()
-                    } label: {
-                        MyRowLabel(
-                            icon: "clock.arrow.circlepath",
-                            title: "my.read_record",
-                            subtitle: "my.read_record_summary"
-                        )
-                    }
-                    .accessibilityIdentifier("my.row.read_record")
-                    .accessibilityLabel("阅读记录")
-                    .accessibilityAddTraits(.isButton)
 
                     NavigationLink {
                         FeedbackView()
@@ -119,13 +105,6 @@ struct MyView: View {
                     }
                 }
 
-                if MyFeatureFlags.showHiddenItems {
-                    MyHiddenItemsPanel(
-                        showBookSourceImporter: $showBookSourceImporter,
-                        importSourceMessage: $importSourceMessage
-                    )
-                }
-
                 Section {
                     HStack {
                         Spacer()
@@ -147,28 +126,6 @@ struct MyView: View {
             .navigationTitle("tab.my")
             .navigationBarTitleDisplayMode(.inline)
             .environment(\.defaultMinListRowHeight, 10)
-            .fileImporter(
-                isPresented: $showBookSourceImporter,
-                allowedContentTypes: [UTType.json],
-                allowsMultipleSelection: false
-            ) { result in
-                Task {
-                    await MyBookSourceImporter.handle(result) { msg in
-                        importSourceMessage = msg
-                    }
-                }
-            }
-            .alert(
-                String(localized: "my.import_source_title"),
-                isPresented: Binding(
-                    get: { importSourceMessage != nil },
-                    set: { if !$0 { importSourceMessage = nil } }
-                )
-            ) {
-                Button(String(localized: "my.ok"), role: .cancel) {}
-            } message: {
-                Text(importSourceMessage ?? "")
-            }
             .alert(String(localized: "my.app_disguise_confirm_title"), isPresented: $showRelockConfirm) {
                 Button(String(localized: "my.cancel"), role: .cancel) {}
                 Button(String(localized: "my.app_disguise_confirm_action"), role: .destructive) {
@@ -192,11 +149,12 @@ struct MyView: View {
         }
     }
 
-    private var themeFollowSystemBinding: Binding<Bool> {
-        Binding(
-            get: { theme.mode == .system },
-            set: { newValue in theme.mode = newValue ? .system : .day }
-        )
+    private var themeModeSummary: String {
+        switch theme.mode {
+        case .system: return String(localized: "my.theme_mode_summary_system")
+        case .day: return String(localized: "my.theme_mode_summary_day")
+        case .night: return String(localized: "my.theme_mode_summary_night")
+        }
     }
 
     private func appVersion() -> String {
@@ -212,17 +170,26 @@ struct MyView: View {
 
 private struct PurifiedReadingCard: View {
 
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var state = PurifiedReadingState.shared
     let onToast: (String) -> Void
 
     private let unlockMinutes = PurifiedReadingState.defaultUnlockMinutes
+
+    private var cardBackground: Color {
+        colorScheme == .dark
+            ? Color(red: 0x1A / 255.0, green: 0x1B / 255.0, blue: 0x23 / 255.0)
+            : Color(red: 0x2C / 255.0, green: 0x2A / 255.0, blue: 0x26 / 255.0)
+    }
+
+    private var titleColor: Color { .white.opacity(colorScheme == .dark ? 1 : 0.95) }
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("unlock_card_title")
                     .font(.system(size: 14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(titleColor)
                 Text(remainingText)
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(Color(red: 0xEA / 255.0, green: 0xCE / 255.0, blue: 0x3F / 255.0))
@@ -245,7 +212,7 @@ private struct PurifiedReadingCard: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
-        .background(Color(red: 0x1A / 255.0, green: 0x1B / 255.0, blue: 0x23 / 255.0))
+        .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
@@ -279,27 +246,44 @@ private struct PurifiedReadingCard: View {
     }
 }
 
-// MARK: - 占位 (ThemeSettingsView 封面规则等)
+// MARK: - 共享行样式
 
-struct PlaceholderView: View {
-    let title: String
-    let milestone: String
+struct MyRowLabel: View {
+    let icon: String
+    let title: LocalizedStringKey
+    var subtitle: LocalizedStringKey?
+    var subtitleText: String?
+
+    init(icon: String, title: LocalizedStringKey, subtitle: LocalizedStringKey? = nil, subtitleText: String? = nil) {
+        self.icon = icon
+        self.title = title
+        self.subtitle = subtitle
+        self.subtitleText = subtitleText
+    }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "hammer")
-                .font(.system(size: 64))
-                .foregroundStyle(WanxiangColors.textSecondary)
-            Text(title)
-                .font(.title2.weight(.semibold))
-            Text("待 \(milestone) 实现")
-                .font(.subheadline)
-                .foregroundStyle(WanxiangColors.textSecondary)
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 17))
+                .foregroundStyle(WanxiangColors.primary)
+                .frame(width: 26, alignment: .center)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(WanxiangColors.textPrimary)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(WanxiangColors.textSecondary)
+                        .lineLimit(2)
+                } else if let subtitleText, !subtitleText.isEmpty {
+                    Text(subtitleText)
+                        .font(.caption)
+                        .foregroundStyle(WanxiangColors.textSecondary)
+                        .lineLimit(2)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(WanxiangColors.background.ignoresSafeArea())
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

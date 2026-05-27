@@ -34,8 +34,6 @@ public struct ReaderView: View {
     @State private var pages: [ReaderPage] = []
     @State private var chapterAttrCache: [Int: NSAttributedString] = [:]
     @State private var currentPageId: String? = nil
-    @State private var readTimer: Timer? = nil
-    @State private var readingSecondsAccrued: Int = 0
     @State private var dictKeyword: String? = nil
     @State private var browserUrl: URL? = nil
     @State private var showFinishedView: Bool = false
@@ -78,6 +76,7 @@ public struct ReaderView: View {
         // 万象书屋: 阅读器 PV (跟 Android `ReadBookActivity` 自动 trackPageName 等价)
         .statusBarHidden(!menuVisible)
         .preferredColorScheme(config.theme.isDark ? .dark : .light)
+        .environment(\.wanxiangInReader, true)
         .sheet(isPresented: $styleSheet) {
             ReadStyleSheet().presentationDetents([.medium, .large])
         }
@@ -949,8 +948,6 @@ public struct ReaderView: View {
     @State private var crossChapterTargetPageId: String? = nil
     /// 万象书屋: 首次分页后是否已经恢复了页内进度 (每个 ReaderView 实例只恢复一次)
     @State private var hasRestoredPagePosition = false
-    /// 万象书屋: 阅读计时开始时间 — 用于 stopReadingTimer 准确计算本次 session 剩余不足 60s 的秒数
-    @State private var readTimerStartDate: Date? = nil
     /// 万象书屋: 滚动模式上/下章节加载防抖标记 — 防止 onAppear 在重渲染时连续触发多次切章
     @State private var scrollPagerPrevLoading = false
     @State private var scrollPagerNextLoading = false
@@ -1099,7 +1096,6 @@ public struct ReaderView: View {
         screenSize = geoSize
         viewAppearDate = Date()
         Task { await engine.bootstrap() }
-        startReadingTimer()
         UIApplication.shared.isIdleTimerDisabled = config.keepScreenOn
         savedSystemBrightness = UIScreen.main.brightness
         applyBrightness()
@@ -1121,7 +1117,6 @@ public struct ReaderView: View {
     }
 
     private func handleDisappear() {
-        stopReadingTimer()
         UIApplication.shared.isIdleTimerDisabled = false
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -1437,42 +1432,6 @@ public struct ReaderView: View {
             // 万象书屋 (跨章翻页): 记录目标页, 让 onChange(of: currentChapterIndex) 保持该页不跳回首页
             crossChapterTargetPageId = id
             Task { await engine.goToChapter(cIdx) }
-        }
-    }
-
-    // MARK: - 阅读时长统计 (M2.5.7.6)
-
-    private func startReadingTimer() {
-        readingSecondsAccrued = 0
-        readTimerStartDate = Date()
-        readTimer?.invalidate()
-        readTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-            Task { @MainActor in
-                readingSecondsAccrued += 60
-                let bookUrl = engine.book.bookUrl
-                try? await ReadRecordRepository.shared.addSeconds(bookUrl: bookUrl, seconds: 60)
-            }
-        }
-    }
-
-    private func stopReadingTimer() {
-        readTimer?.invalidate()
-        readTimer = nil
-        // 退出时把已计时但还没满 60s 的零头一并写入
-        // 例: 阅读 5m45s → 定时器已累计 5×60=300s, 剩余 45s 这里补记
-        let totalElapsed = readTimerStartDate.map { Int(Date().timeIntervalSince($0)) } ?? 0
-        readTimerStartDate = nil
-        let remaining = max(0, totalElapsed - readingSecondsAccrued)
-        if readingSecondsAccrued == 0 {
-            // 读了不到 1 分钟就退出 — 至少记 30 秒, 避免极短阅读完全丢失
-            let toAdd = max(30, remaining)
-            Task {
-                try? await ReadRecordRepository.shared.addSeconds(bookUrl: engine.book.bookUrl, seconds: toAdd)
-            }
-        } else if remaining >= 10 {
-            Task {
-                try? await ReadRecordRepository.shared.addSeconds(bookUrl: engine.book.bookUrl, seconds: remaining)
-            }
         }
     }
 

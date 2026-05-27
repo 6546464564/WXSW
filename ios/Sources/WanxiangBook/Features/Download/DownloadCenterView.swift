@@ -79,10 +79,9 @@ public struct DownloadCenterView: View {
     private func statusOrder(_ s: BookDownloader.Job.Status) -> Int {
         switch s {
         case .running: return 0
-        case .paused: return 1
-        case .error: return 2
-        case .finished: return 3
-        case .cancelled: return 4
+        case .error: return 1
+        case .finished: return 2
+        case .cancelled: return 3
         }
     }
 
@@ -146,7 +145,6 @@ public struct DownloadCenterView: View {
         case .finished:   return "已完成 \(job.completed) 章" + (job.failed > 0 ? " · \(job.failed) 失败" : "")
         case .error:      return "下载失败"
         case .cancelled:  return "已取消 (已下 \(job.completed) / \(job.total))"
-        case .paused:     return "已暂停 \(job.completed) / \(job.total)"
         }
     }
 
@@ -157,7 +155,6 @@ public struct DownloadCenterView: View {
         case .finished:   Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .error:      Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
         case .cancelled:  Image(systemName: "xmark.circle.fill").foregroundStyle(.gray)
-        case .paused:     Image(systemName: "pause.circle.fill").foregroundStyle(.gray)
         }
     }
 
@@ -186,8 +183,6 @@ public struct DownloadCenterView: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(WanxiangColors.textSecondary)
             .buttonStyle(.borderless)
-        case .paused:
-            EmptyView()
         }
     }
 
