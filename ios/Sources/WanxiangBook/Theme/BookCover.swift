@@ -8,6 +8,7 @@
 
 import SwiftUI
 import UIKit
+import CommonCrypto
 
 public struct BookCover: View {
     public let url: String?
@@ -254,10 +255,13 @@ private actor BookCoverDiskCache {
     }
 
     private nonisolated func filename(for key: String) -> String {
-        // 简单 hash: 用 hashValue 字符串 (不需要密码学强度, 只要避免冲突)
-        var hasher = Hasher()
-        hasher.combine(key)
-        return "\(hasher.finalize()).img"
+        guard let data = key.data(using: .utf8) else { return "0.img" }
+        let hash = data.withUnsafeBytes { buf -> String in
+            var digest = [UInt8](repeating: 0, count: 32)
+            CC_SHA256(buf.baseAddress, CC_LONG(buf.count), &digest)
+            return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        }
+        return "\(hash).img"
     }
 }
 
@@ -271,10 +275,8 @@ private enum BookCoverImageSession {
         cfg.timeoutIntervalForRequest = 8
         cfg.timeoutIntervalForResource = 16
         cfg.httpMaximumConnectionsPerHost = 16
-        cfg.requestCachePolicy = .returnCacheDataElseLoad
-        cfg.urlCache = URLCache(memoryCapacity: 16 * 1024 * 1024,
-                                diskCapacity: 128 * 1024 * 1024,
-                                diskPath: "WanxiangCoverHTTPCache")
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        cfg.urlCache = nil
         return URLSession(configuration: cfg)
     }()
 }

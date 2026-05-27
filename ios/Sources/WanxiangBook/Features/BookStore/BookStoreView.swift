@@ -195,7 +195,7 @@ struct BookStoreView: View {
         } label: {
             HStack(alignment: .top, spacing: 14) {
                 ZStack(alignment: .topLeading) {
-                    BookCover(url: book.coverUrl, width: 96, height: 128, bookTitle: book.name)
+                    BookCover(url: book.coverUrl.replacingOccurrences(of: "/180", with: "/300"), width: 96, height: 128, bookTitle: book.name)
                     if vm.isOnShelf(book) {
                         shelfBadge
                     }
@@ -348,7 +348,7 @@ struct BookStoreView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader(title: title, rankType: rankType, onSwap: onSwap)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 14) {
-                ForEach(Array(books.enumerated()), id: \.offset) { idx, book in
+                ForEach(Array(books.enumerated()), id: \.element.id) { idx, book in
                     Button {
                         tapBookCell(book)
                     } label: {
@@ -401,14 +401,12 @@ struct BookStoreView: View {
     private func gridCell(book: QidianBook) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             ZStack(alignment: .topLeading) {
-                GeometryReader { geo in
-                    let h = geo.size.width * 4.0 / 3
-                    BookCover(url: book.coverUrl, width: geo.size.width, height: h, bookTitle: book.name)
-                }
-                .aspectRatio(3.0/4.0, contentMode: .fit)
+                BookCover(url: book.coverUrl, width: 80, height: 107, bookTitle: book.name)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(3.0/4.0, contentMode: .fit)
                 if book.rank == 1 {
                     badge(text: "榜首", color: Color(red: 0.92, green: 0.27, blue: 0.27))
-                } else                 if book.rank == 2 || book.rank == 3 {
+                } else if book.rank == 2 || book.rank == 3 {
                     badge(text: "TOP\(book.rank)", color: Color(red: 0.85, green: 0.69, blue: 0.20))
                 }
                 if vm.isOnShelf(book) {
@@ -440,11 +438,9 @@ struct BookStoreView: View {
     private func rankedCell(book: QidianBook, displayRank: Int) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             ZStack(alignment: .topLeading) {
-                GeometryReader { geo in
-                    let h = geo.size.width * 4.0 / 3
-                    BookCover(url: book.coverUrl, width: geo.size.width, height: h, bookTitle: book.name)
-                }
-                .aspectRatio(3.0/4.0, contentMode: .fit)
+                BookCover(url: book.coverUrl, width: 80, height: 107, bookTitle: book.name)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(3.0/4.0, contentMode: .fit)
                 Text("\(displayRank)")
                     .font(.system(size: 11, weight: .heavy))
                     .foregroundStyle(.white)
@@ -580,17 +576,6 @@ struct BookStoreView: View {
         .opacity(0.9)
     }
 
-    private var loadingPlaceholder: some View {
-        VStack(spacing: 12) {
-            Spacer().frame(height: 60)
-            ProgressView()
-            Text("正在加载书城…")
-                .font(.caption)
-                .foregroundStyle(WanxiangColors.textSecondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     private var loadFailedPlaceholder: some View {
         VStack(spacing: 10) {
             Spacer().frame(height: 60)
@@ -657,7 +642,7 @@ private enum NavTarget: Hashable {
 /// 万象书屋: 跟 Android `BookStoreFragment` 的状态管理 1:1 对齐.
 ///
 /// 关键 invariant:
-///   * channelRankCache: 频道维度 5 分钟 cache, 切 Tab 来回不重发请求
+///   * channelRankCache: 频道维度 24h cache, 切 Tab 来回不重发请求
 ///   * extendedRanks: 各 section 榜单 lazy 扩展到 50 本, 「换一批」在同榜内翻页
 ///   * swapPage*: 三个 section 独立翻页计数, 越界回 0
 @MainActor
@@ -669,16 +654,16 @@ final class BookStoreViewModel: ObservableObject {
     @Published var shelfDedupeKeys: Set<String> = []
 
     private var ranks: [QidianRankType: [QidianBook]] = [:]
-    /// 各 section 对应榜单的扩展池 (lazy fetchRankPages target=50)
     private var extendedRanks: [QidianRankType: [QidianBook]] = [:]
 
     /// 万象书屋 D-22 perf (2026-05-11): 频道维度短时缓存改成**进程级**单例.
-    /// 之前 instance-bound 时, 用户从 Bookshelf Tab 切到 Bookstore, BookStoreView 被
-    /// SwiftUI 首次构造, vm 全新, cache 空 → 走 `isLoading=true` → 闪 "正在加载书城…"
-    /// (即使后端 mirror 已经在 `AppState.bootstrap` 后台预热好).
-    /// 改成 static 后, prewarm() 写进的数据所有 View 实例都看得到, 切 Tab 不再闪 loading.
     private static var channelRankCache: [QidianChannel: (ranks: [QidianRankType: [QidianBook]], at: Date)] = [:]
     private static let cacheTtl: TimeInterval = 24 * 60 * 60   // 1 天
+
+    /// 频道级 extendedRanks 缓存: 避免切频道/切 Tab 后重复网络请求导致 grid 先显示 5 本再跳到 8 本
+    private static var channelExtendedCache: [QidianChannel: [QidianRankType: [QidianBook]]] = {
+        return ExtendedRanksDiskCache.load() ?? [:]
+    }()
 
     /// 「换一批」翻页偏移, 跟 Android swapPageMustRead/Complete/Ranked 对齐
     private var swapPageMustRead = 0
@@ -731,8 +716,7 @@ final class BookStoreViewModel: ObservableObject {
         sectionBooks(type: recommendType, page: swapPageRanked, slotOffset: 16, count: 8)
     }
 
-    /// 跟 Android `bindGridFromRank` 一致: 优先取 ranks[type] 的 5 本, 不足 8 本时
-    /// 从 allBooks 顺序兜底 (跳过已展示 bookId).
+    /// 优先取 extendedRanks (50本) → ranks (5本) → allBooks 兜底补足到 count 本.
     /// page > 0 时在同榜单 extendedRanks 池内循环切片 (换一批).
     private func sectionBooks(
         type: QidianRankType,
@@ -743,7 +727,17 @@ final class BookStoreViewModel: ObservableObject {
         let pool = rankPool(for: type)
         guard !pool.isEmpty else { return [] }
         if page == 0 {
-            return Array(pool.prefix(count))
+            var result = Array(pool.prefix(count))
+            if result.count < count {
+                var seen = Set(result.map { $0.bookId.isEmpty ? $0.name : $0.bookId })
+                for book in allBooks where result.count < count {
+                    let key = book.bookId.isEmpty ? book.name : book.bookId
+                    if seen.insert(key).inserted {
+                        result.append(book)
+                    }
+                }
+            }
+            return result
         }
         let start = ((page * count) + slotOffset + 1) % pool.count
         return (0..<count).map { pool[(start + $0) % pool.count] }
@@ -769,9 +763,7 @@ final class BookStoreViewModel: ObservableObject {
 
     // MARK: - Public API
 
-    /// 切频道 (跟 Android `switchChannel`):
-    ///   * 取消旧任务避免脏数据写回
-    ///   * 切完之后下次 task 触发会按新 channel 重新加载
+    /// 切频道: 取消旧任务, 优先从 static 缓存恢复 (含 extendedRanks), 避免 grid 闪跳
     func switchChannel(to ch: QidianChannel) {
         guard ch != currentChannel else { return }
         loadTask?.cancel()
@@ -779,18 +771,18 @@ final class BookStoreViewModel: ObservableObject {
         swapPageMustRead = 0
         swapPageComplete = 0
         swapPageRanked = 0
-        // 命中 cache 时立即 apply, 不清空 UI, 避免闪 loading
         if let hit = Self.channelRankCache[ch],
            Date().timeIntervalSince(hit.at) < Self.cacheTtl {
             apply(ranks: hit.ranks, channel: ch)
             return
         }
-        // 无 cache: 清掉上一频道数据, 避免女生 tab 短暂显示男生书
         ranks = [:]
         allBooks = []
         extendedRanks = [:]
         isLoading = true
     }
+
+    private var lastAppliedChannel: QidianChannel?
 
     /// 加载当前 channel 的 9 + 4 榜单
     func loadIfNeeded(force: Bool) async {
@@ -799,6 +791,12 @@ final class BookStoreViewModel: ObservableObject {
         defer { DebugActivityTracker.shared.end("storeLoad") }
         // #endregion
         let ch = currentChannel
+
+        // 已加载且非强制刷新时跳过 (避免 pop back 重复触发)
+        if !force && lastAppliedChannel == ch && !allBooks.isEmpty {
+            return
+        }
+
         loadTask?.cancel()
 
         if !force,
@@ -850,6 +848,7 @@ final class BookStoreViewModel: ObservableObject {
     }
 
     private func ensureExtendedRanks(for types: [QidianRankType], channel: QidianChannel) async {
+        var didChange = false
         for type in types {
             if (extendedRanks[type]?.count ?? 0) >= 20 { continue }
             let full: [QidianBook]
@@ -859,12 +858,17 @@ final class BookStoreViewModel: ObservableObject {
                 full = await QidianRepository.shared.fetchRankPages(type: type, target: 50, gender: channel)
             }
             guard !full.isEmpty else { continue }
+            guard currentChannel == channel else { return }
             extendedRanks[type] = full
-            objectWillChange.send()
+            didChange = true
+        }
+        if didChange {
+            Self.channelExtendedCache[channel] = extendedRanks
+            swapVersion += 1
         }
     }
 
-    /// 万象书屋: App 启动时在后台预灌三频道 mirror 榜单 cache.
+    /// 万象书屋: App 启动时在后台预灌三频道 mirror 榜单 cache + extendedRanks.
     static func prewarmInBackground() {
         Task.detached(priority: .utility) {
             _ = await BookstoreMirror.shared.fetch(forceRefresh: false)
@@ -874,6 +878,10 @@ final class BookStoreViewModel: ObservableObject {
             let m = await male
             let f = await female
             let p = await publish
+            // 预加载默认频道(男生)首屏封面
+            let maleCoverUrls = m.values.flatMap { $0.prefix(8) }.map(\.coverUrl)
+            await BookCoverPreloader.preload(urls: Array(Set(maleCoverUrls).prefix(24)))
+
             await MainActor.run {
                 let now = Date()
                 if m.values.contains(where: { !$0.isEmpty }) {
@@ -886,30 +894,70 @@ final class BookStoreViewModel: ObservableObject {
                     BookStoreViewModel.channelRankCache[.publish] = (p, now)
                 }
             }
+            // 预拉三频道的 extendedRanks (每榜 50 本, 三频道并发)
+            let extTypes: [QidianRankType] = [.hotReading, .newBook, .recommend]
+            async let _m: Void = prewarmExtended(channel: .male, types: extTypes)
+            async let _f: Void = prewarmExtended(channel: .female, types: extTypes)
+            async let _p: Void = prewarmExtended(channel: .publish, types: extTypes)
+            _ = await (_m, _f, _p)
+        }
+    }
+
+    private static func prewarmExtended(channel: QidianChannel, types: [QidianRankType]) async {
+        var ext: [QidianRankType: [QidianBook]] = [:]
+        await withTaskGroup(of: (QidianRankType, [QidianBook]).self) { group in
+            for type in types {
+                group.addTask {
+                    let full: [QidianBook]
+                    if channel == .publish {
+                        full = await PublishBookstore.fetchRankPages(type: type, target: 50)
+                    } else {
+                        full = await QidianRepository.shared.fetchRankPages(type: type, target: 50, gender: channel)
+                    }
+                    return (type, full)
+                }
+            }
+            for await (type, full) in group where !full.isEmpty {
+                ext[type] = full
+            }
+        }
+        guard !ext.isEmpty else { return }
+        let coverUrls = ext.values.flatMap { $0.prefix(8) }.map(\.coverUrl)
+        await BookCoverPreloader.preload(urls: Array(Set(coverUrls).prefix(24)))
+        await MainActor.run {
+            channelExtendedCache[channel] = ext
+            ExtendedRanksDiskCache.save(channelExtendedCache)
         }
     }
 
     func swap(_ target: SwapTarget) {
         switch target {
-        case .mustRead: swapPageMustRead += 1
-        case .complete: swapPageComplete += 1
-        case .recommend: swapPageRanked += 1
+        case .mustRead:
+            swapPageMustRead += 1
+            swapVersion += 1
+        case .complete:
+            swapPageComplete += 1
+            swapVersion += 1
+        case .recommend:
+            swapPageRanked += 1
+            swapVersion += 1
         }
-        // 触发 @Published 更新
-        objectWillChange.send()
     }
+
+    /// 触发 section books 重算的版本号 (比 objectWillChange 更精确)
+    @Published private(set) var swapVersion: Int = 0
 
     // MARK: - Private
 
     private func apply(ranks: [QidianRankType: [QidianBook]], channel: QidianChannel) {
         self.ranks = ranks
-        extendedRanks = [:]
-        var pool = mergeAllRanks(ranks)
-        self.allBooks = pool
+        self.extendedRanks = Self.channelExtendedCache[channel] ?? [:]
+        self.allBooks = mergeAllRanks(ranks)
         self.swapPageMustRead = 0
         self.swapPageComplete = 0
         self.swapPageRanked = 0
         self.isLoading = false
+        self.lastAppliedChannel = channel
         let types = [mustReadType, completeType, recommendType]
         Task { await ensureExtendedRanks(for: types, channel: channel) }
     }
@@ -928,6 +976,74 @@ final class BookStoreViewModel: ObservableObject {
             }
         }
         return out
+    }
+}
+
+// MARK: - ExtendedRanks Disk Cache
+
+private enum ExtendedRanksDiskCache {
+    private static let url: URL = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("com.wanxiang.reader", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("extended_ranks_cache.json")
+    }()
+
+    static func save(_ cache: [QidianChannel: [QidianRankType: [QidianBook]]]) {
+        Task.detached(priority: .background) {
+            var root: [String: [String: [[String: Any]]]] = [:]
+            for (channel, ranks) in cache {
+                var channelDict: [String: [[String: Any]]] = [:]
+                for (type, books) in ranks {
+                    channelDict[type.rawValue] = books.map { bookToDict($0) }
+                }
+                root[channel.rawValue] = channelDict
+            }
+            guard let data = try? JSONSerialization.data(withJSONObject: root) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    static func load() -> [QidianChannel: [QidianRankType: [QidianBook]]]? {
+        guard let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: [String: [[String: Any]]]] else {
+            return nil
+        }
+        var result: [QidianChannel: [QidianRankType: [QidianBook]]] = [:]
+        for (chRaw, ranksDict) in root {
+            guard let channel = QidianChannel(rawValue: chRaw) else { continue }
+            var channelRanks: [QidianRankType: [QidianBook]] = [:]
+            for (typeRaw, booksArr) in ranksDict {
+                guard let type = QidianRankType(rawValue: typeRaw) else { continue }
+                channelRanks[type] = booksArr.compactMap { dictToBook($0) }
+            }
+            result[channel] = channelRanks
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    private static func bookToDict(_ b: QidianBook) -> [String: Any] {
+        ["n": b.name, "c": b.coverUrl, "a": b.author, "ca": b.category,
+         "sc": b.subCategory, "wc": b.wordCount, "bi": b.bookId,
+         "r": b.rank, "rn": b.rankName, "rc": b.rankCount, "i": b.intro]
+    }
+
+    private static func dictToBook(_ d: [String: Any]) -> QidianBook? {
+        guard let name = d["n"] as? String, !name.isEmpty else { return nil }
+        return QidianBook(
+            name: name,
+            coverUrl: d["c"] as? String ?? "",
+            author: d["a"] as? String ?? "",
+            category: d["ca"] as? String ?? "",
+            subCategory: d["sc"] as? String ?? "",
+            wordCount: d["wc"] as? String ?? "",
+            bookId: d["bi"] as? String ?? "",
+            rank: d["r"] as? Int ?? 0,
+            rankName: d["rn"] as? String ?? "",
+            rankCount: d["rc"] as? String ?? "",
+            intro: d["i"] as? String ?? ""
+        )
     }
 }
 

@@ -48,21 +48,26 @@ const PUBLISH_RANK_SPECS = [
   { key: 'recRank', sort: 'recommend' },
 ];
 
-/** 女频 majax 路径 → SSR 聚合 key (gender=female 时与男频 SSR 榜不同源) */
-const FEMALE_MAJAX_RANKS = [
+/** majax 路径 → SSR 聚合 key (男女通用, 用于拉每榜 10 本) */
+const MAJAX_RANKS = [
   { majax: 'yuepiaolist', ssrPath: 'yuepiao', key: 'fyRank' },
   { majax: 'hotsalesList', ssrPath: 'hotsales', key: 'hotRank' },
+  { majax: 'dsList', ssrPath: 'ds', key: 'dsRank' },
+  { majax: 'recList', ssrPath: 'recom', key: 'recRank' },
   { majax: 'updateList', ssrPath: 'update', key: 'updRank' },
+  { majax: 'signnewbookList', ssrPath: 'signnewbook', key: 'signRank' },
   { majax: 'newauthorList', ssrPath: 'newauthor', key: 'newpRank' },
   { majax: 'newbookList', ssrPath: 'newbook', key: 'newbRank' },
   { majax: 'newFansList', ssrPath: 'newFans', key: 'newFans' },
-  { majax: 'recList', ssrPath: 'recom', key: 'recRank' },
 ];
+
+/** 女频 majax: dsRank/signRank 无女频接口, 用子集 */
+const FEMALE_MAJAX_RANKS = MAJAX_RANKS.filter(r => !['dsRank', 'signRank'].includes(r.key));
 
 /** majax 无女频接口的榜 → 仍用 SSR 聚合 (与男频同源, 仅作占位) */
 const FEMALE_SSR_FALLBACK_KEYS = ['dsRank', 'signRank'];
 
-const HOME_RANK_PREVIEW = 5;
+const HOME_RANK_PREVIEW = 10;
 
 /**
  * 解析 m.qidian.com SSR HTML 中的 vite-plugin-ssr JSON.
@@ -121,7 +126,7 @@ async function httpGet(url, extraHeaders = {}) {
   return resp;
 }
 
-/** 万象书屋: GET m.qidian.com/rank/?gender=<male|female> → 9 榜 × 5 本 */
+/** 万象书屋: GET m.qidian.com/rank/?gender=<male|female> → 9 榜 × 5 本 (SSR 备用) */
 async function fetchRanksAggregate(gender = 'male') {
   const resp = await httpGet(`${BASE}/rank/?gender=${gender}`);
   const html = await resp.text();
@@ -130,6 +135,21 @@ async function fetchRanksAggregate(gender = 'male') {
   for (const key of RANK_KEYS) {
     const arr = Array.isArray(pd[key]) ? pd[key] : [];
     out[key] = arr.map(parseBook).filter(Boolean);
+  }
+  return out;
+}
+
+/** 男频 9 榜 via MAJAX (每榜 HOME_RANK_PREVIEW 本), SSR 作兜底 */
+async function fetchMaleRanksViaMajax() {
+  const csrf = await fetchMajaxCsrf('male', 'yuepiao');
+  const out = {};
+  for (const { majax, ssrPath, key } of MAJAX_RANKS) {
+    try {
+      const books = await fetchMajaxRankPage(majax, 'male', 1, csrf, ssrPath);
+      out[key] = books.slice(0, HOME_RANK_PREVIEW);
+    } catch {
+      out[key] = [];
+    }
   }
   return out;
 }
@@ -362,13 +382,20 @@ async function fetchPublishTop50() {
  * 任一子任务失败 → 抛异常, 整次 cron 标记 ok=0, 但 DB 旧 cache 仍可用.
  */
 async function fetchMirrorPayload() {
-  const [ranks, yuepiaoTop50, finish, ranksPublish, yuepiaoTop50Publish] = await Promise.all([
+  const [ranksMajax, ranksSsr, yuepiaoTop50, finish, ranksPublish, yuepiaoTop50Publish] = await Promise.all([
+    fetchMaleRanksViaMajax(),
     fetchRanksAggregate('male'),
     fetchYuepiao50('male'),
     fetchFinishRanks(),
     fetchPublishRanks(),
     fetchPublishTop50(),
   ]);
+  // MAJAX 优先 (每榜 10 本), SSR 兜底 (每榜 5 本)
+  const ranks = {};
+  for (const key of RANK_KEYS) {
+    const majaxArr = ranksMajax[key] || [];
+    ranks[key] = majaxArr.length > 0 ? majaxArr : (ranksSsr[key] || []);
+  }
 
   // 女频: SSR gender=female 与男生榜同源; 用 majax gender=female 拿真女频榜.
   // 抓取失败时复制男生榜, 保证客户端女频 tab 结构与男频一致且永不空榜.
