@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import androidx.appcompat.app.AlertDialog
 import io.legado.app.R
+import io.legado.app.utils.toastOnUi
 import splitties.init.appCtx
 
 /**
@@ -64,5 +65,36 @@ object AdConsent {
     fun grantForUser() {
         sp.edit().putBoolean(KEY, true).apply()
         AdManager.setConsent(appCtx, true)
+    }
+
+    /** 万象书屋: PIPL 撤回/重新同意管理弹窗 — 供「我的」等入口复用. */
+    fun showManageDialog(activity: Activity) {
+        val granted = isGranted()
+        val stateText = if (granted) {
+            activity.getString(R.string.ad_consent_current_granted)
+        } else {
+            activity.getString(R.string.ad_consent_current_revoked)
+        }
+        val body = stateText + "\n\n" + activity.getString(R.string.ad_consent_manage_body)
+        AlertDialog.Builder(activity)
+            .setTitle(R.string.ad_consent_manage_title)
+            .setMessage(body)
+            .apply {
+                if (granted) {
+                    setPositiveButton(R.string.ad_consent_revoke) { d, _ ->
+                        d.dismiss()
+                        revoke()
+                        activity.toastOnUi(R.string.ad_consent_revoked_toast)
+                    }
+                } else {
+                    setPositiveButton(R.string.ad_consent_agree) { d, _ ->
+                        d.dismiss()
+                        grantForUser()
+                        activity.toastOnUi(R.string.ad_consent_granted_toast)
+                    }
+                }
+                setNegativeButton(android.R.string.cancel, null)
+            }
+            .show()
     }
 }

@@ -115,13 +115,13 @@
 | 3.2.9 | 阅读记录 → `ReadRecordActivity`(阅读时长统计) | 🟡 P1 | ⭐⭐ |
 | 3.2.10 | 文件管理 → `FileManageActivity` | 🟢 P2 | ⭐⭐ |
 | 3.2.11 | 关于 → `LegalActivity?path=about` | 🔴 P0 | ⭐ |
-| 3.2.12 | 隐私政策 → `LegalActivity?path=privacyPolicy` | 🔴 P0 | ⭐ |
-| 3.2.13 | 用户协议 → `LegalActivity?path=userAgreement` | 🔴 P0 | ⭐ |
-| 3.2.14 | 个人信息收集清单 → `LegalActivity?path=collectList` | 🔴 P0 (PIPL) | ⭐ |
-| 3.2.15 | 第三方 SDK 清单 → `LegalActivity?path=sdkList` | 🔴 P0 (PIPL) | ⭐ |
-| 3.2.16 | 开源协议 → `LegalActivity?path=license` | 🔴 P0 | ⭐ |
-| 3.2.17 | 反馈 → `FeedbackActivity` | 🔴 P0 | ⭐⭐ |
-| 3.2.18 | 注销账号 → `AccountDeleteActivity` | 🔴 P0 (PIPL) | ⭐⭐ |
+| 3.2.12 | 隐私政策 | 🔴 P0 | 外链 https://api.wanxiangbook.com/legal/privacy.html (应用内页已移除) |
+| 3.2.13 | 用户协议 | 🔴 P0 | 外链 https://api.wanxiangbook.com/legal/terms.html |
+| 3.2.14 | 个人信息收集清单 | 🔴 P0 (PIPL) | 网站 /legal/ 或 App Store 隐私问卷 |
+| 3.2.15 | 第三方 SDK 清单 | 🔴 P0 (PIPL) | PrivacyInfo.xcprivacy + 网站 |
+| 3.2.16 | 开源协议 | 🔴 P0 | 网站 /legal/ |
+| 3.2.17 | 反馈 → `FeedbackActivity` / `FeedbackView` | 🔴 P0 | ⭐⭐ |
+| 3.2.18 | ~~注销账号~~ | — | 已移除 (双端) |
 
 ---
 
@@ -189,7 +189,7 @@
 ### 5.2 实现方
 Android `QidianRepository` → 起点中文网 OPDS-like 接口。**iOS 复刻有两种路线**:
 - **a. 完全复刻**:iOS 直接 hit 同样的起点接口(可能反爬封 IP) — 风险高
-- **b. 后端代理**:后端加 `/api/bookstore/feed` 端点,iOS 只调后端,后端去抓起点 — 推荐
+- **b. 后端 Mirror（已上线）**: `GET /api/bookstore/mirror`，后端定时抓起点写入 DB，iOS/Android 只调后端 — 当前方案
 - **c. 跨平台一致**:Android 也切到后端代理,统一来源
 
 ### 5.3 字符串聚类

@@ -37,14 +37,7 @@ final class EyeCareModeManager: ObservableObject {
         didSet {
             UserDefaults.standard.set(enabled, forKey: Self.kEnabled)
             if enabled {
-                let prev = ReadConfig.shared.theme
-                savedReaderTheme = prev
-                UserDefaults.standard.set(prev.rawValue, forKey: Self.kSavedTheme)
                 applySmartReaderTheme()
-            } else if let saved = savedReaderTheme {
-                ReadConfig.shared.theme = saved
-                savedReaderTheme = nil
-                UserDefaults.standard.removeObject(forKey: Self.kSavedTheme)
             }
             recomputeOverlay()
         }
@@ -54,23 +47,17 @@ final class EyeCareModeManager: ObservableObject {
     @Published private(set) var baseColor: Color = Color(red: 0xFA / 255.0, green: 0xF0 / 255.0, blue: 0xDC / 255.0)
 
     private static let kEnabled = "wanxiang.eye_care_mode"
-    private static let kSavedTheme = "wanxiang.eye_care.saved_reader_theme"
     private static let alphaStepThreshold: Double = 0.05
     private static let readerOverlayFactor: Double = 0.35
 
     private static let standardTint = Color(red: 0xFA / 255.0, green: 0xF0 / 255.0, blue: 0xDC / 255.0)
     private static let deepNightTint = Color(red: 1.0, green: 0.88, blue: 0.70)
 
-    private var savedReaderTheme: ReaderThemeKind?
     private var brightnessObserver: NSObjectProtocol?
     private var timer: Timer?
 
     private init() {
         self.enabled = UserDefaults.standard.bool(forKey: Self.kEnabled)
-        if enabled, let saved = UserDefaults.standard.object(forKey: Self.kSavedTheme) as? Int,
-           let theme = ReaderThemeKind(rawValue: saved) {
-            savedReaderTheme = theme
-        }
         installBrightnessObserver()
         startCircadianTimer()
         recomputeOverlay()

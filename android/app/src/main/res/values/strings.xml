@@ -1319,8 +1319,6 @@
     <string name="feedback_contact_hint_v2">请输入手机号/QQ号</string>
     <string name="feedback_contact_required">请填写联系方式</string>
     <string name="feedback_content_required">请填写反馈内容</string>
-    <string name="about_account_delete">注销账号 / 清除全部本地数据</string>
-    <string name="about_account_delete_summary">撤回授权并删除本机所有数据, 不可恢复</string>
 
     <!-- 反馈页 -->
     <string name="feedback_type_label">反馈类型</string>
@@ -1338,17 +1336,6 @@
     <string name="feedback_thanks">提交成功, 感谢您的反馈, 我们会在 15 个工作日内处理</string>
     <string name="feedback_failed">提交失败, 请检查网络后重试</string>
     <string name="feedback_legal_notice">本反馈不收集您的真实身份信息. 提交即表示您同意我们将所提供内容用于产品改进与内容审核.</string>
-
-    <!-- 注销页 -->
-    <string name="account_delete_title">不可恢复的操作</string>
-    <string name="account_delete_body">点击下方按钮将立即:\n\n• 撤回您之前同意的隐私政策与广告授权\n• 清空所有本地书架、书源、阅读记录、笔记、缓存\n• 通知服务端不再保留与本设备相关的统计标识\n\n操作完成后应用会自动重启, 等同于全新安装的状态. 已购买 / 已订阅 / 已云同步的内容不在此操作范围内, 请提前自行处理.</string>
-    <string name="account_delete_action">确认注销并清除全部本地数据</string>
-    <string name="account_delete_confirm_title">最后确认</string>
-    <string name="account_delete_confirm_msg">本操作不可撤销. 是否仍要继续?</string>
-    <string name="account_delete_confirm_yes">确定清除</string>
-    <string name="account_delete_in_progress">正在清除…</string>
-    <string name="account_delete_done">已清除完毕, 应用即将重启</string>
-    <string name="legal_load_failed">无法加载文档, 请检查应用安装是否完整</string>
 
     <!-- 万象书屋: 章节付费墙 -->
     <string name="chapter_unlock_title">解锁后续章节</string>
@@ -1371,11 +1358,4 @@
     <string name="unlock_extended_toast">+%1$d 分钟纯净阅读 (累计 %2$s)</string>
     <string name="unlock_max_reached_toast">已达每日最大累积 (%1$d 小时), 不再延长</string>
     <string name="book_finished_extend_unlock">看广告 · +%1$d 分钟纯净阅读</string>
-
-    <!-- 注销成功完成页 -->
-    <string name="account_delete_finished_emoji">✓</string>
-    <string name="account_delete_finished_title">已成功清除</string>
-    <string name="account_delete_finished_body">您本机上的所有书架、书源、阅读记录、缓存已被清除\n隐私授权已撤回, 不再向服务端上报任何信息</string>
-    <string name="account_delete_finished_exit">退出应用</string>
-    <string name="account_delete_finished_hint">点击「退出应用」彻底关闭. 如果您希望日后再次使用, 重新打开即可\n那时将和全新安装一样</string>
 </resources>

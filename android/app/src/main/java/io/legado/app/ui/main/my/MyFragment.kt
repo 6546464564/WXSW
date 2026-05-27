@@ -195,6 +195,7 @@ class MyFragment() : BaseFragment(R.layout.fragment_my_config), MainFragmentInte
         override fun onPreferenceTreeClick(preference: Preference): Boolean {
             when (preference.key) {
                 "legal_feedback" -> startActivity<FeedbackActivity>()
+                "ad_consent_manage" -> activity?.let { io.legado.app.ad.AdConsent.showManageDialog(it) }
             }
             return super.onPreferenceTreeClick(preference)
         }

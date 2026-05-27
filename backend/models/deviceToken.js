@@ -1,4 +1,4 @@
-// 万象书屋: 设备 token / 黑名单 / KV settings / PIPL wipe
+// 万象书屋: 设备 token / 黑名单 / KV settings
 
 let db;
 let _stmtUpsertDeviceToken, _stmtGetDeviceTokenHash, _stmtTouchDeviceSeen;
@@ -82,33 +82,9 @@ function kvSet(key, value) {
   ).run(key, String(value), Date.now());
 }
 
-// --- PIPL wipe ---
-
-function wipeUserData(deviceId) {
-  if (!deviceId || typeof deviceId !== 'string') return { error: 'invalid device_id' };
-  const stats = {};
-  const tx = db.transaction(() => {
-    const tables = [
-      'heartbeats', 'visits', 'ad_events', 'feedback',
-      'redeem_uses', 'device_tokens', 'iap_receipts', 'source_error_events',
-    ];
-    for (const t of tables) {
-      try {
-        const r = db.prepare(`DELETE FROM ${t} WHERE device_id = ?`).run(deviceId);
-        stats[t] = r.changes;
-      } catch (e) {
-        stats[t] = 0;
-      }
-    }
-  });
-  tx();
-  return stats;
-}
-
 module.exports = {
   init,
   upsertDeviceToken, getDeviceTokenHash, touchDeviceSeen, deleteDeviceToken,
   isDeviceBlocked, blockDevice, unblockDevice, listBlockedDevices,
   kvGet, kvSet,
-  wipeUserData,
 };

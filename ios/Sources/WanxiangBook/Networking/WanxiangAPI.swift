@@ -257,13 +257,21 @@ actor WanxiangAPI {
 
     /// 拉公告 (启动后展示一次, UserDefaults 记 last_seen_id 不重复弹)
     func fetchAnnouncement() async throws -> AnnouncementInfo? {
-        let r = request(path: "/api/announcement", method: "GET")
-        let (data, http) = try await httpData(for: r)
-        guard (200..<300).contains(http.statusCode) else {
-            return nil
+        let buildCode = Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? 0
+        var comps = URLComponents(url: Self.baseURL.appendingPathComponent("/api/announcement"),
+                                  resolvingAgainstBaseURL: false) ?? URLComponents()
+        if buildCode > 0 {
+            comps.queryItems = [URLQueryItem(name: "versionCode", value: String(buildCode))]
         }
+        guard let url = comps.url else { return nil }
+        var r = URLRequest(url: url)
+        r.setValue(Self.platform, forHTTPHeaderField: "X-Platform")
+        r.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        let (data, http) = try await httpData(for: r)
+        guard (200..<300).contains(http.statusCode) else { return nil }
         guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let payload = dict["announcement"] as? [String: Any] ?? (dict["data"] as? [String: Any]),
+              let list = dict["list"] as? [[String: Any]],
+              let payload = list.first,
               let id = (payload["id"] as? Int) ?? Int(payload["id"] as? String ?? ""),
               let title = payload["title"] as? String else {
             return nil
@@ -271,42 +279,39 @@ actor WanxiangAPI {
         return AnnouncementInfo(
             id: id,
             title: title,
-            body: (payload["body"] as? String) ?? (payload["content"] as? String) ?? "",
+            body: (payload["content"] as? String) ?? (payload["body"] as? String) ?? "",
             url: payload["url"] as? String
         )
     }
 
     /// 拉版本信息 (启动后比对当前版本, 提示升级)
     func fetchVersionCheck(current: String) async throws -> VersionUpdateInfo? {
-        // 万象书屋: query 用 URLComponents 拼, 别走 path 模板 (避免 %3F 问题)
+        let buildCode = Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? 0
         var comps = URLComponents(url: Self.baseURL.appendingPathComponent("/api/version-check"),
                                   resolvingAgainstBaseURL: false) ?? URLComponents()
-        comps.queryItems = [
-            URLQueryItem(name: "platform", value: "ios"),
-            URLQueryItem(name: "version", value: current),
-        ]
+        comps.queryItems = [URLQueryItem(name: "code", value: String(buildCode))]
         guard let compsUrl = comps.url else { return nil }
         var r = URLRequest(url: compsUrl)
         r.setValue(Self.platform, forHTTPHeaderField: "X-Platform")
         r.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
         let (data, http) = try await httpData(for: r)
-        guard (200..<300).contains(http.statusCode) else {
-            return nil
-        }
+        guard (200..<300).contains(http.statusCode) else { return nil }
         guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        let payload = (dict["version"] as? [String: Any]) ?? dict
-        let latest = (payload["latest"] as? String)
-            ?? (payload["latestVersion"] as? String)
-            ?? (payload["version"] as? String) ?? current
-        let notes = (payload["releaseNotes"] as? String)
-            ?? (payload["notes"] as? String) ?? ""
-        let downloadUrl = (payload["downloadUrl"] as? String) ?? (payload["url"] as? String)
-        let mandatory = (payload["mandatory"] as? Bool) ?? (payload["force"] as? Bool) ?? false
+        let latest = (dict["latestName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? current
+        let needUpgrade = dict["needUpgrade"] as? Bool ?? false
+        let forceUpgrade = dict["forceUpgrade"] as? Bool ?? false
+        let changelog = dict["changelog"] as? String ?? ""
+        let marketUrl = (dict["marketUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return VersionUpdateInfo(
-            latestVersion: latest, currentVersion: current,
-            releaseNotes: notes, downloadUrl: downloadUrl, mandatory: mandatory
+            latestVersion: latest.isEmpty ? current : latest,
+            currentVersion: current,
+            releaseNotes: changelog,
+            downloadUrl: marketUrl?.isEmpty == false ? marketUrl : nil,
+            mandatory: forceUpgrade,
+            needUpgrade: needUpgrade || forceUpgrade
         )
     }
 
@@ -371,21 +376,6 @@ actor WanxiangAPI {
         ]
         if !contact.isEmpty { body["contact"] = contact }
         r.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, http) = try await httpData(for: r)
-        guard (200..<300).contains(http.statusCode) else {
-            return false
-        }
-        let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        return dict?["ok"] as? Bool ?? false
-    }
-
-    /// PIPL: 用户主动删除其在后端的所有数据 (M2.10.8)
-    /// 跟 Android `AccountDeleteActivity` 行为一致: 调 `/api/me/wipe-data` (HTTP DELETE)
-    func wipeServerData() async throws -> Bool {
-        var r = request(path: "/api/me/wipe-data", method: "DELETE")
-        // 后端要求 body 里再带 device_id (跟 header 双重校验)
-        r.httpBody = try? JSONSerialization.data(withJSONObject: ["device_id": deviceId])
 
         let (data, http) = try await httpData(for: r)
         guard (200..<300).contains(http.statusCode) else {

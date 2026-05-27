@@ -320,7 +320,7 @@ actor BookCoverLoadLimiter {
     }
 }
 
-/// 预加载封面 (设置页 `wanxiang.shelf.preloadCovers` 开启时, 书架加载后后台拉封面进磁盘缓存)
+/// 预加载封面 (书城等场景后台拉封面进磁盘缓存)
 enum BookCoverPreloader {
     static func preload(urls: [String]) async {
         for raw in urls {

@@ -32,4 +32,11 @@
         android:title="@string/about_feedback"
         app:iconSpaceReserved="false" />
 
+    <io.legado.app.lib.prefs.Preference
+        android:icon="@drawable/ic_settings"
+        android:key="ad_consent_manage"
+        android:summary="@string/ad_consent_manage_summary"
+        android:title="@string/ad_consent_manage_title"
+        app:iconSpaceReserved="false" />
+
 </androidx.preference.PreferenceScreen>

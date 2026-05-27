@@ -141,16 +141,6 @@ const swaggerSpec = {
         }
       }
     },
-    '/api/me/wipe-data': {
-      delete: {
-        tags: ['pipl'], summary: 'PIPL 用户数据清空 (账号注销时调)',
-        security: [{ deviceAuth: [] }],
-        responses: {
-          '200': { description: 'wiped', content: { 'application/json': { schema: { type: 'object', properties: { ok: { type: 'boolean' }, deleted: { type: 'object' } } } } } },
-          '401': { description: 'token invalid' }
-        }
-      }
-    },
     '/api/admin/login': {
       post: {
         tags: ['admin-auth'], summary: '管理员登录 (5 分钟 5 次失败锁 30 分钟)',

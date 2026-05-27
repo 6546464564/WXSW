@@ -311,7 +311,7 @@ Sources/WanxiangBook/
 
 | Task | 内容 | FEAT# | 工时 |
 |---|---|---|---|
-| M2.3.1 | **后端加 `/api/bookstore/feed?platform=ios&channel=male` 代理接口**(避免 iOS 直 hit 起点被反爬) | §5.2 | 后端 2d |
+| M2.3.1 | **后端 `/api/bookstore/mirror`**（定时抓起点写入 DB，App 拉 Mirror 缓存） | §5.2 | ✅ 已上线 |
 | M2.3.2 | 三 tab 主结构(男生/女生/出版) | §5.1.1 | 1d |
 | M2.3.3 | 子频道(排行/分类/完结/连载) | §5.1.2 | 1.5d |
 | M2.3.4 | 推荐卡:今日必读 / 连载专区 / 完结之选 / 推荐排行 | §5.1.3 | 2d |

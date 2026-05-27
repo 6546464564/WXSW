@@ -184,8 +184,8 @@
 - [x] 本地导入 (TXT)
 - [x] 缓存管理
 - [x] 二维码 + 浏览器 + 词典查词
-- [x] 5 份合规 markdown 文档
-- [x] 反馈 + 注销 + ATT + PrivacyInfo.xcprivacy
+- [x] 反馈 + ATT + PrivacyInfo.xcprivacy
+- [ ] 应用内法律文档 / iOS 广告撤回 UI (上架前待补)
 - [x] 广告骨架 (AdProvider / AdManager / Stub 实现)
 - [x] CrashHandler 全局崩溃捕获
 - [x] Document Types (用万象书屋打开 .txt/.epub)
@@ -207,7 +207,7 @@
 - [ ] 仿真翻书 Metal shader (1-2 周专项工程)
 - [ ] 横屏双页布局 (1-2 周)
 - [ ] WebDAV 同步 (Android 已删, 评估是否要做)
-- [ ] 真实书城后端 /api/bookstore/feed (后端工程, 1 周)
+- [x] 书城 Mirror `/api/bookstore/mirror`（后端 + admin 监控已上线）
 - [ ] 字体下载 + 注册 (CTFontManager)
 
 预算:**5-10 万元** (找一个全职 iOS 工程师 1-2 个月把上面 #10 全做完)

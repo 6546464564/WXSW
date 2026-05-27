@@ -17,13 +17,12 @@ const logger = require('./logger');
 // middleware
 const { makeRateLimit, rateLimitSources, rateLimitPing, rateLimitAdConfig,
         rateLimitAdEvent,
-        rateLimitFeedback, rateLimitSourceError, rateLimitRedeem } = require('./middleware/rateLimit');
+        rateLimitFeedback, rateLimitSourceError } = require('./middleware/rateLimit');
 const deviceAuth = require('./middleware/deviceAuth');
 const adminAuth = require('./middleware/adminAuth');
 
 // jobs
 const { scheduleDailyBackup } = require('./jobs/backup');
-const { startAlertScanner } = require('./jobs/alertScanner');
 const { scheduleMirrorJob, getNextRunAt } = require('./jobs/mirrorScheduler');
 const qidianMirror = require('./jobs/qidianMirror');
 
@@ -81,7 +80,6 @@ setInterval(() => db.cleanupOldData(), 30 * 60 * 1000).unref?.();
 
 // 启动定时任务
 const backupCtl = scheduleDailyBackup(db);
-startAlertScanner(db);
 
 // 访问日志
 app.use(logger.httpAccess());
@@ -175,24 +173,7 @@ function computeDeviceTokenHash(deviceId, installTs) {
 
 // ═══════════════════ 公开 API ═══════════════════
 
-// --- 设备注册 + 数据清除 ---
-app.delete('/api/me/wipe-data', makeRateLimit({ windowMs: 60_000, max: 1, keyPrefix: 'wipe:' }),
-  (req, res) => {
-  const did = req.get('X-Device-Id') || (req.body && req.body.deviceId);
-  const tok = req.get('X-Device-Token') || (req.body && req.body.deviceToken);
-  if (!did || !tok) return res.status(400).json({ ok: false, msg: 'device id & token required' });
-  const expected = db.getDeviceTokenHash(did);
-  if (!expected) return res.status(400).json({ ok: false, msg: 'device not registered, cannot wipe' });
-  const a = Buffer.from(tok), b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    logger.warn('wipe-data token invalid', { t: req.traceId, did: did.slice(0, 12) });
-    return res.status(401).json({ ok: false, msg: 'invalid token' });
-  }
-  const deleted = db.wipeUserData(did);
-  logger.info('user data wiped', { t: req.traceId, did: did.slice(0, 12), deleted });
-  res.json({ ok: true, deleted });
-});
-
+// --- 设备注册 ---
 app.post('/api/device/register', makeRateLimit({ windowMs: 60_000, max: 3, keyPrefix: 'reg:' }),
   blockBlacklistedDevice, (req, res) => {
   const did = (req.body && (req.body.device_id || req.body.deviceId));
@@ -293,21 +274,6 @@ app.get('/api/announcement', (req, res) => {
   res.set('ETag', etag);
   if (req.get('If-None-Match') === etag) return res.status(304).end();
   res.json({ ok: true, list });
-});
-
-// --- 兑换码 ---
-app.post('/api/redeem', rateLimitRedeem, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
-  const { code, deviceId } = req.body || {};
-  if (!code || !deviceId) return res.status(400).json({ ok: false, msg: 'code & deviceId required' });
-  if (typeof code !== 'string' || code.length > 32) return res.status(400).json({ ok: false, msg: 'invalid code' });
-  try {
-    const r = db.redeemCode(String(code).toUpperCase().trim(), String(deviceId).slice(0, 128), req.ip);
-    if (r.ok) {
-    }
-    res.json(r);
-  } catch (e) {
-    res.status(400).json({ ok: false, msg: e.message });
-  }
 });
 
 // --- 书源 ---
@@ -674,12 +640,6 @@ app.delete('/api/admin/sources', requireAdmin, requireRole(['super', 'operator']
   const n = db.deleteSource(url);
   res.json({ ok: true, deleted: n });
 });
-app.get('/api/admin/source-health', requireAdmin, (req, res) => {
-  res.json({ ok: true, items: db.listSourceHealth({ platform: req.query.platform, stage: req.query.stage, status: req.query.status, sourceUrl: req.query.sourceUrl || req.query.url, limit: req.query.limit }) });
-});
-app.get('/api/admin/source-health/summary', requireAdmin, (req, res) => {
-  res.json({ ok: true, summary: db.sourceHealthSummary(req.query.platform) });
-});
 app.post('/api/admin/sources/check', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   try {
     const r = db.runSourceStaticCheck({ platform: req.body?.platform || req.query.platform || 'ios', sampleKeyword: req.body?.sampleKeyword || req.query.sampleKeyword || '斗破苍穹', url: req.body?.url || req.query.url || null });
@@ -902,12 +862,7 @@ app.patch('/api/admin/feedback/:id', requireAdmin, (req, res) => {
   catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
 });
 
-// --- admin 系统 (版本/公告/黑名单/用户/2FA/兑换码/告警) ---
-app.get('/api/admin/version', requireAdmin, (req, res) => res.json({ ok: true, data: db.getAppVersion() }));
-app.post('/api/admin/version', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  try { db.saveAppVersion(req.body || {}); res.json({ ok: true }); }
-  catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
-});
+// --- admin 公告 ---
 app.get('/api/admin/announcements', requireAdmin, (req, res) => res.json({ ok: true, list: db.listAllAnnouncements() }));
 app.post('/api/admin/announcement', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   try { const id = db.upsertAnnouncement(req.body || {}); res.json({ ok: true, id }); }
@@ -915,75 +870,6 @@ app.post('/api/admin/announcement', requireAdmin, requireRole(['super', 'operato
 });
 app.delete('/api/admin/announcement/:id', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   db.deleteAnnouncement(req.params.id); res.json({ ok: true });
-});
-app.get('/api/admin/blacklist', requireAdmin, (req, res) => res.json({ ok: true, list: db.listBlockedDevices() }));
-app.post('/api/admin/blacklist', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  const { deviceId, reason } = req.body || {};
-  try { db.blockDevice(deviceId, reason, req.admin.username); res.json({ ok: true }); }
-  catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
-});
-app.delete('/api/admin/blacklist/:deviceId', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  db.unblockDevice(req.params.deviceId); res.json({ ok: true });
-});
-app.get('/api/admin/users', requireAdmin, requireRole('super'), (req, res) => res.json({ ok: true, list: db.listAdminUsers() }));
-app.post('/api/admin/users', requireAdmin, requireRole('super'), async (req, res) => {
-  try { await db.createAdminUser({ ...(req.body || {}), creator: req.admin.username }); res.json({ ok: true }); }
-  catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
-});
-app.post('/api/admin/users/:username/password', requireAdmin, async (req, res) => {
-  if (req.admin.role !== 'super' && req.admin.username !== req.params.username) return res.status(403).json({ ok: false, msg: 'can only change your own password' });
-  try { await db.updateAdminPassword(req.params.username, req.body?.newPassword); db.destroyAllSessions(); res.json({ ok: true }); }
-  catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
-});
-app.delete('/api/admin/users/:username', requireAdmin, requireRole('super'), (req, res) => {
-  if (req.params.username === req.admin.username) return res.status(400).json({ ok: false, msg: 'cannot delete yourself' });
-  db.deleteAdminUser(req.params.username); res.json({ ok: true });
-});
-
-// 2FA
-const pendingTotpSecrets = new Map();
-setInterval(() => { const cutoff = Date.now() - 5 * 60_000; for (const [k, v] of pendingTotpSecrets) if (v.ts < cutoff) pendingTotpSecrets.delete(k); }, 60_000).unref?.();
-
-app.post('/api/admin/2fa/setup', requireAdmin, (req, res) => {
-  const username = req.admin.username;
-  if (username === 'legacy') return res.status(400).json({ ok: false, msg: 'legacy admin cannot use 2FA' });
-  const secret = totpGenerateSecret();
-  const otpauthUrl = totpGenerateUri(username, '万象书屋', secret);
-  pendingTotpSecrets.set(username, { secret, ts: Date.now() });
-  res.json({ ok: true, secret, otpauthUrl });
-});
-app.post('/api/admin/2fa/verify', requireAdmin, (req, res) => {
-  const username = req.admin.username;
-  const { code } = req.body || {};
-  const pending = pendingTotpSecrets.get(username);
-  if (!pending || Date.now() - pending.ts > 5 * 60_000) { pendingTotpSecrets.delete(username); return res.status(400).json({ ok: false, msg: 'setup expired' }); }
-  if (!totpVerify(code, pending.secret)) return res.status(400).json({ ok: false, msg: 'wrong code' });
-  db.setAdminTotpSecret(username, pending.secret, true);
-  pendingTotpSecrets.delete(username);
-  res.json({ ok: true });
-});
-app.post('/api/admin/2fa/disable', requireAdmin, async (req, res) => {
-  const username = req.admin.username;
-  const { totp } = req.body || {};
-  if (username === 'legacy') return res.status(400).json({ ok: false, msg: 'legacy admin has no 2FA' });
-  const user = db.__db.prepare('SELECT totp_secret, totp_enabled FROM admin_users WHERE username=?').get(username);
-  if (!user || !user.totp_enabled) return res.status(400).json({ ok: false, msg: '2FA not enabled' });
-  if (!totp || !totpVerify(totp, user.totp_secret)) return res.status(401).json({ ok: false, msg: 'invalid totp code' });
-  db.setAdminTotpSecret(username, null, false);
-  res.json({ ok: true });
-});
-
-// 兑换码
-app.get('/api/admin/redeem-codes', requireAdmin, (req, res) => res.json({ ok: true, list: db.listRedeemCodes({ batch: req.query.batch || null }) }));
-app.post('/api/admin/redeem-codes', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  try { const codes = db.createRedeemCodes({ ...(req.body || {}), creator: req.admin.username }); res.json({ ok: true, codes }); }
-  catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
-});
-app.post('/api/admin/redeem-codes/revoke-batch', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  const { batch } = req.body || {};
-  if (!batch) return res.status(400).json({ ok: false, msg: 'batch required' });
-  const n = db.revokeRedeemBatch(batch);
-  res.json({ ok: true, revoked: n });
 });
 
 // --- admin 推广代理码 ---
@@ -1008,16 +894,6 @@ app.delete('/api/admin/promo/codes/:code', requireAdmin, requireRole(['super', '
 app.get('/api/admin/promo/stats', requireAdmin, (req, res) => res.json({ ok: true, ...db.promoOverview() }));
 app.get('/api/admin/promo/stats/:code', requireAdmin, (req, res) => res.json({ ok: true, ...db.promoCodeStats(req.params.code) }));
 app.get('/api/admin/promo/fraud', requireAdmin, (req, res) => res.json({ ok: true, alerts: db.promoFraudDetection() }));
-
-// 告警规则
-app.get('/api/admin/alerts', requireAdmin, (req, res) => res.json({ ok: true, list: db.listAlertRules() }));
-app.post('/api/admin/alert', requireAdmin, requireRole('super'), (req, res) => {
-  try { const id = db.upsertAlertRule(req.body || {}); res.json({ ok: true, id }); }
-  catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
-});
-app.delete('/api/admin/alert/:id', requireAdmin, requireRole('super'), (req, res) => {
-  db.deleteAlertRule(req.params.id); res.json({ ok: true });
-});
 
 // ═══════════════════ 静态文件 + 兜底 ═══════════════════
 

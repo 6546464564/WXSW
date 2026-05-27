@@ -452,6 +452,65 @@ object WanxiangBackend {
     }
 
     /**
+     * 书源解析健康上报 (fire-and-forget), 对齐 iOS WanxiangAPI.reportSourceError.
+     * stage: search / info / toc / content; status: ok / zero / error / timeout / skip
+     */
+    fun reportSourceError(
+        sourceUrl: String,
+        sourceName: String? = null,
+        stage: String,
+        status: String,
+        errorMessage: String? = null,
+        sampleKeyword: String? = null,
+        sampleUrl: String? = null,
+    ) {
+        if (!io.legado.app.ad.AdManager.isConsented()) return
+        if (sourceUrl.isBlank()) return
+        val url = baseUrl ?: return
+        Coroutine.async {
+            runCatching {
+                val json = buildString {
+                    append('{')
+                    append("\"sourceUrl\":").append(jsonStr(sourceUrl.take(500))).append(',')
+                    append("\"platform\":").append(jsonStr(PLATFORM)).append(',')
+                    append("\"stage\":").append(jsonStr(stage)).append(',')
+                    append("\"status\":").append(jsonStr(status)).append(',')
+                    if (!sourceName.isNullOrBlank()) {
+                        append("\"sourceName\":").append(jsonStr(sourceName.take(120))).append(',')
+                    }
+                    if (!errorMessage.isNullOrBlank()) {
+                        append("\"errorMessage\":").append(jsonStr(errorMessage.take(800))).append(',')
+                    }
+                    if (!sampleKeyword.isNullOrBlank()) {
+                        append("\"sampleKeyword\":").append(jsonStr(sampleKeyword.take(120))).append(',')
+                    }
+                    if (!sampleUrl.isNullOrBlank()) {
+                        append("\"sampleUrl\":").append(jsonStr(sampleUrl.take(800))).append(',')
+                    }
+                    append("\"appVer\":").append(jsonStr(BuildConfig.VERSION_NAME))
+                    append('}')
+                }
+                okHttpClient.newCallStrResponse(retry = 0) {
+                    url("$url/api/source-error")
+                    header("X-Platform", PLATFORM)
+                    header("X-Device-Id", deviceId)
+                    deviceToken?.let { header("X-Device-Token", it) }
+                    post(json.toRequestBody("application/json".toMediaType()))
+                }
+            }.onFailure { LogUtils.d(TAG, "source-error drop: ${it.message}") }
+        }
+    }
+
+    internal fun classifySourceErrorStatus(e: Throwable): String {
+        if (e is kotlinx.coroutines.TimeoutCancellationException) return "timeout"
+        if (e is java.util.concurrent.TimeoutException) return "timeout"
+        if (e is java.net.SocketTimeoutException) return "timeout"
+        val msg = e.message?.lowercase() ?: return "error"
+        if (msg.contains("timeout") || msg.contains("cancel")) return "timeout"
+        return "error"
+    }
+
+    /**
      * 万象书屋: 提交用户反馈/举报. 调用方在 IO 线程内 await.
      * @return true=提交成功, false=网络/校验失败 / 用户撤回隐私同意
      *

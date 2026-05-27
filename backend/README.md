@@ -33,9 +33,9 @@ WANXIANG_BACKEND_URL=https://www.wxsw.app
 | Method | Path | 用途 |
 |---|---|---|
 | `GET` | `/api/sources` | App 启动时拉取所有启用的书源（JSON 数组）；支持 `X-Platform: ios/android/web`，可加 `?healthy=1` 过滤搜索阶段已标记失败的源 |
-| `GET` | `/api/bookstore/feed?channel=male` | 书城推荐流；频道支持 `male/female/publish/manga/audio` |
+| `GET` | `/api/bookstore/mirror` | 书城 Mirror 缓存（后端定时抓 m.qidian.com 写入 DB）；支持 `ETag` / `304`；未就绪时 `503`，App 可降级直抓 |
 | `POST` | `/api/ping` | 心跳上报，body `{device_id: "..."}`；用于实时在线 + DAU 统计 |
-| `POST` | `/api/source-error` | iOS/Android 解析器错误上报，body `{sourceUrl, platform, stage, status, errorMessage, sampleKeyword, sampleUrl, appVer}` |
+| `POST` | `/api/source-error` | 解析器错误上报（当前 iOS 已实现），body `{sourceUrl, platform, stage, status, errorMessage, sampleKeyword, sampleUrl, appVer}` |
 
 ## 管理面板
 
@@ -45,7 +45,7 @@ WANXIANG_BACKEND_URL=https://www.wxsw.app
   - 实时在线人数（5 分钟窗）
   - 今日 / 本周 / 本月独立设备访问数 + 7 天折线图
   - 书源列表（增删改 / 启用禁用 / 查看 JSON / 批量导入 JSON 数组）
-  - 书源健康度接口：`GET /api/admin/source-health`、`GET /api/admin/source-health/summary`
+  - 系统公告（发布 / 启用 / 删除，`GET/POST/DELETE /api/admin/announcement*`）
   - 一键静态检查书源规则完整性：`POST /api/admin/sources/check`，可传 `{platform:"ios", sampleKeyword:"斗破苍穹"}`
 
 ### 为什么刚装好后台「看不到书源」？

@@ -6,7 +6,7 @@
 //                + io.legado.app.ui.main.bookshelf.style1.books.BooksFragment
 //                + main_bookshelf.xml (D-17 隐藏后菜单)
 //
-//  Toolbar 菜单 (与 Android `main_bookshelf.xml` D-17 当前可见 5 项一致):
+//  Toolbar 菜单 (与 Android `main_bookshelf.xml` 可见项一致):
 //   - 搜索 (always action)
 //   - 三点菜单:
 //     · 更新目录   (R.id.menu_update_toc)
@@ -14,13 +14,6 @@
 //     · 书架管理   (R.id.menu_bookshelf_manage)
 //     · 分组管理   (R.id.menu_group_manage)     ← Sheet
 //     · 书架布局   (R.id.menu_bookshelf_layout) ← Sheet (configBookshelf)
-//
-//  Android 当前隐藏 (visible=false), iOS 同步藏起来不再放主菜单:
-//   - menu_add_url        (网址添加书源, 易踩黄站)
-//   - menu_download       (批量下载)
-//   - menu_export_bookshelf
-//   - menu_import_bookshelf
-//   - menu_log
 //
 //  布局 / 排序 / 显示开关全部走 BookshelfLayoutConfigView (集中弹窗).
 //
@@ -67,7 +60,6 @@ struct BookshelfView: View {
     @AppStorage("wanxiang.shelf.show_unread") private var showUnread: Bool = false
     @AppStorage("wanxiang.shelf.show_last_update") private var showLastUpdateTime: Bool = true
     @AppStorage("wanxiang.shelf.show_fast_scroller") private var showFastScroller: Bool = false
-    @AppStorage("wanxiang.startup.refreshShelf") private var autoRefreshShelf: Bool = true
 
     private var sort: ShelfSort {
         ShelfSort(rawValue: sortRaw) ?? .latestRead
@@ -97,7 +89,6 @@ struct BookshelfView: View {
                 await vm.loadGroups()
                 await vm.refresh(sort: sort, groupId: selectedGroupId)
                 didInitialTask = true
-                maybePreloadCovers()
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--AutoOpenFirstBook"),
                    let first = vm.books.first {
@@ -110,7 +101,7 @@ struct BookshelfView: View {
                 #endif
             }
             .onAppear {
-                guard autoRefreshShelf, didInitialTask else { return }
+                guard didInitialTask else { return }
                 Task { await vm.refresh(sort: sort, groupId: selectedGroupId) }
             }
             .onChange(of: selectedGroupIdRaw) { _ in
@@ -148,6 +139,9 @@ struct BookshelfView: View {
             .sheet(isPresented: $showGroupManage, onDismiss: {
                 Task {
                     await vm.loadGroups()
+                    if !vm.groups.contains(where: { $0.id == selectedGroupId }) {
+                        selectedGroupId = BookGroup.allId
+                    }
                     await vm.refresh(sort: sort, groupId: selectedGroupId)
                 }
             }) {
@@ -316,8 +310,13 @@ struct BookshelfView: View {
                             } else {
                                 Button(role: .destructive) {
                                     Task {
-                                        try? await BookGroupRepository.shared.delete(id: g.id)
+                                        let deletingId = g.id
+                                        try? await BookGroupRepository.shared.delete(id: deletingId)
+                                        if selectedGroupId == deletingId {
+                                            selectedGroupId = BookGroup.allId
+                                        }
                                         await vm.loadGroups()
+                                        await vm.refresh(sort: sort, groupId: selectedGroupId)
                                     }
                                 } label: { Label("删除分组", systemImage: "trash") }
                             }
@@ -509,7 +508,12 @@ struct BookshelfView: View {
 
     @ViewBuilder
     private func contextMenuFor(_ book: ShelfBook) -> some View {
-        Button { Task { await vm.pin(book) } } label: {
+        Button {
+            Task {
+                await vm.pin(book)
+                sortRaw = ShelfSort.manual.rawValue
+            }
+        } label: {
             Label("置顶", systemImage: "pin")
         }
 
@@ -604,12 +608,6 @@ struct BookshelfView: View {
                 withAnimation(.easeInOut(duration: 0.18)) { tocUpdateHint = nil }
             }
         }
-    }
-
-    private func maybePreloadCovers() {
-        guard UserDefaults.standard.bool(forKey: "wanxiang.shelf.preloadCovers") else { return }
-        let urls = vm.books.prefix(24).compactMap(\.coverUrl)
-        Task { await BookCoverPreloader.preload(urls: urls) }
     }
 
     private static func indexedSections(books: [ShelfBook], sort: ShelfSort) -> [ShelfBookSection] {

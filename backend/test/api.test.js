@@ -157,30 +157,6 @@ test('device register → token flow', async () => {
     .expect(401);
 });
 
-test('wipe-data flow: register → wipe → re-register', async () => {
-  const did = 'wipe-test-' + Date.now();
-  const r1 = await request(app)
-    .post('/api/device/register')
-    .send({ device_id: did })
-    .expect(200);
-  const token = r1.body.token;
-
-  // 错 token wipe 拒
-  await request(app)
-    .delete('/api/me/wipe-data')
-    .set('X-Device-Id', did)
-    .set('X-Device-Token', 'fake-token')
-    .expect(401);
-
-  // 对 token wipe 成功
-  const wipeRes = await request(app)
-    .delete('/api/me/wipe-data')
-    .set('X-Device-Id', did)
-    .set('X-Device-Token', token)
-    .expect(200);
-  assert.equal(wipeRes.body.ok, true);
-  assert.ok(wipeRes.body.deleted);
-});
 
 // === 万象书屋: multi-platform (006_multi_platform) ===
 
@@ -544,15 +520,11 @@ test('healthy=1 hides source only after fail_count threshold', async () => {
   assert.ok(r.body.find(s => s.bookSourceUrl === url), 'non-healthy listing always returns the source');
 });
 
-test('admin source-health summary + static check', async () => {
+test('admin sources static check', async () => {
   const agent = request.agent(app);
   await agent.post('/api/admin/login').send({ password: process.env.ADMIN_INITIAL_PASSWORD }).expect(200);
 
-  let r = await agent.get('/api/admin/source-health/summary?platform=ios').expect(200);
-  assert.equal(r.body.ok, true);
-  assert.ok(Array.isArray(r.body.summary));
-
-  r = await agent.post('/api/admin/sources/check').send({ platform: 'ios', sampleKeyword: '斗破苍穹' }).expect(200);
+  const r = await agent.post('/api/admin/sources/check').send({ platform: 'ios', sampleKeyword: '斗破苍穹' }).expect(200);
   assert.equal(r.body.ok, true);
   assert.ok('checked' in r.body);
 });
@@ -624,35 +596,6 @@ test('D-15 (B-2): /metrics emits real wanxiang_active_devices_today and heartbea
   assert.match(res.text, /^wanxiang_online_5m \d+$/m);
   assert.match(res.text, /^# HELP wanxiang_active_devices_today /m,
     'HELP comment should describe the metric meaningfully');
-});
-
-test('D-15 (B-3 / PIPL): wipeUserData deletes iap_receipts / source_error_events', async () => {
-  const did = 'wipe-pipl-test-' + Date.now();
-
-  db.saveIapReceipt({
-    deviceId: did,
-    productId: 'com.wanxiang.test.product',
-    transactionId: 'tx-' + did,
-    receiptData: 'fake-receipt-data',
-    expiresAt: Date.now() + 86400000,
-    sandbox: true,
-    status: 'active',
-    rawResponse: '{}'
-  });
-  const iapBefore = db.__db
-    .prepare('SELECT COUNT(*) AS n FROM iap_receipts WHERE device_id = ?').get(did).n;
-  assert.equal(iapBefore, 1);
-
-  // wipe
-  const stats = db.wipeUserData(did);
-  assert.ok(stats, 'wipeUserData should return stats object');
-  assert.equal(stats.iap_receipts, 1, `should report 1 iap_receipt deleted: ${JSON.stringify(stats)}`);
-  assert.ok('source_error_events' in stats,
-    `source_error_events must be in the wipe target list: ${JSON.stringify(stats)}`);
-
-  const iapAfter = db.__db
-    .prepare('SELECT COUNT(*) AS n FROM iap_receipts WHERE device_id = ?').get(did).n;
-  assert.equal(iapAfter, 0, 'iap_receipts table must be empty for this device after wipe');
 });
 
 test('D-16 (BACKEND-1): bookSourceUrl rejects non-http(s) schemes', async () => {

@@ -7,6 +7,7 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.exception.NoStackTraceException
+import io.legado.app.help.WanxiangBackend
 import io.legado.app.help.book.addType
 import io.legado.app.help.book.removeAllBookType
 import io.legado.app.help.coroutine.Coroutine
@@ -17,6 +18,7 @@ import io.legado.app.model.analyzeRule.AnalyzeRule
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setCoroutineContext
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.analyzeRule.RuleData
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +48,42 @@ object WebBook {
     }
 
     suspend fun searchBookAwait(
+        bookSource: BookSource,
+        key: String,
+        page: Int? = 1,
+        filter: ((name: String, author: String) -> Boolean)? = null,
+        shouldBreak: ((size: Int) -> Boolean)? = null
+    ): ArrayList<SearchBook> {
+        return try {
+            val result = searchBookAwaitInternal(bookSource, key, page, filter, shouldBreak)
+            if (result.isEmpty()) {
+                WanxiangBackend.reportSourceError(
+                    sourceUrl = bookSource.bookSourceUrl,
+                    sourceName = bookSource.bookSourceName,
+                    stage = "search",
+                    status = "zero",
+                    errorMessage = "0 results",
+                    sampleKeyword = key,
+                )
+            }
+            result
+        } catch (e: Exception) {
+            coroutineContext.ensureActive()
+            if (e !is CancellationException) {
+                WanxiangBackend.reportSourceError(
+                    sourceUrl = bookSource.bookSourceUrl,
+                    sourceName = bookSource.bookSourceName,
+                    stage = "search",
+                    status = WanxiangBackend.classifySourceErrorStatus(e),
+                    errorMessage = e.localizedMessage,
+                    sampleKeyword = key,
+                )
+            }
+            throw e
+        }
+    }
+
+    private suspend fun searchBookAwaitInternal(
         bookSource: BookSource,
         key: String,
         page: Int? = 1,
@@ -154,6 +192,29 @@ object WebBook {
         book: Book,
         canReName: Boolean = true,
     ): Book {
+        return try {
+            getBookInfoAwaitInternal(bookSource, book, canReName)
+        } catch (e: Exception) {
+            coroutineContext.ensureActive()
+            if (e !is CancellationException) {
+                WanxiangBackend.reportSourceError(
+                    sourceUrl = bookSource.bookSourceUrl,
+                    sourceName = bookSource.bookSourceName,
+                    stage = "info",
+                    status = WanxiangBackend.classifySourceErrorStatus(e),
+                    errorMessage = e.localizedMessage,
+                    sampleUrl = book.bookUrl,
+                )
+            }
+            throw e
+        }
+    }
+
+    private suspend fun getBookInfoAwaitInternal(
+        bookSource: BookSource,
+        book: Book,
+        canReName: Boolean = true,
+    ): Book {
         book.removeAllBookType()
         book.addType(bookSource.getBookType())
         if (!book.infoHtml.isNullOrEmpty()) {
@@ -233,7 +294,7 @@ object WebBook {
             if (runPerJs) {
                 runPreUpdateJs(bookSource, book).getOrThrow()
             }
-            if (book.bookUrl == book.tocUrl && !book.tocHtml.isNullOrEmpty()) {
+            val chapters = if (book.bookUrl == book.tocUrl && !book.tocHtml.isNullOrEmpty()) {
                 BookChapterList.analyzeChapterList(
                     bookSource = bookSource,
                     book = book,
@@ -265,8 +326,29 @@ object WebBook {
                     body = res.body
                 )
             }
+            if (chapters.isEmpty()) {
+                WanxiangBackend.reportSourceError(
+                    sourceUrl = bookSource.bookSourceUrl,
+                    sourceName = bookSource.bookSourceName,
+                    stage = "toc",
+                    status = "zero",
+                    errorMessage = "0 chapters",
+                    sampleUrl = book.tocUrl,
+                )
+            }
+            chapters
         }.onFailure {
             coroutineContext.ensureActive()
+            if (it !is CancellationException) {
+                WanxiangBackend.reportSourceError(
+                    sourceUrl = bookSource.bookSourceUrl,
+                    sourceName = bookSource.bookSourceName,
+                    stage = "toc",
+                    status = WanxiangBackend.classifySourceErrorStatus(it),
+                    errorMessage = it.localizedMessage,
+                    sampleUrl = book.tocUrl,
+                )
+            }
         }
     }
 
@@ -297,6 +379,31 @@ object WebBook {
     }
 
     suspend fun getContentAwait(
+        bookSource: BookSource,
+        book: Book,
+        bookChapter: BookChapter,
+        nextChapterUrl: String? = null,
+        needSave: Boolean = true
+    ): String {
+        return try {
+            getContentAwaitInternal(bookSource, book, bookChapter, nextChapterUrl, needSave)
+        } catch (e: Exception) {
+            coroutineContext.ensureActive()
+            if (e !is CancellationException) {
+                WanxiangBackend.reportSourceError(
+                    sourceUrl = bookSource.bookSourceUrl,
+                    sourceName = bookSource.bookSourceName,
+                    stage = "content",
+                    status = WanxiangBackend.classifySourceErrorStatus(e),
+                    errorMessage = e.localizedMessage,
+                    sampleUrl = bookChapter.url,
+                )
+            }
+            throw e
+        }
+    }
+
+    private suspend fun getContentAwaitInternal(
         bookSource: BookSource,
         book: Book,
         bookChapter: BookChapter,

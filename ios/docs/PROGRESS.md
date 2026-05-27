@@ -16,7 +16,7 @@
 | M1 | 14 | 12 | **86%** ✅ | 书源引擎(M1-11/12 留 M2.x) |
 | M2.1 | 8 | 8 | **100%** ✅ | 主导航 + 我的页基础 |
 | M2.2 | 11 | 9 | **82%** | 书架(分组/批量留) |
-| M2.3 | 11 | **9** | **82%** ✅ | 书城(后端 /api/bookstore/feed + admin UI + iOS 真接口) |
+| M2.3 | 11 | **9** | **82%** ✅ | 书城(后端 /api/bookstore/mirror + admin UI + iOS/Android) |
 | M2.4 | 8 | 7 | **88%** | 搜索 |
 | M2.5 | 50 | **40** | **80%** | 阅读器(含**仿真翻书**完整) |
 | M2.6 | 15 | 9 | **60%** | 漫画 + 有声 |
@@ -80,7 +80,7 @@
 - [x] M2.3.5 换一换
 - [x] M2.3.6 加载状态
 - [x] M2.3.10 详情链路
-- [ ] M2.3.1 后端 /api/bookstore/feed 真接口(后端任务)
+- [x] M2.3.1 后端 /api/bookstore/mirror（书城 Mirror 缓存）
 - [ ] M2.3.3 子频道(排行/分类/完结)
 - [ ] M2.3.7-9 banner 跳搜索 / 漫画入口 / 角标
 
@@ -187,16 +187,15 @@
 - [ ] 文件管理 / 字体下载 / 书架 markdown 导出 / iCloud
 - [x] 书架 JSON 导入导出 (集成在书架工具栏菜单)
 
-## M2.10 · 设置面板 + 合规(✅ 90%)
-- [x] LegalView (5 份 markdown)
+## M2.10 · 设置面板 + 合规
 - [x] FeedbackView
-- [x] AccountDeleteView
 - [x] PrivacyInfo.xcprivacy
 - [x] ATT 弹窗
 - [x] ThemeSettingsView (主题设置)
-- [x] OtherSettingsView (~25 项设置)
-- [x] AdConsentManageView (PIPL 撤回入口)
-- [x] ReadingPreferencesView (复用 ReadStyleSheet)
+- [ ] 应用内法律文档页 (已移除; App Store 填 https://api.wanxiangbook.com/legal/privacy.html)
+- [ ] iOS PIPL 广告撤回 UI (AdManager.revokeConsent 已有, My 页待接)
+- [x] Android PIPL 广告撤回 (我的 → 个性化广告管理)
+- [ ] OtherSettingsView (~25 项设置, 已简化)
 - [ ] CoverConfigView (封面设置 6 项,留)
 
 ## M3 · 广告 + 合规(42%)
@@ -204,7 +203,8 @@
 - [x] StubAdProvider (开发期)
 - [x] AdManager (consented + bootstrap + showSplash + showRewardedToUnlock)
 - [x] 广告事件 → /api/ad-event
-- [x] PIPL 撤回入口 (AdConsentManageView)
+- [x] Android PIPL 撤回入口 (我的 → 个性化广告管理)
+- [ ] iOS PIPL 撤回入口 (待做)
 - [ ] 真 BUAdSDK 集成 (需要 .xcframework + appId, 见 M4 文档)
 - [ ] 真 GDTMobSDK 集成
 - [ ] 80+ SKAdNetworkID
@@ -219,4 +219,4 @@
 - [ ] 🟡 真实设计师 1-2 天工时(图标 + 截图叠图)
 - [ ] 🟡 5 个 TestFlight 测试者(M4 阶段)
 - [ ] 🟡 Pangle iOS / GDT iOS SDK appId 申请
-- [ ] 🟡 后端 /api/bookstore/feed 实现(后端工程, 1 周)
+- [x] 书城 Mirror 后端 `/api/bookstore/mirror`（已上线，admin 可监控/手动抓取）

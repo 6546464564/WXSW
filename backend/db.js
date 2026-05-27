@@ -244,7 +244,6 @@ const adEventsModel      = require('./models/adEvents');
 const deviceTokenModel   = require('./models/deviceToken');
 const iapModel           = require('./models/iap');
 const promoModel         = require('./models/promo');
-const redeemModel        = require('./models/redeem');
 const alertsModel        = require('./models/alerts');
 const appVersionModel    = require('./models/appVersion');
 
@@ -258,7 +257,6 @@ adEventsModel.init(db);
 deviceTokenModel.init(db);
 iapModel.init(db);
 promoModel.init(db);
-redeemModel.init(db);
 alertsModel.init(db);
 appVersionModel.init(db);
 
@@ -344,7 +342,6 @@ module.exports = {
   listBlockedDevices: deviceTokenModel.listBlockedDevices,
   kvGet: deviceTokenModel.kvGet,
   kvSet: deviceTokenModel.kvSet,
-  wipeUserData: deviceTokenModel.wipeUserData,
   // IAP
   saveIapReceipt: iapModel.saveIapReceipt,
   listActiveIapForDevice: iapModel.listActiveIapForDevice,
@@ -359,11 +356,6 @@ module.exports = {
   promoCodeStats: promoModel.promoCodeStats,
   promoOverview: promoModel.promoOverview,
   promoFraudDetection: promoModel.promoFraudDetection,
-  // redeem
-  createRedeemCodes: redeemModel.createRedeemCodes,
-  redeemCode: redeemModel.redeemCode,
-  listRedeemCodes: redeemModel.listRedeemCodes,
-  revokeRedeemBatch: redeemModel.revokeRedeemBatch,
   // alerts
   listAlertRules: alertsModel.listAlertRules,
   upsertAlertRule: alertsModel.upsertAlertRule,

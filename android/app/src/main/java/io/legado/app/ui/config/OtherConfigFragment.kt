@@ -12,6 +12,7 @@ import androidx.preference.ListPreference
 import androidx.preference.Preference
 import com.jeremyliao.liveeventbus.LiveEventBus
 import io.legado.app.R
+import io.legado.app.ad.AdConsent
 import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
 import io.legado.app.databinding.DialogEditTextBinding
@@ -237,36 +238,7 @@ class OtherConfigFragment : PreferenceFragment(),
      * 用户已同意 → 提供"撤回"按钮; 已撤回 → 提供"重新同意"按钮.
      */
     private fun showAdConsentDialog() {
-        val ctx = requireActivity()
-        val granted = io.legado.app.ad.AdConsent.isGranted()
-        val stateText = if (granted) {
-            getString(R.string.ad_consent_current_granted)
-        } else {
-            getString(R.string.ad_consent_current_revoked)
-        }
-        val body = stateText + "\n\n" + getString(R.string.ad_consent_manage_body)
-        androidx.appcompat.app.AlertDialog.Builder(ctx)
-            .setTitle(R.string.ad_consent_manage_title)
-            .setMessage(body)
-            .apply {
-                if (granted) {
-                    setPositiveButton(R.string.ad_consent_revoke) { d, _ ->
-                        d.dismiss()
-                        io.legado.app.ad.AdConsent.revoke()
-                        io.legado.app.ad.AdManager.setConsent(appCtx, false)
-                        ctx.toastOnUi(R.string.ad_consent_revoked_toast)
-                    }
-                } else {
-                    setPositiveButton(R.string.ad_consent_agree) { d, _ ->
-                        d.dismiss()
-                        io.legado.app.ad.AdConsent.grantForUser()
-                        io.legado.app.ad.AdManager.setConsent(appCtx, true)
-                        ctx.toastOnUi(R.string.ad_consent_granted_toast)
-                    }
-                }
-                setNegativeButton(android.R.string.cancel, null)
-            }
-            .show()
+        AdConsent.showManageDialog(requireActivity())
     }
 
     @SuppressLint("InflateParams")

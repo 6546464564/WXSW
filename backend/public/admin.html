@@ -318,6 +318,33 @@
                 </div>
             </section>
 
+            <!-- 系统公告 -->
+            <section>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold text-stone-700">系统公告</h2>
+                    <div class="flex gap-2">
+                        <button onclick="loadAnnouncements()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-1.5 rounded">刷新</button>
+                        <button onclick="showAddAnnouncement()" class="text-sm bg-amber-800 hover:bg-amber-900 text-white px-3 py-1.5 rounded">+ 发布公告</button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead class="bg-stone-100 text-stone-600 text-xs">
+                            <tr>
+                                <th class="px-3 py-3 text-left">标题</th>
+                                <th class="px-3 py-3 text-left">内容</th>
+                                <th class="px-3 py-3 text-left">状态</th>
+                                <th class="px-3 py-3 text-left">更新时间</th>
+                                <th class="px-3 py-3 text-left">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="announcementBody">
+                            <tr><td colspan="5" class="px-4 py-8 text-center text-stone-400">暂无公告</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
             <!-- Feedback (用户反馈与举报) -->
             <section>
                 <div class="flex items-center justify-between mb-3">
@@ -352,6 +379,32 @@
                     </table>
                 </div>
             </section>
+
+            <!-- Add Announcement Modal -->
+            <div id="modalAddAnnouncement" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6">
+                <div class="bg-white rounded-2xl w-full max-w-lg">
+                    <div class="px-6 py-4 border-b flex items-center justify-between">
+                        <div class="font-bold">发布公告</div>
+                        <button onclick="hideAddAnnouncement()" class="text-stone-400 hover:text-stone-700">&times;</button>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <label class="block text-sm">标题
+                            <input id="annTitle" class="mt-1 w-full px-3 py-2 border border-stone-300 rounded" maxlength="100" />
+                        </label>
+                        <label class="block text-sm">正文
+                            <textarea id="annContent" rows="5" class="mt-1 w-full px-3 py-2 border border-stone-300 rounded"></textarea>
+                        </label>
+                        <div class="flex gap-4 text-sm">
+                            <label class="flex items-center gap-2"><input type="checkbox" id="annEnabled" checked class="w-4 h-4" /> 启用</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" id="annDismissable" checked class="w-4 h-4" /> 可关闭</label>
+                        </div>
+                    </div>
+                    <div class="px-6 py-4 border-t flex justify-end gap-2">
+                        <button onclick="hideAddAnnouncement()" class="px-4 py-2 text-sm border border-stone-300 rounded">取消</button>
+                        <button onclick="saveAnnouncement()" class="px-4 py-2 text-sm bg-amber-800 text-white rounded">保存</button>
+                    </div>
+                </div>
+            </div>
 
             <!-- Promo Codes -->
             <section>
@@ -572,6 +625,7 @@
             loadMirrorStatus();
             loadAdConfig();
             loadAdFunnel();
+            loadAnnouncements();
             loadFeedback();
             loadPromoCodes();
             // 自动刷新统计
@@ -1490,6 +1544,78 @@
                 const r = await apiSend('/api/admin/feedback/' + id, 'PATCH', { status });
                 if (r.ok) loadFeedback();
                 else alert('失败: ' + (r.msg || ''));
+            } catch (e) { alert('失败: ' + (e.message || e)); }
+        }
+
+        // ── 系统公告 ──
+        function showAddAnnouncement() {
+            document.getElementById('annTitle').value = '';
+            document.getElementById('annContent').value = '';
+            document.getElementById('annEnabled').checked = true;
+            document.getElementById('annDismissable').checked = true;
+            document.getElementById('modalAddAnnouncement').classList.remove('hidden');
+        }
+        function hideAddAnnouncement() {
+            document.getElementById('modalAddAnnouncement').classList.add('hidden');
+        }
+        async function loadAnnouncements() {
+            try {
+                const r = await apiGet('/api/admin/announcements');
+                const list = r.list || [];
+                const tbody = document.getElementById('announcementBody');
+                if (!list.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-400">暂无公告</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map(a => `
+                    <tr class="border-t hover:bg-stone-50">
+                      <td class="px-3 py-2 font-medium">${escapeHtml(a.title || '')}</td>
+                      <td class="px-3 py-2 text-xs max-w-md break-all">${escapeHtml(a.content || '').replace(/\n/g, '<br>')}</td>
+                      <td class="px-3 py-2 whitespace-nowrap">${a.enabled ? '<span class="text-green-700 text-xs">启用</span>' : '<span class="text-stone-400 text-xs">停用</span>'}</td>
+                      <td class="px-3 py-2 text-xs text-stone-500 whitespace-nowrap">${a.updated_at ? new Date(a.updated_at).toLocaleString() : '-'}</td>
+                      <td class="px-3 py-2 whitespace-nowrap text-xs">
+                        <button onclick="toggleAnnouncement(${a.id}, ${a.enabled ? 0 : 1})" class="text-blue-600 hover:underline mr-2">${a.enabled ? '停用' : '启用'}</button>
+                        <button onclick="deleteAnnouncement(${a.id})" class="text-red-600 hover:underline">删除</button>
+                      </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                document.getElementById('announcementBody').innerHTML =
+                    '<tr><td colspan="5" class="px-4 py-6 text-center text-red-500">' + escapeHtml(e.message || String(e)) + '</td></tr>';
+            }
+        }
+        async function saveAnnouncement() {
+            const title = document.getElementById('annTitle').value.trim();
+            const content = document.getElementById('annContent').value.trim();
+            if (!title || !content) { alert('请填写标题和正文'); return; }
+            try {
+                const r = await apiSend('/api/admin/announcement', 'POST', {
+                    title, content,
+                    enabled: document.getElementById('annEnabled').checked,
+                    dismissable: document.getElementById('annDismissable').checked,
+                    style: 'info',
+                });
+                if (r.ok) { hideAddAnnouncement(); loadAnnouncements(); }
+                else alert('失败: ' + (r.msg || ''));
+            } catch (e) { alert('失败: ' + (e.message || e)); }
+        }
+        async function toggleAnnouncement(id, enabled) {
+            try {
+                const r = await apiGet('/api/admin/announcements');
+                const row = (r.list || []).find(x => x.id === id);
+                if (!row) return;
+                const save = await apiSend('/api/admin/announcement', 'POST', { ...row, enabled: !!enabled });
+                if (save.ok) loadAnnouncements();
+                else alert('失败: ' + (save.msg || ''));
+            } catch (e) { alert('失败: ' + (e.message || e)); }
+        }
+        async function deleteAnnouncement(id) {
+            if (!confirm('确认删除这条公告？')) return;
+            try {
+                const r = await fetch('/api/admin/announcement/' + id, { method: 'DELETE', credentials: 'same-origin' });
+                const j = await r.json();
+                if (j.ok) loadAnnouncements();
+                else alert('失败: ' + (j.msg || ''));
             } catch (e) { alert('失败: ' + (e.message || e)); }
         }
 

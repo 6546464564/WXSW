@@ -324,8 +324,9 @@ public struct VersionUpdateInfo: Sendable {
     public let currentVersion: String
     public let releaseNotes: String
     public let downloadUrl: String?
-    public let mandatory: Bool   // 强制升级 (老版本不能用)
-    public var shouldUpdate: Bool { latestVersion != currentVersion }
+    public let mandatory: Bool
+    public let needUpgrade: Bool
+    public var shouldUpdate: Bool { needUpgrade }
 }
 
 // MARK: - 解析器健康上报 sink (App target 内, 实现 BookSource 模块定义的 protocol)

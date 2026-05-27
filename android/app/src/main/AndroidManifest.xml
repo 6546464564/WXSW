@@ -212,11 +212,6 @@
             android:configChanges="orientation|screenSize"
             android:hardwareAccelerated="true" />
 
-        <!-- 万象书屋: 法律文档展示 (隐私 / 用户协议 / 双清单 / SDK 清单 / 开源协议) -->
-        <activity
-            android:name=".ui.about.LegalActivity"
-            android:configChanges="orientation|screenSize" />
-
         <!-- 万象书屋: 反馈与举报 -->
         <activity
             android:name=".ui.about.FeedbackActivity"
@@ -228,18 +223,6 @@
             android:name=".ui.main.bookstore.RankDetailActivity"
             android:configChanges="orientation|screenSize" />
 
-        <!-- 万象书屋: 注销账号 / 清除全部本地数据 -->
-        <activity
-            android:name=".ui.about.AccountDeleteActivity"
-            android:configChanges="orientation|screenSize" />
-
-        <!-- 万象书屋: 注销完成 finish-page (替代直接 kill 进程) -->
-        <activity
-            android:name=".ui.about.AccountDeleteFinishedActivity"
-            android:configChanges="orientation|screenSize"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:taskAffinity="" />
         <!-- 字典管理 -->
         <activity
             android:name=".ui.dict.rule.DictRuleActivity"
