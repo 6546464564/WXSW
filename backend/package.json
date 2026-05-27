@@ -7,9 +7,9 @@
     "start": "node --experimental-require-module server.js",
     "init-db": "node -e \"require('./db').init()\"",
     "seed": "node scripts/seed-default-sources.js",
-    "test": "node --test test/sourceValidator.test.js test/ssrf.test.js",
+    "test": "node --test test/sourceValidator.test.js test/ssrf.test.js test/qidianMirror.test.js",
     "test:api": "node --experimental-require-module --test test/api.test.js",
-    "test:all": "node --experimental-require-module --test test/sourceValidator.test.js test/ssrf.test.js test/api.test.js",
+    "test:all": "node --experimental-require-module --test test/sourceValidator.test.js test/ssrf.test.js test/qidianMirror.test.js test/api.test.js",
     "reset-pwd": "node scripts/reset-admin-password.js"
   },
   "dependencies": {

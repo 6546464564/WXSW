@@ -57,9 +57,9 @@ struct RootView: View {
                 // 万象书屋: 跟 Android `BaseActivity.trackPageName` 自动 PV 埋点等价.
                 // 命名跟 Android 同步使用 snake_case (page_*).
                 switch selectedTab {
-                case .bookshelf: BookshelfView().trackPageView("page_bookshelf")
-                case .bookStore: BookStoreView().trackPageView("page_bookstore")
-                case .my:        MyView().trackPageView("page_my")
+                case .bookshelf: BookshelfView()
+                case .bookStore: BookStoreView()
+                case .my:        MyView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -68,7 +68,7 @@ struct QidianBook: Hashable, Identifiable {
 /// 万象书屋·书城频道 (跟 Android `QidianRepository.Channel` 对齐)
 ///
 /// D-22.1: 女频与男频 UI/数据结构一致; mirror.ranksFemale 空时 fallback ranks.
-/// Publish 走后端 bookstore_feed 独立书单 (PublishBookstore).
+/// Publish 走 mirror.ranksPublish (catId=13100 实体书).
 enum QidianChannel: String, CaseIterable, Identifiable {
     case male, female, publish
     var id: String { rawValue }
@@ -168,24 +168,7 @@ enum QidianRankType: String, CaseIterable {
     }
 }
 
-// MARK: - Search stub / feed mapping
-
-/// 后端 feed 条目 + 可选直达书源 (有 target_url + source_origin 时跳过找源).
-struct BookstoreFeedPick: Identifiable, Hashable {
-    let book: QidianBook
-    let targetURL: String
-    let sourceOrigin: String
-    let section: String
-
-    var id: String { book.id }
-
-    init(book: QidianBook, targetURL: String, sourceOrigin: String, section: String = "recommend") {
-        self.book = book
-        self.targetURL = targetURL
-        self.sourceOrigin = sourceOrigin
-        self.section = section
-    }
-}
+// MARK: - Search stub
 
 extension QidianBook {
     /// 书城 → 详情页找源用的 SearchBook 占位 (bookUrl 空, 详情页 resolveSourceIfNeeded 补源).
@@ -206,36 +189,6 @@ extension QidianBook {
             intro: intro.isEmpty ? nil : intro,
             kind: kindStr.isEmpty ? nil : kindStr,
             wordCount: wordCount.isEmpty ? nil : wordCount
-        )
-    }
-
-    /// snake_case (DB) 与 camelCase (listBookstoreFeed API) 双兼容
-    private static func feedString(_ item: [String: Any], _ keys: String...) -> String {
-        for key in keys {
-            if let s = item[key] as? String {
-                let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !t.isEmpty { return t }
-            }
-        }
-        return ""
-    }
-
-    /// 后端 `/bookstore/feed` 条目 → BookstoreFeedPick (出版频道 mirror 兜底).
-    static func feedPick(from item: [String: Any]) -> BookstoreFeedPick? {
-        let name = feedString(item, "name")
-        guard !name.isEmpty else { return nil }
-        let book = QidianBook(
-            name: name,
-            coverUrl: feedString(item, "cover_url", "coverUrl"),
-            author: feedString(item, "author"),
-            category: feedString(item, "kind"),
-            intro: feedString(item, "intro")
-        )
-        return BookstoreFeedPick(
-            book: book,
-            targetURL: feedString(item, "target_url", "targetUrl", "bookUrl"),
-            sourceOrigin: feedString(item, "source_origin", "sourceOrigin", "origin"),
-            section: feedString(item, "section").isEmpty ? "recommend" : feedString(item, "section")
         )
     }
 

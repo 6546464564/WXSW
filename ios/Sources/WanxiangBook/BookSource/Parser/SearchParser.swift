@@ -37,7 +37,6 @@ public final class SearchParser: @unchecked Sendable {
             throw BookSourceEngineError.missingRule("ruleSearch.bookList")
         }
 
-        CrashBreadcrumb.leave("s.render:\(source.bookSourceName.prefix(12))")
         // 1. 渲染 + fetch (async 版: 真执行 <js>...</js> + 注入 source/cookie/host)
         let rendered = await URLTemplate.renderAsync(
             searchUrlTemplate, bookSource: source, jsEngine: jsEngine,
@@ -50,7 +49,6 @@ public final class SearchParser: @unchecked Sendable {
         //   - 没限速 iOS 多源并发搜索时一秒打 30+ 次同一站点, 触发反爬封 IP
         await SourceRateLimiter.shared.acquire(source: source)
 
-        CrashBreadcrumb.leave("s.fetch:\(source.bookSourceName.prefix(12))")
         let baseHeaders = await source.resolvedHeaders(js: jsEngine)
 
         // 万象书屋: 显式 `,{webView:true}` 优先 WK 渲染, 不走 URLSession.
@@ -110,7 +108,6 @@ public final class SearchParser: @unchecked Sendable {
 
         bodyText = LegadoHTMLParse.clampSource(bodyText)
 
-        CrashBreadcrumb.leave("s.parse:\(source.bookSourceName.prefix(12))")
         // 2. 选书列表
         let scope = JSContextScope()
         scope.baseUrl = finalBaseUrl

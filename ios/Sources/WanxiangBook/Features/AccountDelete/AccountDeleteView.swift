@@ -158,7 +158,6 @@ struct AccountDeleteView: View {
         // 静态 key 直接删除
         for key in [
             "wanxiang.search.history",
-            "wanxiang.pending_crash",
             "wanxiang.purified.unlock_until",
             "wanxiang.ad.consented_v1",         // 广告同意状态
             "wanxiang.ad.config_v1",             // 广告配置缓存

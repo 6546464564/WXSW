@@ -13,9 +13,7 @@ CREATE INDEX IF NOT EXISTS idx_ad_events_platform_ts
   ON ad_events(platform, ts);
 
 -- ---- 3. 崩溃 ----
-ALTER TABLE crashes ADD COLUMN platform TEXT NOT NULL DEFAULT 'android';
-CREATE INDEX IF NOT EXISTS idx_crashes_platform_ts
-  ON crashes(platform, ts);
+-- 已移除: crashes 表从未进 baseline, 013 已 DROP; 新库勿再 ALTER.
 
 -- ---- 4. 反馈 ----
 ALTER TABLE feedback ADD COLUMN platform TEXT NOT NULL DEFAULT 'android';

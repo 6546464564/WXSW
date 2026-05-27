@@ -122,23 +122,31 @@ actor QidianRepository {
         return try parseRanksFromPageData(pageData)
     }
 
-    /// 出版频道: mirror.ranksPublish (起点 catId=13100 实体书)
+    /// 出版频道: mirror.ranksPublish → 直抓 catId=13100 + 作者搜索 (跟男/女 mirror→直抓 对齐)
     func fetchPublishMirrorRanks() async -> [QidianRankType: [QidianBook]] {
-        guard let mirror = await BookstoreMirror.shared.fetch(),
-              let ranksObj = mirror["ranksPublish"] as? [String: Any],
-              !ranksObj.isEmpty else { return [:] }
-        log.debug("ranksPublish from mirror version=\(String(describing: mirror["version"] ?? "?"))")
-        return parseMirrorRanks(ranksObj)
+        if let mirror = await BookstoreMirror.shared.fetch(),
+           let ranksObj = mirror["ranksPublish"] as? [String: Any],
+           !ranksObj.isEmpty {
+            log.debug("ranksPublish from mirror version=\(String(describing: mirror["version"] ?? "?"))")
+            return parseMirrorRanks(ranksObj)
+        }
+        log.debug("ranksPublish fallback to direct fetch")
+        return (try? await fetchPublishRanksDirect()) ?? [:]
     }
 
     /// 出版频道榜单详情 (~50 本)
     func fetchPublishRankPages(type: QidianRankType, target: Int = 50) async -> [QidianBook] {
-        if type == .yuepiao,
-           let mirror = await BookstoreMirror.shared.fetch(),
-           let arr = mirror["yuepiaoTop50Publish"] as? [[String: Any]],
-           !arr.isEmpty {
-            log.debug("yuepiaoTop50Publish from mirror size=\(arr.count)")
-            return Array(arr.compactMap { mirrorBookToQidian($0, rankType: .yuepiao) }.prefix(target))
+        if type == .yuepiao {
+            if let mirror = await BookstoreMirror.shared.fetch(),
+               let arr = mirror["yuepiaoTop50Publish"] as? [[String: Any]],
+               !arr.isEmpty {
+                log.debug("yuepiaoTop50Publish from mirror size=\(arr.count)")
+                return Array(arr.compactMap { mirrorBookToQidian($0, rankType: .yuepiao) }.prefix(target))
+            }
+            if let direct = try? await fetchPublishTop50Direct(), !direct.isEmpty {
+                log.debug("yuepiaoTop50Publish from direct size=\(direct.count)")
+                return Array(direct.prefix(target))
+            }
         }
         let ranks = await fetchPublishMirrorRanks()
         guard !ranks.isEmpty else { return [] }
@@ -155,6 +163,113 @@ actor QidianRepository {
             }
         }
         return Array(out.prefix(target))
+    }
+
+    // MARK: - Publish direct fetch (对齐 backend jobs/qidianMirror.js)
+
+    private static let publishCatId = 13100
+    private static let publishRankPreview = 12
+    private static let publishSearchAuthors = [
+        "刘慈欣", "余华", "东野圭吾", "马伯庸", "当年明月", "张嘉佳", "路遥", "莫言",
+        "村上春树", "毛姆", "加西亚·马尔克斯", "王小波", "三毛", "钱钟书",
+        "紫金陈", "麦家",
+    ]
+
+    private struct PublishMetaBook {
+        let book: QidianBook
+        let recommend: Int
+        let updateTime: String
+    }
+
+    private enum PublishSort {
+        case category, categoryTail, updateTime, recommend
+    }
+
+    private func fetchPublishRanksDirect() async throws -> [QidianRankType: [QidianBook]] {
+        let pool = try await fetchPublishBookPool()
+        return [
+            .yuepiao: buildPublishRankList(pool: pool, sort: .category, preview: Self.publishRankPreview),
+            .hotReading: buildPublishRankList(pool: pool, sort: .categoryTail, preview: Self.publishRankPreview),
+            .newBook: buildPublishRankList(pool: pool, sort: .updateTime, preview: Self.publishRankPreview),
+            .recommend: buildPublishRankList(pool: pool, sort: .recommend, preview: Self.publishRankPreview),
+        ]
+    }
+
+    private func fetchPublishTop50Direct() async throws -> [QidianBook] {
+        let pool = try await fetchPublishBookPool()
+        let byRecommend = pool.merged.sorted { $0.recommend > $1.recommend }
+        var seen = Set<String>()
+        var out: [QidianBook] = []
+        for item in pool.category + byRecommend {
+            let id = item.book.bookId
+            guard !id.isEmpty, seen.insert(id).inserted else { continue }
+            out.append(item.book)
+            if out.count >= 50 { break }
+        }
+        return out
+    }
+
+    private func fetchPublishBookPool() async throws -> (category: [PublishMetaBook], merged: [PublishMetaBook]) {
+        let categoryBooks = try await fetchPublishCategoryBooks()
+        var merged: [PublishMetaBook] = []
+        var seen = Set<String>()
+        func push(_ item: PublishMetaBook) {
+            let id = item.book.bookId
+            guard !id.isEmpty, seen.insert(id).inserted else { return }
+            merged.append(item)
+        }
+        for item in categoryBooks { push(item) }
+        for author in Self.publishSearchAuthors {
+            let list = (try? await fetchPublishSearchByAuthor(author)) ?? []
+            for item in list { push(item) }
+            try await Task.sleep(nanoseconds: 300_000_000)
+        }
+        return (categoryBooks, merged)
+    }
+
+    private func fetchPublishCategoryBooks() async throws -> [PublishMetaBook] {
+        let pageData = try await fetchPageWithSSR(url: "\(base)/category/detail?catId=\(Self.publishCatId)&gender=male")
+        guard let list = pageData["list"] as? [String: Any],
+              let records = list["records"] as? [[String: Any]] else { return [] }
+        return records.compactMap { obj -> PublishMetaBook? in
+            guard let book = parseBook(obj, rankType: .hotReading) else { return nil }
+            return PublishMetaBook(book: book, recommend: 0, updateTime: "")
+        }
+    }
+
+    private func fetchPublishSearchByAuthor(_ author: String) async throws -> [PublishMetaBook] {
+        let encoded = author.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? author
+        let pageData = try await fetchPageWithSSR(url: "\(base)/search?kw=\(encoded)")
+        guard let bookInfo = pageData["bookInfo"] as? [String: Any],
+              let records = bookInfo["records"] as? [[String: Any]] else { return [] }
+        return records.compactMap { parsePublishSearchBook($0, rankType: .hotReading) }
+    }
+
+    private func parsePublishSearchBook(_ obj: [String: Any], rankType: QidianRankType) -> PublishMetaBook? {
+        guard (obj.intNumber(forKey: "isPub") ?? 0) == 1 else { return nil }
+        guard let book = parseBook(obj, rankType: rankType) else { return nil }
+        let update = obj.trimmedString(forKey: "updateTime").nonEmpty
+            ?? obj.trimmedString(forKey: "lastUpdateTime")
+        return PublishMetaBook(
+            book: book,
+            recommend: obj.intNumber(forKey: "recomendCnt") ?? 0,
+            updateTime: update ?? ""
+        )
+    }
+
+    private func buildPublishRankList(
+        pool: (category: [PublishMetaBook], merged: [PublishMetaBook]),
+        sort: PublishSort,
+        preview: Int
+    ) -> [QidianBook] {
+        let list: [PublishMetaBook]
+        switch sort {
+        case .category: list = pool.category
+        case .categoryTail: list = pool.category.reversed()
+        case .updateTime: list = pool.merged.sorted { $0.updateTime > $1.updateTime }
+        case .recommend: list = pool.merged.sorted { $0.recommend > $1.recommend }
+        }
+        return Array(list.prefix(preview).map(\.book))
     }
 
     /// 万象书屋 D-22.1: 抓 /finish/ 完结频道, 返回 4 完结榜.

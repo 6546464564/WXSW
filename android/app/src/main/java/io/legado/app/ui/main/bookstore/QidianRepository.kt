@@ -6,6 +6,7 @@ import io.legado.app.help.WanxiangBookstoreMirror
 import io.legado.app.help.http.newCallStrResponse
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.utils.LogUtils
+import kotlinx.coroutines.delay
 import org.jsoup.Jsoup
 
 /**
@@ -55,7 +56,7 @@ object QidianRepository {
      * 万象书屋·书城 频道.
      *
      * D-22.1: m.qidian gender=female 与 male 榜单同源 (服务端/客户端均 mirror.ranks 兜底).
-     * Publish 走 mirror.ranksPublish (catId=13100 实体书), feed 兜底.
+     * Publish 走 mirror.ranksPublish → 直抓 catId=13100 (跟男/女 mirror→直抓 对齐).
      */
     enum class Channel {
         Male,
@@ -155,7 +156,7 @@ object QidianRepository {
         return fetchPageWithSSR(url) { pageData -> parseRanksFromPageData(pageData) }
     }
 
-    /** 出版频道: mirror.ranksPublish (起点 catId=13100 实体书分类) */
+    /** 出版频道: mirror.ranksPublish → 直抓 catId=13100 + 作者搜索 (跟男/女 mirror→直抓 对齐) */
     suspend fun fetchPublishMirrorRanks(): Map<RankType, List<QidianBook>> {
         WanxiangBookstoreMirror.fetch()?.let { mirror ->
             mirror.getAsJsonObject("ranksPublish")?.let { obj ->
@@ -165,7 +166,8 @@ object QidianRepository {
                 }
             }
         }
-        return emptyMap()
+        LogUtils.d(TAG, "ranksPublish fallback to direct fetch")
+        return runCatching { fetchPublishRanksDirect() }.getOrElse { emptyMap() }
     }
 
     /** 出版频道榜单详情页 (~50 本): 月票走 yuepiaoTop50Publish, 其余合并各榜 */
@@ -179,6 +181,10 @@ object QidianRepository {
                         runCatching { mirrorBookToQidian(it.asJsonObject, RankType.Yuepiao) }.getOrNull()
                     }.take(target)
                 }
+            }
+            runCatching { fetchPublishTop50Direct() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { direct ->
+                LogUtils.d(TAG, "yuepiaoTop50Publish from direct size=${direct.size}")
+                return direct.take(target)
             }
         }
         val ranks = fetchPublishMirrorRanks()
@@ -198,6 +204,110 @@ object QidianRepository {
             }
         }
         return out.take(target)
+    }
+
+    // ---- Publish direct fetch (对齐 backend jobs/qidianMirror.js) ----
+
+    private const val PUBLISH_CAT_ID = 13100
+    private const val PUBLISH_RANK_PREVIEW = 12
+    private val PUBLISH_SEARCH_AUTHORS = listOf(
+        "刘慈欣", "余华", "东野圭吾", "马伯庸", "当年明月", "张嘉佳", "路遥", "莫言",
+        "村上春树", "毛姆", "加西亚·马尔克斯", "王小波", "三毛", "钱钟书",
+        "紫金陈", "麦家",
+    )
+
+    private data class PublishMetaBook(
+        val book: QidianBook,
+        val recommend: Int = 0,
+        val updateTime: String = "",
+    )
+
+    private enum class PublishSort { Category, CategoryTail, UpdateTime, Recommend }
+
+    private suspend fun fetchPublishRanksDirect(): Map<RankType, List<QidianBook>> {
+        val pool = fetchPublishBookPool()
+        return mapOf(
+            RankType.Yuepiao to buildPublishRankList(pool, PublishSort.Category, PUBLISH_RANK_PREVIEW),
+            RankType.HotReading to buildPublishRankList(pool, PublishSort.CategoryTail, PUBLISH_RANK_PREVIEW),
+            RankType.NewBook to buildPublishRankList(pool, PublishSort.UpdateTime, PUBLISH_RANK_PREVIEW),
+            RankType.Recommend to buildPublishRankList(pool, PublishSort.Recommend, PUBLISH_RANK_PREVIEW),
+        )
+    }
+
+    private suspend fun fetchPublishTop50Direct(): List<QidianBook> {
+        val pool = fetchPublishBookPool()
+        val byRecommend = pool.second.sortedByDescending { it.recommend }
+        val seen = LinkedHashSet<String>()
+        val out = ArrayList<QidianBook>(50)
+        for (item in pool.first + byRecommend) {
+            val id = item.book.bookId
+            if (id.isBlank() || !seen.add(id)) continue
+            out.add(item.book)
+            if (out.size >= 50) break
+        }
+        return out
+    }
+
+    private suspend fun fetchPublishBookPool(): Pair<List<PublishMetaBook>, List<PublishMetaBook>> {
+        val categoryBooks = fetchPublishCategoryBooks()
+        val merged = ArrayList<PublishMetaBook>()
+        val seen = LinkedHashSet<String>()
+        fun push(item: PublishMetaBook) {
+            val id = item.book.bookId
+            if (id.isBlank() || !seen.add(id)) return
+            merged.add(item)
+        }
+        categoryBooks.forEach(::push)
+        for (author in PUBLISH_SEARCH_AUTHORS) {
+            fetchPublishSearchByAuthor(author).forEach(::push)
+            delay(300)
+        }
+        return Pair(categoryBooks, merged)
+    }
+
+    private suspend fun fetchPublishCategoryBooks(): List<PublishMetaBook> {
+        val pageData = fetchPageData("$BASE/category/detail?catId=$PUBLISH_CAT_ID&gender=male")
+        val records = pageData.getAsJsonObject("list")?.getAsJsonArray("records") ?: return emptyList()
+        return records.mapNotNull { el ->
+            runCatching {
+                val book = parseBook(el.asJsonObject, RankType.HotReading) ?: return@runCatching null
+                PublishMetaBook(book = book)
+            }.getOrNull()
+        }
+    }
+
+    private suspend fun fetchPublishSearchByAuthor(author: String): List<PublishMetaBook> {
+        return runCatching {
+            val pageData = fetchPageData("$BASE/search?kw=${java.net.URLEncoder.encode(author, "UTF-8")}")
+            val records = pageData.getAsJsonObject("bookInfo")?.getAsJsonArray("records") ?: return emptyList()
+            records.mapNotNull { el ->
+                runCatching { parsePublishSearchBook(el.asJsonObject, RankType.HotReading) }.getOrNull()
+            }
+        }.getOrElse { emptyList() }
+    }
+
+    private fun parsePublishSearchBook(obj: JsonObject, rankType: RankType): PublishMetaBook? {
+        val isPub = runCatching { obj.get("isPub")?.asInt }.getOrNull() ?: 0
+        if (isPub != 1) return null
+        val book = parseBook(obj, rankType) ?: return null
+        val updateTime = obj.get("updateTime")?.asString?.trim().orEmpty()
+            .ifBlank { obj.get("lastUpdateTime")?.asString?.trim().orEmpty() }
+        val recommend = runCatching { obj.get("recomendCnt")?.asInt }.getOrNull() ?: 0
+        return PublishMetaBook(book = book, recommend = recommend, updateTime = updateTime)
+    }
+
+    private fun buildPublishRankList(
+        pool: Pair<List<PublishMetaBook>, List<PublishMetaBook>>,
+        sort: PublishSort,
+        preview: Int,
+    ): List<QidianBook> {
+        val list = when (sort) {
+            PublishSort.Category -> pool.first
+            PublishSort.CategoryTail -> pool.first.asReversed()
+            PublishSort.UpdateTime -> pool.second.sortedByDescending { it.updateTime }
+            PublishSort.Recommend -> pool.second.sortedByDescending { it.recommend }
+        }
+        return list.take(preview).map { it.book }
     }
 
     /** 万象书屋 D-23: mirror 的 ranks 字段 → RankType map. */

@@ -76,44 +76,11 @@ class CrashHandler(val context: Context) : Thread.UncaughtExceptionHandler {
         LocalConfig.appCrash = true
         //保存日志文件
         saveCrashInfo2File(ex)
-        // 万象书屋: 同步上报后端 (mini Sentry). 失败吞掉, 不影响崩溃流程.
-        kotlin.runCatching { uploadCrashToBackend(ex) }
         if ((ex is OutOfMemoryError || ex.cause is OutOfMemoryError) && AppConfig.recordHeapDump) {
             doHeapDump()
         }
         context.longToastOnUiLegacy(ex.stackTraceStr)
         Thread.sleep(3000)
-    }
-
-    /**
-     * 万象书屋: 崩溃上报到自建后端 /api/crash-log.
-     *
-     * 设计:
-     *   - main 线程不阻塞: 新线程异步上报, 不 join. handleException 后续的 toast / 3s sleep 跟它并行
-     *   - 进程退出竞速: 上报线程 daemon, 进程被 kill 时丢就丢. 这是合理权衡 — 比让用户多等 5s 看 toast 更重要
-     *   - 5s 自身超时由 reportCrashSync 内部的 withTimeoutOrNull 控制, 不会无限挂
-     */
-    private fun uploadCrashToBackend(ex: Throwable) {
-        val sw = StringWriter()
-        ex.printStackTrace(PrintWriter(sw))
-        val stack = sw.toString().take(18_000)
-        val exStr = (ex::class.java.name + ": " + (ex.localizedMessage ?: "")).take(200)
-        val t = Thread({
-            runCatching {
-                WanxiangBackend.reportCrashSync(
-                    exception = exStr,
-                    stack = stack,
-                    brand = Build.BRAND,
-                    model = Build.MODEL,
-                    sdkInt = Build.VERSION.SDK_INT,
-                    appVer = AppConst.appInfo.versionName,
-                )
-            }
-        }, "wanxiang-crash-upload")
-        t.isDaemon = true
-        t.start()
-        // 不 join: handleException 主路径继续走 toast + 3s sleep,
-        // 如果上报 5s 内没完成, 进程被 default handler 干掉时 daemon 线程一并结束.
     }
 
     companion object {

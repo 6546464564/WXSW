@@ -210,7 +210,6 @@ struct FeedbackView: View {
             resultAlert = .init(title: "提示", message: "请填写联系方式,我们才能回复您", dismissOnOK: false); return
         }
 
-        WanxiangAnalytics.shared.track("feedback_submit", type: "click")
         isSubmitting = true
         defer { isSubmitting = false }
 

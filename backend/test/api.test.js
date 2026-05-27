@@ -482,90 +482,6 @@ test('PATCH /api/admin/sources/platforms/bulk 批量加/去某平台', async () 
   for (const u of urls) db.deleteSource(u);
 });
 
-// === 万象书屋 v2 (008): bookstore feed (M2.3.1) ===
-
-test('GET /api/bookstore/feed validates channel', async () => {
-  const did = 'feed-test-' + Date.now();
-  const reg = await request(app).post('/api/device/register').set('X-Platform', 'ios').send({ device_id: did }).expect(200);
-  const token = reg.body.token;
-
-  // 缺 channel → 400
-  await request(app).get('/api/bookstore/feed')
-    .set('X-Platform', 'ios').set('X-Device-Id', did).set('X-Device-Token', token)
-    .expect(400);
-  // 非法 channel → 400
-  await request(app).get('/api/bookstore/feed?channel=xxx')
-    .set('X-Platform', 'ios').set('X-Device-Id', did).set('X-Device-Token', token)
-    .expect(400);
-  // 合法 channel → 200 (空)
-  const r = await request(app).get('/api/bookstore/feed?channel=male')
-    .set('X-Platform', 'ios').set('X-Device-Id', did).set('X-Device-Token', token)
-    .expect(200);
-  assert.equal(r.body.ok, true);
-  assert.equal(r.body.channel, 'male');
-  assert.ok(Array.isArray(r.body.items));
-});
-
-test('admin bookstore-feed upsert / list / delete', async () => {
-  const agent = request.agent(app);
-  await agent.post('/api/admin/login').send({ password: process.env.ADMIN_INITIAL_PASSWORD }).expect(200);
-
-  // 列空
-  let r = await agent.get('/api/admin/bookstore-feed').expect(200);
-  const before = r.body.length;
-
-  // 加 1 条
-  r = await agent.post('/api/admin/bookstore-feed').send({
-    channel: 'male', section: 'banner',
-    name: '三体', author: '刘慈欣',
-    target_url: 'https://stub.example/sanyi', priority: 0
-  }).expect(200);
-  assert.equal(r.body.ok, true);
-  const id = r.body.item.id;
-  assert.ok(id > 0);
-
-  // 列表能看到
-  r = await agent.get('/api/admin/bookstore-feed').expect(200);
-  assert.equal(r.body.length, before + 1);
-  assert.ok(r.body.find(x => x.id === id));
-
-  // 公开 API 也能看到
-  const did = 'feed-public-' + Date.now();
-  const reg = await request(app).post('/api/device/register').set('X-Platform', 'ios').send({ device_id: did }).expect(200);
-  r = await request(app).get('/api/bookstore/feed?channel=male')
-    .set('X-Platform', 'ios').set('X-Device-Id', did).set('X-Device-Token', reg.body.token)
-    .expect(200);
-  assert.ok(r.body.items.find(x => x.id === id));
-
-  // 切 enabled = false
-  await agent.patch(`/api/admin/bookstore-feed/${id}/enabled`)
-    .send({ enabled: false }).expect(200);
-  r = await request(app).get('/api/bookstore/feed?channel=male')
-    .set('X-Platform', 'ios').set('X-Device-Id', did).set('X-Device-Token', reg.body.token)
-    .expect(200);
-  assert.ok(!r.body.items.find(x => x.id === id), 'disabled 后公开 API 不应再返回');
-
-  // 删
-  await agent.delete(`/api/admin/bookstore-feed/${id}`).expect(200);
-  r = await agent.get('/api/admin/bookstore-feed').expect(200);
-  assert.ok(!r.body.find(x => x.id === id));
-});
-
-test('GET /api/bookstore/feed ETag 304 命中', async () => {
-  const did = 'feed-etag-' + Date.now();
-  const reg = await request(app).post('/api/device/register').set('X-Platform', 'ios').send({ device_id: did }).expect(200);
-  const token = reg.body.token;
-
-  const r1 = await request(app).get('/api/bookstore/feed?channel=female')
-    .set('X-Platform', 'ios').set('X-Device-Id', did).set('X-Device-Token', token).expect(200);
-  const etag = r1.headers.etag;
-  assert.ok(etag);
-
-  await request(app).get('/api/bookstore/feed?channel=female')
-    .set('X-Platform', 'ios').set('X-Device-Id', did).set('X-Device-Token', token)
-    .set('If-None-Match', etag).expect(304);
-});
-
 // === source health (/api/source-error + /api/sources?healthy=1) ===
 
 test('POST /api/source-error rejects unknown sourceUrl', async () => {
@@ -710,20 +626,9 @@ test('D-15 (B-2): /metrics emits real wanxiang_active_devices_today and heartbea
     'HELP comment should describe the metric meaningfully');
 });
 
-test('D-15 (B-3 / PIPL): wipeUserData deletes events / iap_receipts / source_error_events', async () => {
-  // 修复前: tables 数组只有 7 个表, events / iap_receipts / source_error_events 三张含 device_id 的
-  //         表被遗漏, 注销账号后仍留存 30~90 天 → 违反 PIPL 第 47 条 "应当主动删除".
-  // 修复后: 这三张表加入清理列表.
+test('D-15 (B-3 / PIPL): wipeUserData deletes iap_receipts / source_error_events', async () => {
   const did = 'wipe-pipl-test-' + Date.now();
 
-  // 1. events: 直接 db.recordEvent 插入两条
-  db.recordEvent({ deviceId: did, type: 'pv', name: 'test_page' });
-  db.recordEvent({ deviceId: did, type: 'click', name: 'test_btn' });
-  const eventsBefore = db.__db
-    .prepare('SELECT COUNT(*) AS n FROM events WHERE device_id = ?').get(did).n;
-  assert.equal(eventsBefore, 2, `should have 2 events before wipe, got ${eventsBefore}`);
-
-  // 2. iap_receipts: 直接 saveIapReceipt 插一条
   db.saveIapReceipt({
     deviceId: did,
     productId: 'com.wanxiang.test.product',
@@ -738,58 +643,16 @@ test('D-15 (B-3 / PIPL): wipeUserData deletes events / iap_receipts / source_err
     .prepare('SELECT COUNT(*) AS n FROM iap_receipts WHERE device_id = ?').get(did).n;
   assert.equal(iapBefore, 1);
 
-  // 3. wipe
+  // wipe
   const stats = db.wipeUserData(did);
   assert.ok(stats, 'wipeUserData should return stats object');
-  assert.equal(stats.events, 2, `should report 2 events deleted: ${JSON.stringify(stats)}`);
   assert.equal(stats.iap_receipts, 1, `should report 1 iap_receipt deleted: ${JSON.stringify(stats)}`);
   assert.ok('source_error_events' in stats,
     `source_error_events must be in the wipe target list: ${JSON.stringify(stats)}`);
 
-  // 4. 校验数据库中确实清空
-  const eventsAfter = db.__db
-    .prepare('SELECT COUNT(*) AS n FROM events WHERE device_id = ?').get(did).n;
-  assert.equal(eventsAfter, 0, 'events table must be empty for this device after wipe');
   const iapAfter = db.__db
     .prepare('SELECT COUNT(*) AS n FROM iap_receipts WHERE device_id = ?').get(did).n;
   assert.equal(iapAfter, 0, 'iap_receipts table must be empty for this device after wipe');
-});
-
-test('D-15 (B-3): /api/me/wipe-data E2E removes events table records', async () => {
-  // 走完整 HTTP 路径, 防 server 层路由把 db.wipeUserData 返回值改坏.
-  const did = 'wipe-events-e2e-' + Date.now();
-  const reg = await request(app)
-    .post('/api/device/register')
-    .send({ device_id: did })
-    .expect(200);
-  const token = reg.body.token;
-
-  // 上报一条 event 走 HTTP (顺便覆盖 /api/events 接口)
-  await request(app)
-    .post('/api/events')
-    .set('X-Device-Id', did)
-    .set('X-Device-Token', token)
-    .send({ events: [{ ts: Date.now(), type: 'pv', name: 'page_main' }] })
-    .expect(200);
-
-  const before = db.__db
-    .prepare('SELECT COUNT(*) AS n FROM events WHERE device_id = ?').get(did).n;
-  assert.ok(before >= 1);
-
-  // wipe
-  const wipeRes = await request(app)
-    .delete('/api/me/wipe-data')
-    .set('X-Device-Id', did)
-    .set('X-Device-Token', token)
-    .expect(200);
-  assert.equal(wipeRes.body.ok, true);
-  // 关键断言: deleted 字典里必须有 events 字段且 >=1
-  assert.ok(wipeRes.body.deleted.events >= 1,
-    `wipe response must report events count: ${JSON.stringify(wipeRes.body.deleted)}`);
-
-  const after = db.__db
-    .prepare('SELECT COUNT(*) AS n FROM events WHERE device_id = ?').get(did).n;
-  assert.equal(after, 0, 'events should be 0 after wipe E2E');
 });
 
 test('D-16 (BACKEND-1): bookSourceUrl rejects non-http(s) schemes', async () => {
@@ -875,7 +738,6 @@ test('D-16 (B-4 RBAC): cs role cannot modify book sources / ad config', async ()
     ['PATCH',  '/api/admin/sources/platforms',        { url: 'https://x.com', platforms: ['ios'] }],
     ['PATCH',  '/api/admin/sources/platforms/bulk',   { urls: ['https://x.com'], platform: 'ios', op: 'add' }],
     ['PATCH',  '/api/admin/sources/group-enabled',    { group: 'g', enabled: false }],
-    ['POST',   '/api/admin/bookstore-feed',           { channel: 'male', name: 'x', target_url: 'http://x' }],
     ['POST',   '/api/admin/ad-config',                { placements: {} }],
   ];
   for (const [method, path, body] of writeAttempts) {
@@ -895,6 +757,21 @@ test('D-16 (B-4 RBAC): cs role cannot modify book sources / ad config', async ()
   // 清理
   await superAgent.delete('/api/admin/sources?url=' + encodeURIComponent('https://super-can.example.com')).expect(200);
   await superAgent.delete('/api/admin/users/' + csUsername).expect(200);
+});
+
+test('POST /api/admin/bookstore-mirror/publish rejects incomplete payload', async () => {
+  const agent = request.agent(app);
+  await agent.post('/api/admin/login')
+    .send({ password: process.env.ADMIN_INITIAL_PASSWORD })
+    .expect(200);
+
+  const res = await agent.post('/api/admin/bookstore-mirror/publish')
+    .send({ ranks: { hotRank: [] }, finish: {}, yuepiaoTop50: [] })
+    .expect(400);
+  assert.equal(res.body.ok, false);
+  assert.match(String(res.body.msg || ''), /validation failed/i);
+  assert.ok(Array.isArray(res.body.errors));
+  assert.ok(res.body.errors.length > 0);
 });
 
 // 万象书屋: 这条会消耗 admin login 限速预算, 必须放在所有需要 admin 登录的测试之后.

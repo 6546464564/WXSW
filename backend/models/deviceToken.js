@@ -89,8 +89,8 @@ function wipeUserData(deviceId) {
   const stats = {};
   const tx = db.transaction(() => {
     const tables = [
-      'heartbeats', 'visits', 'ad_events', 'crashes', 'feedback',
-      'redeem_uses', 'device_tokens', 'events', 'iap_receipts', 'source_error_events',
+      'heartbeats', 'visits', 'ad_events', 'feedback',
+      'redeem_uses', 'device_tokens', 'iap_receipts', 'source_error_events',
     ];
     for (const t of tables) {
       try {

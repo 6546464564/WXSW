@@ -22,7 +22,7 @@
 //
 //  D-22.2 板块映射 (按 channel 决定取哪个 RankType):
 //   Male/Female: Yuepiao + HotReading + NewBook + Recommend
-//   Publish: 同上结构, 优先 mirror.ranksPublish (起点 catId=13100), feed 兜底
+//   Publish: 同上结构, 优先 mirror.ranksPublish (起点 catId=13100)
 //
 
 import SwiftUI
@@ -262,7 +262,6 @@ struct BookStoreView: View {
                     Color(red: 0.94, green: 0.30, blue: 0.30),
                 ]
             ) {
-                WanxiangAnalytics.shared.track("bs_banner_rank", type: vm.heroType.rawValue)
                 navTarget = .rank(vm.heroType, vm.heroType.title)
             }
             bannerCard(
@@ -274,7 +273,6 @@ struct BookStoreView: View {
                     Color(red: 0.96, green: 0.78, blue: 0.50),
                 ]
             ) {
-                WanxiangAnalytics.shared.track("bs_banner_library", type: "click")
                 let libraryTitle = vm.currentChannel == .publish ? "出版书库" : "完本书库"
                 navTarget = .finish(libraryTitle)
             }

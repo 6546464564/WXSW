@@ -31,7 +31,6 @@ import io.legado.app.data.entities.rule.ContentRule
 import io.legado.app.data.entities.rule.ExploreRule
 import io.legado.app.data.entities.rule.SearchRule
 import io.legado.app.help.AppFreezeMonitor
-import io.legado.app.help.CrashHandler
 import io.legado.app.help.DefaultData
 import io.legado.app.help.DispatchersMonitor
 import io.legado.app.help.LifecycleHelp
@@ -69,7 +68,6 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        CrashHandler(this)
         if (isDebuggable) {
             ThreadUtils.setThreadAssertsDisabledForTesting(true)
         }
@@ -121,8 +119,6 @@ class App : Application() {
             ShortCuts.buildShortCuts(this@App)
             // 万象书屋: 启动远程书源同步 + 心跳上报 (后端 URL 在 BuildConfig.BACKEND_BASE_URL)
             WanxiangBackend.start()
-            // 万象书屋: 自建埋点 SDK 启动 (内存队列 + 30s 定时 flush)
-            io.legado.app.help.WanxiangAnalytics.init()
             AppFreezeMonitor.init(this@App)
             DispatchersMonitor.init()
             URL.setURLStreamHandlerFactory(ObsoleteUrlFactory(okHttpClient))

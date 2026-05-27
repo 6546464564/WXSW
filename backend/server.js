@@ -16,7 +16,7 @@ const logger = require('./logger');
 
 // middleware
 const { makeRateLimit, rateLimitSources, rateLimitPing, rateLimitAdConfig,
-        rateLimitAdEvent, rateLimitCrash, rateLimitEvents,
+        rateLimitAdEvent,
         rateLimitFeedback, rateLimitSourceError, rateLimitRedeem } = require('./middleware/rateLimit');
 const deviceAuth = require('./middleware/deviceAuth');
 const adminAuth = require('./middleware/adminAuth');
@@ -120,7 +120,6 @@ app.use('/api/', cors({ origin: false, credentials: false }));
 // body parser (路径级分流)
 const largeBodyRoutes = new Set([
   'POST /api/admin/sources',
-  'POST /api/admin/bookstore-feed',
 ]);
 app.use((req, res, next) => {
   const key = req.method + ' ' + req.path;
@@ -190,7 +189,6 @@ app.delete('/api/me/wipe-data', makeRateLimit({ windowMs: 60_000, max: 1, keyPre
     return res.status(401).json({ ok: false, msg: 'invalid token' });
   }
   const deleted = db.wipeUserData(did);
-  db.recordAudit({ ip: req.ip, action: 'pipl.wipe_user_data', target: did.slice(0, 16) + '...', detail: deleted });
   logger.info('user data wiped', { t: req.traceId, did: did.slice(0, 12), deleted });
   res.json({ ok: true, deleted });
 });
@@ -267,10 +265,6 @@ app.get('/metrics', (req, res) => {
     metric('wanxiang_book_sources_active', 'Active book sources count', 'gauge', sourceCount.n);
   } catch (_) {}
   try {
-    const r = db.__db.prepare('SELECT COUNT(*) AS n FROM crashes WHERE ts > ?').get(Date.now() - 24 * 3600 * 1000);
-    metric('wanxiang_crashes_24h', 'Crashes in last 24h', 'gauge', r.n);
-  } catch (_) {}
-  try {
     const r = db.__db.prepare("SELECT COUNT(*) AS n FROM feedback WHERE status = 'pending'").get();
     metric('wanxiang_feedback_pending', 'Pending feedback count', 'gauge', r.n);
   } catch (_) {}
@@ -309,7 +303,6 @@ app.post('/api/redeem', rateLimitRedeem, blockBlacklistedDevice, verifyDeviceTok
   try {
     const r = db.redeemCode(String(code).toUpperCase().trim(), String(deviceId).slice(0, 128), req.ip);
     if (r.ok) {
-      db.recordAudit({ ip: req.ip, action: 'redeem.use', target: code, detail: { deviceId, rewardType: r.rewardType, rewardValue: r.rewardValue } });
     }
     res.json(r);
   } catch (e) {
@@ -342,22 +335,7 @@ app.post('/api/source-error', rateLimitSourceError, blockBlacklistedDevice, veri
   }
 });
 
-// --- 书城 feed + mirror ---
-const _ALLOWED_CHANNELS = new Set(['male', 'female', 'publish', 'manga', 'audio']);
-
-app.get('/api/bookstore/feed', rateLimitSources, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
-  const channel = String(req.query.channel || '').toLowerCase().trim();
-  if (!_ALLOWED_CHANNELS.has(channel)) {
-    return res.status(400).json({ ok: false, msg: 'channel must be male/female/publish/manga/audio' });
-  }
-  const etag = db.getBookstoreFeedEtag(channel);
-  res.set('Cache-Control', 'public, max-age=600');
-  res.set('ETag', etag);
-  res.vary('X-Platform');
-  if (req.get('If-None-Match') === etag) return res.status(304).end();
-  res.json({ ok: true, channel, items: db.listBookstoreFeed(channel) });
-});
-
+// --- 书城 mirror ---
 app.get('/api/bookstore/mirror', rateLimitSources, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
   const row = db.getLatestBookstoreMirror();
   if (!row) return res.status(503).json({ ok: false, msg: 'mirror not ready, fallback to direct fetch' });
@@ -488,43 +466,6 @@ app.post('/api/ad-events', rateLimitAdEvent, blockBlacklistedDevice, verifyDevic
   res.json({ ok: true, accepted: ok, rejected: bad, total: arr.length });
 });
 
-// --- 埋点上报 ---
-app.post('/api/events', rateLimitEvents, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
-  const arr = Array.isArray(req.body) ? req.body : req.body?.events;
-  if (!Array.isArray(arr)) return res.status(400).json({ ok: false, msg: 'array expected' });
-  if (arr.length === 0) return res.json({ ok: true, accepted: 0 });
-  if (arr.length > 100) return res.status(400).json({ ok: false, msg: 'too many events (max 100)' });
-  const did = req.get('X-Device-Id') || '';
-  if (!did) return res.status(400).json({ ok: false, msg: 'X-Device-Id required' });
-  let ok = 0, bad = 0;
-  const valid = [];
-  for (const e of arr) {
-    if (!e || typeof e !== 'object') { bad++; continue; }
-    if (!e.name || typeof e.name !== 'string') { bad++; continue; }
-    valid.push({
-      clientTs: e.ts, deviceId: did, platform: req.platform,
-      appVer: req.body?.appVer || e.appVer, type: e.type || 'custom',
-      name: e.name, params: e.params, sessionId: req.body?.sessionId || e.sessionId,
-    });
-  }
-  try {
-    ok = db.recordEventsBulk(valid, req.ip);
-  } catch (err) {
-    logger.error('event insert fail', { t: req.traceId, err: err.message });
-    return res.status(500).json({ ok: false, msg: 'db insert failed' });
-  }
-  res.json({ ok: true, accepted: ok, rejected: bad });
-});
-
-// --- 崩溃上报 ---
-app.post('/api/crash-log', rateLimitCrash, blockBlacklistedDevice, verifyDeviceTokenStrict, (req, res) => {
-  const b = req.body || {};
-  if (!b.exception || !b.stack) return res.status(400).json({ ok: false, msg: 'exception & stack required' });
-  const firstFrame = String(b.stack).split('\n').slice(0, 3).join('\n');
-  const fp = crypto.createHash('md5').update(String(b.exception) + '|' + firstFrame).digest('hex').slice(0, 16);
-  db.recordCrash({ ...b, fingerprint: fp, platform: req.platform });
-  res.json({ ok: true });
-});
 
 // --- 反馈 ---
 app.post('/api/feedback', rateLimitFeedback, blockBlacklistedDevice, verifyDeviceTokenStrict, (req, res) => {
@@ -669,7 +610,6 @@ app.post('/api/admin/login', loginRateLimit, async (req, res) => {
     recordLoginResult(res, true);
     db.clearLoginFailures(username);
     db.recordAdminLogin(username, req.ip);
-    db.recordAudit({ ip: req.ip, action: 'admin.login', target: username });
     const token = db.createSession(req.ip || '', req.get('User-Agent') || '', { username, role: user.role });
     res.cookie('adm', token, { httpOnly: true, sameSite: 'strict', maxAge: 7 * 86400 * 1000, secure: !!process.env.SECURE_COOKIE });
     return res.json({ ok: true, role: user.role });
@@ -697,7 +637,6 @@ app.post('/api/admin/password', loginRateLimit, requireAdmin, async (req, res) =
   if (newPassword === oldPassword) return res.status(400).json({ ok: false, msg: 'new password must differ from old' });
   await db.setAdminPassword(newPassword);
   db.destroyAllSessions();
-  db.recordAudit({ ip: req.ip, action: 'pwd.change', target: 'admin' });
   res.clearCookie('adm');
   res.json({ ok: true });
 });
@@ -718,12 +657,10 @@ app.post('/api/admin/sources', largeJson, requireAdmin, requireRole(['super', 'o
   try {
     if (Array.isArray(req.body)) {
       const r = db.bulkUpsert(req.body);
-      db.recordAudit({ ip: req.ip, action: 'source.bulkUpsert', target: `count=${req.body.length}`, detail: r });
       return res.json({ ok: true, ...r });
     }
     if (req.body && typeof req.body === 'object') {
       const r = db.upsertSource(req.body);
-      db.recordAudit({ ip: req.ip, action: 'source.upsert', target: req.body.bookSourceUrl, detail: { action: r.action } });
       return res.json({ ok: true, ...r });
     }
     return res.status(400).json({ ok: false, msg: 'JSON object or array expected' });
@@ -735,7 +672,6 @@ app.delete('/api/admin/sources', requireAdmin, requireRole(['super', 'operator']
   const url = req.query.url;
   if (!url) return res.status(400).json({ ok: false });
   const n = db.deleteSource(url);
-  db.recordAudit({ ip: req.ip, action: 'source.delete', target: url, detail: { deleted: n } });
   res.json({ ok: true, deleted: n });
 });
 app.get('/api/admin/source-health', requireAdmin, (req, res) => {
@@ -747,7 +683,6 @@ app.get('/api/admin/source-health/summary', requireAdmin, (req, res) => {
 app.post('/api/admin/sources/check', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   try {
     const r = db.runSourceStaticCheck({ platform: req.body?.platform || req.query.platform || 'ios', sampleKeyword: req.body?.sampleKeyword || req.query.sampleKeyword || '斗破苍穹', url: req.body?.url || req.query.url || null });
-    db.recordAudit({ ip: req.ip, action: 'source.staticCheck', target: r.platform, detail: { checked: r.checked, okCount: r.ok, errorCount: r.error } });
     const { ok: okCount, error: errorCount, ...rest } = r;
     res.json({ ok: true, okCount, errorCount, ...rest });
   } catch (e) { res.status(400).json({ ok: false, msg: e.message || 'check failed' }); }
@@ -756,7 +691,6 @@ app.patch('/api/admin/sources/enabled', requireAdmin, requireRole(['super', 'ope
   const { url, enabled } = req.body || {};
   if (!url) return res.status(400).json({ ok: false });
   db.setEnabled(url, !!enabled);
-  db.recordAudit({ ip: req.ip, action: 'source.enabled', target: url, detail: { enabled: !!enabled } });
   res.json({ ok: true });
 });
 app.patch('/api/admin/sources/platforms', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
@@ -765,7 +699,6 @@ app.patch('/api/admin/sources/platforms', requireAdmin, requireRole(['super', 'o
   if (!Array.isArray(platforms)) return res.status(400).json({ ok: false, msg: 'platforms must be an array' });
   try {
     const n = db.setSourcePlatforms(url, platforms);
-    db.recordAudit({ ip: req.ip, action: 'source.platforms', target: url, detail: { platforms, changed: n } });
     if (n === 0) return res.status(404).json({ ok: false, msg: 'source not found' });
     res.json({ ok: true, changed: n });
   } catch (err) { res.status(400).json({ ok: false, msg: err.message || 'invalid' }); }
@@ -786,7 +719,6 @@ app.patch('/api/admin/sources/platforms/bulk', requireAdmin, requireRole(['super
     db.setSourcePlatforms(url, next);
     changed++;
   }
-  db.recordAudit({ ip: req.ip, action: 'source.platforms.bulk', target: `count=${urls.length}`, detail: { platform, op, changed } });
   res.json({ ok: true, changed });
 });
 app.patch('/api/admin/sources/group-enabled', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
@@ -807,7 +739,6 @@ app.patch('/api/admin/sources/group-enabled', requireAdmin, requireRole(['super'
   });
   tx();
   db.invalidateSourcesCache();
-  db.recordAudit({ ip: req.ip, action: 'source.group.enabled', target: group, detail: { enabled: !!enabled, affected } });
   res.json({ ok: true, affected });
 });
 app.get('/api/admin/sources/groups', requireAdmin, (req, res) => {
@@ -825,7 +756,6 @@ app.get('/api/admin/sources/export', requireAdmin, (req, res) => {
   res.set('Content-Type', 'application/json; charset=utf-8');
   res.set('Content-Disposition', `attachment; filename="${fname}"`);
   res.send(body);
-  db.recordAudit({ ip: req.ip, action: 'source.export', target: `count=${rows.length}` });
 });
 app.get('/api/admin/sources/validate', requireAdmin, async (req, res) => {
   const url = req.query.url;
@@ -854,32 +784,10 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   res.json({ online: db.statsOnline(), today: db.statsToday(), week: db.statsWeek(), month: db.statsMonth(), daily: db.statsDailyCurve(days) });
 });
 
-// --- admin 书城 feed + mirror ---
-app.get('/api/admin/bookstore-feed', requireAdmin, (req, res) => res.json(db.listAllBookstoreFeed()));
-app.post('/api/admin/bookstore-feed', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  const b = req.body || {};
-  if (!b.channel || !_ALLOWED_CHANNELS.has(b.channel)) return res.status(400).json({ ok: false, msg: 'channel invalid' });
-  if (!b.name || typeof b.name !== 'string') return res.status(400).json({ ok: false, msg: 'name required' });
-  if (!b.target_url || typeof b.target_url !== 'string') return res.status(400).json({ ok: false, msg: 'target_url required' });
-  try {
-    const item = db.upsertBookstoreFeed(b);
-    db.recordAudit({ ip: req.ip, action: 'feed.upsert', target: String(item.id), detail: { channel: b.channel, name: b.name } });
-    res.json({ ok: true, item });
-  } catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
-});
-app.patch('/api/admin/bookstore-feed/:id/enabled', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  const id = parseInt(req.params.id, 10); if (!id) return res.status(400).json({ ok: false });
-  db.setBookstoreFeedEnabled(id, !!req.body?.enabled); res.json({ ok: true });
-});
-app.delete('/api/admin/bookstore-feed/:id', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  const id = parseInt(req.params.id, 10); if (!id) return res.status(400).json({ ok: false });
-  const n = db.deleteBookstoreFeed(id);
-  db.recordAudit({ ip: req.ip, action: 'feed.delete', target: String(id), detail: { changed: n } });
-  res.json({ ok: true, deleted: n });
-});
+// --- admin 书城 mirror ---
 app.get('/api/admin/bookstore-mirror/status', requireAdmin, (req, res) => {
   const latest = db.getLatestBookstoreMirror();
-  const recent = db.listRecentBookstoreMirror(24);
+  const recent = db.listRecentBookstoreMirror(3);
   res.json({
     latest: latest ? { version: latest.version, fetched_at: latest.fetched_at, etag: latest.etag, source: latest.source, payload_size: latest.payload?.length || 0 } : null,
     nextScheduledAt: getNextRunAt() || null,
@@ -895,6 +803,10 @@ app.post('/api/admin/bookstore-mirror/publish', requireAdmin, requireRole(['supe
   const payload = req.body;
   if (!payload || typeof payload !== 'object' || !payload.ranks) {
     return res.status(400).json({ ok: false, msg: 'body must be mirror payload with ranks' });
+  }
+  const validation = qidianMirror.validateMirrorPayload(payload);
+  if (!validation.ok) {
+    return res.status(400).json({ ok: false, msg: 'mirror validation failed', errors: validation.errors });
   }
   const payloadStr = JSON.stringify(payload);
   const etag = crypto.createHash('md5').update(payloadStr).digest('hex');
@@ -918,7 +830,7 @@ app.post('/api/admin/bookstore-mirror/publish', requireAdmin, requireRole(['supe
     ok: 1,
     err_msg: null,
   });
-  db.cleanupOldBookstoreMirror(24);
+  db.cleanupOldBookstoreMirror(3);
   logger.info('mirror admin publish ok', { totalBooks, etag, hasFemale: !!payload.ranksFemale });
   res.json({ ok: true, totalBooks, etag, version: payload.version || Date.now(), hasFemale: !!payload.ranksFemale });
 });
@@ -936,7 +848,6 @@ app.post('/api/admin/ad-config', requireAdmin, requireRole(['super', 'operator']
   try {
     if (!req.body || typeof req.body !== 'object') return res.status(400).json({ ok: false, msg: 'JSON object expected' });
     const r = db.saveAdConfig(req.body);
-    db.recordAudit({ ip: req.ip, action: 'ad.save', target: `v${r.version}` });
     res.json({ ok: true, ...r });
   } catch (err) { res.status(400).json({ ok: false, msg: err.message || 'invalid ad config' }); }
 });
@@ -949,15 +860,15 @@ app.get('/api/admin/ad-config/version/:v', requireAdmin, (req, res) => {
   res.json({ version: row.version, createdAt: row.created_at, config: JSON.parse(row.json) });
 });
 app.put('/api/admin/ad-config/staging', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  try { const { config, rolloutPct } = req.body || {}; db.setAdConfigStaging(config, rolloutPct); db.recordAudit({ ip: req.ip, action: 'ad_config.staging.set', target: req.admin.username, detail: { rolloutPct } }); res.json({ ok: true }); }
+  try { const { config, rolloutPct } = req.body || {}; db.setAdConfigStaging(config, rolloutPct); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 app.post('/api/admin/ad-config/staging/commit', requireAdmin, requireRole(['super']), (req, res) => {
-  try { db.commitAdConfigStaging(); db.recordAudit({ ip: req.ip, action: 'ad_config.staging.commit', target: req.admin.username }); res.json({ ok: true }); }
+  try { db.commitAdConfigStaging(); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 app.post('/api/admin/ad-config/staging/abort', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  db.abortAdConfigStaging(); db.recordAudit({ ip: req.ip, action: 'ad_config.staging.abort', target: req.admin.username }); res.json({ ok: true });
+  db.abortAdConfigStaging(); res.json({ ok: true });
 });
 app.get('/api/admin/ad-funnel', requireAdmin, (req, res) => {
   const hours = Math.max(1, Math.min(24 * 30, parseInt(req.query.hours, 10) || 24));
@@ -969,52 +880,13 @@ app.post('/api/admin/breaker/reset', requireAdmin, requireRole(['super', 'operat
   breakerSuppressUntil = Date.now() + minutes * 60_000;
   db.kvSet(BREAKER_SUPPRESS_KV_KEY, breakerSuppressUntil);
   breakerCache = { computedAt: Date.now(), broken: [] };
-  db.recordAudit({ ip: req.ip, action: 'breaker.reset', target: req.admin.username, detail: { previouslyBroken: before, suppressMinutes: minutes } });
   res.json({ ok: true, previouslyBroken: before, suppressMinutes: minutes, suppressUntil: breakerSuppressUntil, msg: `breaker suppressed for ${minutes} minutes` });
 });
 app.post('/api/admin/backup/now', requireAdmin, requireRole(['super']), async (req, res) => {
-  try { await backupCtl.runBackupOnce(); db.recordAudit({ ip: req.ip, action: 'backup.manual', target: req.admin.username }); res.json({ ok: true, msg: 'backup triggered' }); }
+  try { await backupCtl.runBackupOnce(); res.json({ ok: true, msg: 'backup triggered' }); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-// --- admin 埋点查询 ---
-app.get('/api/admin/events/overview', requireAdmin, (req, res) => res.json({ ok: true, ...db.eventOverview() }));
-app.get('/api/admin/events/top', requireAdmin, (req, res) => {
-  const days = Math.max(1, Math.min(90, parseInt(req.query.days, 10) || 7));
-  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit, 10) || 20));
-  res.json({ ok: true, days, limit, items: db.eventTopList({ sinceTs: Date.now() - days * 86400 * 1000, limit, type: req.query.type }) });
-});
-app.get('/api/admin/events/dau', requireAdmin, (req, res) => {
-  const days = Math.max(1, Math.min(60, parseInt(req.query.days, 10) || 14));
-  res.json({ ok: true, days, daily: db.eventDailyDau(days) });
-});
-app.get('/api/admin/events/recent', requireAdmin, (req, res) => {
-  res.json({ ok: true, items: db.listEvents({ limit: req.query.limit, eventName: req.query.name, deviceId: req.query.deviceId, type: req.query.type }) });
-});
-app.get('/api/admin/events/retention', requireAdmin, (req, res) => {
-  const days = Math.max(2, Math.min(30, parseInt(req.query.days, 10) || 14));
-  res.json({ ok: true, ...db.eventRetentionMatrix(days) });
-});
-app.get('/api/admin/events/funnel', requireAdmin, (req, res) => {
-  const steps = (req.query.steps || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!steps.length) return res.status(400).json({ ok: false, msg: 'steps required' });
-  const days = Math.max(1, Math.min(60, parseInt(req.query.days, 10) || 7));
-  const sinceTs = Date.now() - days * 86400 * 1000;
-  const items = db.eventFunnel(steps, sinceTs);
-  const enriched = items.map((s, i) => {
-    const prev = items[0]?.uv || 0;
-    const last = i > 0 ? items[i - 1].uv : prev;
-    return { ...s, conversionFromFirst: prev ? +(s.uv / prev * 100).toFixed(1) : 0, conversionFromPrev: last ? +(s.uv / last * 100).toFixed(1) : 0 };
-  });
-  res.json({ ok: true, days, steps: enriched });
-});
-
-// --- admin 崩溃 ---
-app.get('/api/admin/crashes', requireAdmin, (req, res) => {
-  const hours = Math.max(1, Math.min(24 * 90, parseInt(req.query.hours, 10) || 168));
-  res.json({ ok: true, hours, list: db.listCrashSummary({ hours }) });
-});
-app.get('/api/admin/crashes/:fp', requireAdmin, (req, res) => res.json({ ok: true, list: db.listCrashesByFingerprint(req.params.fp, 20) }));
 
 // --- admin 反馈 ---
 app.get('/api/admin/feedback', requireAdmin, (req, res) => {
@@ -1026,38 +898,32 @@ app.patch('/api/admin/feedback/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const { status, reply } = req.body || {};
   if (!id) return res.status(400).json({ ok: false, msg: 'invalid id' });
-  try { db.updateFeedbackStatus(id, status, reply); db.recordAudit({ ip: req.ip, action: 'feedback.update', target: `id=${id}`, detail: { status } }); res.json({ ok: true }); }
+  try { db.updateFeedbackStatus(id, status, reply); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
-});
-
-// --- admin 审计 ---
-app.get('/api/admin/audit-log', requireAdmin, (req, res) => {
-  const limit = Math.max(10, Math.min(500, parseInt(req.query.limit, 10) || 200));
-  res.json({ ok: true, list: db.listAuditLog({ limit }) });
 });
 
 // --- admin 系统 (版本/公告/黑名单/用户/2FA/兑换码/告警) ---
 app.get('/api/admin/version', requireAdmin, (req, res) => res.json({ ok: true, data: db.getAppVersion() }));
 app.post('/api/admin/version', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  try { db.saveAppVersion(req.body || {}); db.recordAudit({ ip: req.ip, action: 'version.save', target: String(req.body?.latest_code), detail: req.admin }); res.json({ ok: true }); }
+  try { db.saveAppVersion(req.body || {}); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
 });
 app.get('/api/admin/announcements', requireAdmin, (req, res) => res.json({ ok: true, list: db.listAllAnnouncements() }));
 app.post('/api/admin/announcement', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  try { const id = db.upsertAnnouncement(req.body || {}); db.recordAudit({ ip: req.ip, action: 'announcement.upsert', target: `id=${id}`, detail: { by: req.admin.username } }); res.json({ ok: true, id }); }
+  try { const id = db.upsertAnnouncement(req.body || {}); res.json({ ok: true, id }); }
   catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
 });
 app.delete('/api/admin/announcement/:id', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  db.deleteAnnouncement(req.params.id); db.recordAudit({ ip: req.ip, action: 'announcement.delete', target: req.params.id }); res.json({ ok: true });
+  db.deleteAnnouncement(req.params.id); res.json({ ok: true });
 });
 app.get('/api/admin/blacklist', requireAdmin, (req, res) => res.json({ ok: true, list: db.listBlockedDevices() }));
 app.post('/api/admin/blacklist', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const { deviceId, reason } = req.body || {};
-  try { db.blockDevice(deviceId, reason, req.admin.username); db.recordAudit({ ip: req.ip, action: 'device.block', target: deviceId, detail: { reason, by: req.admin.username } }); res.json({ ok: true }); }
+  try { db.blockDevice(deviceId, reason, req.admin.username); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
 });
 app.delete('/api/admin/blacklist/:deviceId', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  db.unblockDevice(req.params.deviceId); db.recordAudit({ ip: req.ip, action: 'device.unblock', target: req.params.deviceId }); res.json({ ok: true });
+  db.unblockDevice(req.params.deviceId); res.json({ ok: true });
 });
 app.get('/api/admin/users', requireAdmin, requireRole('super'), (req, res) => res.json({ ok: true, list: db.listAdminUsers() }));
 app.post('/api/admin/users', requireAdmin, requireRole('super'), async (req, res) => {
@@ -1066,12 +932,12 @@ app.post('/api/admin/users', requireAdmin, requireRole('super'), async (req, res
 });
 app.post('/api/admin/users/:username/password', requireAdmin, async (req, res) => {
   if (req.admin.role !== 'super' && req.admin.username !== req.params.username) return res.status(403).json({ ok: false, msg: 'can only change your own password' });
-  try { await db.updateAdminPassword(req.params.username, req.body?.newPassword); db.destroyAllSessions(); db.recordAudit({ ip: req.ip, action: 'admin.user.passwd', target: req.params.username }); res.json({ ok: true }); }
+  try { await db.updateAdminPassword(req.params.username, req.body?.newPassword); db.destroyAllSessions(); res.json({ ok: true }); }
   catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
 });
 app.delete('/api/admin/users/:username', requireAdmin, requireRole('super'), (req, res) => {
   if (req.params.username === req.admin.username) return res.status(400).json({ ok: false, msg: 'cannot delete yourself' });
-  db.deleteAdminUser(req.params.username); db.recordAudit({ ip: req.ip, action: 'admin.user.delete', target: req.params.username }); res.json({ ok: true });
+  db.deleteAdminUser(req.params.username); res.json({ ok: true });
 });
 
 // 2FA
@@ -1094,7 +960,6 @@ app.post('/api/admin/2fa/verify', requireAdmin, (req, res) => {
   if (!totpVerify(code, pending.secret)) return res.status(400).json({ ok: false, msg: 'wrong code' });
   db.setAdminTotpSecret(username, pending.secret, true);
   pendingTotpSecrets.delete(username);
-  db.recordAudit({ ip: req.ip, action: 'admin.2fa.enable', target: username });
   res.json({ ok: true });
 });
 app.post('/api/admin/2fa/disable', requireAdmin, async (req, res) => {
@@ -1105,21 +970,19 @@ app.post('/api/admin/2fa/disable', requireAdmin, async (req, res) => {
   if (!user || !user.totp_enabled) return res.status(400).json({ ok: false, msg: '2FA not enabled' });
   if (!totp || !totpVerify(totp, user.totp_secret)) return res.status(401).json({ ok: false, msg: 'invalid totp code' });
   db.setAdminTotpSecret(username, null, false);
-  db.recordAudit({ ip: req.ip, action: 'admin.2fa.disable', target: username });
   res.json({ ok: true });
 });
 
 // 兑换码
 app.get('/api/admin/redeem-codes', requireAdmin, (req, res) => res.json({ ok: true, list: db.listRedeemCodes({ batch: req.query.batch || null }) }));
 app.post('/api/admin/redeem-codes', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
-  try { const codes = db.createRedeemCodes({ ...(req.body || {}), creator: req.admin.username }); db.recordAudit({ ip: req.ip, action: 'redeem.create', target: `count=${codes.length}`, detail: { batch: req.body?.batch } }); res.json({ ok: true, codes }); }
+  try { const codes = db.createRedeemCodes({ ...(req.body || {}), creator: req.admin.username }); res.json({ ok: true, codes }); }
   catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
 });
 app.post('/api/admin/redeem-codes/revoke-batch', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const { batch } = req.body || {};
   if (!batch) return res.status(400).json({ ok: false, msg: 'batch required' });
   const n = db.revokeRedeemBatch(batch);
-  db.recordAudit({ ip: req.ip, action: 'redeem.revoke', target: batch, detail: { count: n } });
   res.json({ ok: true, revoked: n });
 });
 
@@ -1129,18 +992,17 @@ app.post('/api/admin/promo/codes', requireAdmin, requireRole(['super', 'operator
   try {
     const { code, agentName, maxUses, singleDevice, expiresAt } = req.body || {};
     const result = db.createPromoCode({ code, agentName, maxUses, singleDevice, expiresAt, creator: req.admin.username });
-    db.recordAudit({ ip: req.ip, action: 'promo.create', target: code, detail: { agentName } });
     res.json({ ok: true, ...result });
   } catch (e) { res.status(400).json({ ok: false, msg: e.message }); }
 });
 app.put('/api/admin/promo/codes/:code', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const ok = db.updatePromoCode(req.params.code, req.body || {});
-  if (ok) db.recordAudit({ ip: req.ip, action: 'promo.update', target: req.params.code, detail: req.body });
+  if (ok)
   res.json({ ok });
 });
 app.delete('/api/admin/promo/codes/:code', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const ok = db.deletePromoCode(req.params.code);
-  if (ok) db.recordAudit({ ip: req.ip, action: 'promo.delete', target: req.params.code });
+  if (ok)
   res.json({ ok });
 });
 app.get('/api/admin/promo/stats', requireAdmin, (req, res) => res.json({ ok: true, ...db.promoOverview() }));

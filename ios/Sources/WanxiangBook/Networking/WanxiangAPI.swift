@@ -75,11 +75,9 @@ actor WanxiangAPI {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    /// 万象书屋 (2026-05-25): 启动时一次性缓存 device 信息.
-    /// reportCrash / 各路上报跨线程读取, 避免 DispatchQueue.main.sync 跨线程死锁.
+    /// 万象书屋 (2026-05-25): 启动时一次性缓存 IDFV.
+    /// 各路上报跨线程读取, 避免 DispatchQueue.main.sync 跨线程死锁.
     /// 由 AppDelegate.application(_:didFinishLaunchingWithOptions:) 主线程调用 prefillCache.
-    nonisolated(unsafe) private static var _cachedModel: String = "iPhone"
-    nonisolated(unsafe) private static var _cachedSdkInt: Int = 17
     nonisolated(unsafe) private static var _cachedIDFV: String?
     nonisolated(unsafe) private static var deviceCachePrefilled = false
 
@@ -88,8 +86,6 @@ actor WanxiangAPI {
         #if canImport(UIKit)
         // 仅在主线程调用; 防止意外在后台线程跑.
         assert(Thread.isMainThread, "prefillDeviceCache must be called on main thread")
-        _cachedModel = UIDevice.current.model
-        _cachedSdkInt = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         _cachedIDFV = UIDevice.current.identifierForVendor?.uuidString
         #endif
         deviceCachePrefilled = true
@@ -363,90 +359,6 @@ actor WanxiangAPI {
         sendIgnoreResult(r)
     }
 
-    /// 拉书城 feed (M2.3.1, M2.3 真实接口)
-    /// 跟后端 `/api/bookstore/feed?channel=male` 对齐; ETag/304 命中时用磁盘 cache.
-    func fetchBookstoreFeed(channel: String) async throws -> [[String: Any]] {
-        if deviceToken == nil {
-            try? await registerDeviceIfNeeded()
-        }
-        let cachedEtag = Self.loadFeedEtag(channel: channel)
-        var (data, http) = try await sendFeedRequest(channel: channel, ifNoneMatch: cachedEtag)
-        if http.statusCode == 401 {
-            try? await reissueToken()
-            (data, http) = try await sendFeedRequest(channel: channel, ifNoneMatch: cachedEtag)
-        }
-        if http.statusCode == 304 {
-            if let disk = Self.loadFeedItems(channel: channel) {
-                return disk
-            }
-            Self.clearFeedEtag(channel: channel)
-            (data, http) = try await sendFeedRequest(channel: channel, ifNoneMatch: nil)
-            if http.statusCode == 401 {
-                try? await reissueToken()
-                (data, http) = try await sendFeedRequest(channel: channel, ifNoneMatch: nil)
-            }
-        }
-        if http.statusCode == 304 {
-            return Self.loadFeedItems(channel: channel) ?? []
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw APIError.httpStatus(http.statusCode, body: "")
-        }
-        guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let items = dict["items"] as? [[String: Any]] else {
-            return Self.loadFeedItems(channel: channel) ?? []
-        }
-        Self.persistFeedCache(channel: channel, etag: http.value(forHTTPHeaderField: "ETag"), items: items)
-        return items
-    }
-
-    private func sendFeedRequest(channel: String, ifNoneMatch: String? = nil) async throws -> (Data, HTTPURLResponse) {
-        var comps = URLComponents(url: Self.baseURL.appendingPathComponent("/api/bookstore/feed"),
-                                  resolvingAgainstBaseURL: false) ?? URLComponents()
-        comps.queryItems = [URLQueryItem(name: "channel", value: channel)]
-        guard let compsUrl = comps.url else { throw APIError.invalidResponse }
-        var r = URLRequest(url: compsUrl)
-        r.httpMethod = "GET"
-        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.setValue(Self.platform, forHTTPHeaderField: "X-Platform")
-        r.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
-        if let tok = deviceToken { r.setValue(tok, forHTTPHeaderField: "X-Device-Token") }
-        if let etag = ifNoneMatch, !etag.isEmpty {
-            r.setValue(etag, forHTTPHeaderField: "If-None-Match")
-        }
-        return try await httpData(for: r)
-    }
-
-    private static func feedEtagKey(_ channel: String) -> String { "wx.bookstoreFeed.etag.\(channel)" }
-    private static func feedItemsKey(_ channel: String) -> String { "wx.bookstoreFeed.items.\(channel)" }
-
-    private static func loadFeedEtag(channel: String) -> String? {
-        guard let etag = UserDefaults.standard.string(forKey: feedEtagKey(channel)),
-              !etag.isEmpty else { return nil }
-        return etag
-    }
-
-    private static func clearFeedEtag(channel: String) {
-        UserDefaults.standard.removeObject(forKey: feedEtagKey(channel))
-    }
-
-    private static func loadFeedItems(channel: String) -> [[String: Any]]? {
-        guard let data = UserDefaults.standard.data(forKey: feedItemsKey(channel)),
-              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            return nil
-        }
-        return arr
-    }
-
-    private static func persistFeedCache(channel: String, etag: String?, items: [[String: Any]]) {
-        if let data = try? JSONSerialization.data(withJSONObject: items) {
-            UserDefaults.standard.set(data, forKey: feedItemsKey(channel))
-        }
-        if let etag, !etag.isEmpty {
-            UserDefaults.standard.set(etag, forKey: feedEtagKey(channel))
-        }
-    }
-
     /// 提交反馈 (M2.10.7)
     /// - 跟 Android `WanxiangBackend.submitFeedback` 字段格式一致
     func submitFeedback(type: String, content: String, contact: String) async throws -> Bool {
@@ -481,27 +393,6 @@ actor WanxiangAPI {
         }
         let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         return dict?["ok"] as? Bool ?? false
-    }
-
-    /// 上报崩溃 (M2.1.7 接 NSSetUncaughtExceptionHandler 后用)
-    /// 万象书屋 (2026-05-25): 不再走 DispatchQueue.main.sync — 改为读启动时已缓存的 _cachedModel/_cachedSdkInt,
-    /// 避免崩溃路径上跨线程死锁 (BG 线程持锁 → main.sync(getter) → main 在等 BG 锁).
-    nonisolated func reportCrash(exception: String, stack: String) {
-        var r = request(path: "/api/crash-log", method: "POST")
-        let appVer = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
-        var body: [String: Any] = [
-            "exception": exception,
-            "stack": stack,
-            "appVer": appVer,
-            "deviceId": deviceId,
-        ]
-        #if canImport(UIKit)
-        body["brand"] = "Apple"
-        body["model"] = Self._cachedModel
-        body["sdkInt"] = Self._cachedSdkInt
-        #endif
-        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        sendIgnoreResult(r)
     }
 
     // MARK: - Helpers

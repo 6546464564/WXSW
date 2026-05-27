@@ -166,7 +166,6 @@ struct SearchView: View {
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
         // 万象书屋: PV 埋点 (跟 Android `SearchActivity` 自动 trackPageName 等价)
-        .trackPageView("page_search")
         .toolbar {
             if !embedded {
                 // 万象书屋 (UX): 仅在 sheet 模式下提供"取消"; embedded push 模式下走系统返回 ←
@@ -802,7 +801,6 @@ final class SearchViewModel: ObservableObject {
         dedupeRowIndex.removeAll()
         isSearching = true
         SourceHealthChecker.shared.cancelHealthCheck()
-        CrashBreadcrumb.leave("search:\(key.prefix(20))")
         let rawSources = await waitForSources(timeoutSec: 3)
         // 万象书屋 (M2.8): 按历史成功率 + 平均响应时间排序源, 让稳定快的源先返结果.
         // 84 源里很多反爬/死站, 没排序时用户得等所有源 timeout. 排序后头几条结果

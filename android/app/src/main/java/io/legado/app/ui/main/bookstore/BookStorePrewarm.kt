@@ -1,8 +1,10 @@
 package io.legado.app.ui.main.bookstore
 
+import com.bumptech.glide.Glide
 import io.legado.app.help.WanxiangBookstoreMirror
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.utils.LogUtils
+import splitties.init.appCtx
 
 /**
  * 万象书屋: 书城进程级缓存 + 启动预热 (跟 iOS BookStoreViewModel / RankDetailViewModel prewarm 对齐).
@@ -18,6 +20,24 @@ object BookStorePrewarm {
     /** 频道 → (ranks, timestamp) — 跟 iOS BookStoreViewModel.channelRankCache 对齐 */
     val channelRankCache =
         mutableMapOf<QidianRepository.Channel, Pair<Map<QidianRepository.RankType, List<QidianBook>>, Long>>()
+
+    /** 频道 → 扩展榜 (换一批 50 本池) — 跟 iOS BookStoreViewModel.channelExtendedCache 对齐 */
+    private val channelExtendedCache =
+        BookStoreExtendedRanksDiskCache.load().toMutableMap()
+
+    fun getExtendedCache(channel: QidianRepository.Channel): Map<QidianRepository.RankType, List<QidianBook>> =
+        channelExtendedCache[channel].orEmpty()
+
+    fun putExtendedCache(channel: QidianRepository.Channel, ranks: Map<QidianRepository.RankType, List<QidianBook>>) {
+        if (ranks.isEmpty()) return
+        channelExtendedCache[channel] = ranks
+        BookStoreExtendedRanksDiskCache.save(channelExtendedCache)
+    }
+
+    fun clearExtendedCache() {
+        channelExtendedCache.clear()
+        BookStoreExtendedRanksDiskCache.save(emptyMap())
+    }
 
     /** RankDetail 进程级 cache — key: "rank:MALE:Yuepiao" | "finish:Female"; TTL 1 天 */
     val rankDetailCache = mutableMapOf<String, Pair<List<QidianBook>, Long>>()
@@ -77,6 +97,26 @@ object BookStorePrewarm {
                     ?.takeIf { m -> m.values.any { it.isNotEmpty() } }
                     ?.let { channelRankCache[QidianRepository.Channel.Publish] = Pair(it, now) }
 
+                channelRankCache[QidianRepository.Channel.Male]?.first?.let { maleRanks ->
+                    preloadCovers(
+                        maleRanks.values.flatMap { it.take(8) }.map { it.coverUrl }.distinct().take(24),
+                    )
+                }
+
+                // 4) 三频道 extendedRanks (换一批 50 本池) + 磁盘持久化
+                val extTypes = listOf(
+                    QidianRepository.RankType.HotReading,
+                    QidianRepository.RankType.NewBook,
+                    QidianRepository.RankType.Recommend,
+                )
+                for (channel in listOf(
+                    QidianRepository.Channel.Male,
+                    QidianRepository.Channel.Female,
+                    QidianRepository.Channel.Publish,
+                )) {
+                    prewarmExtended(channel, extTypes)
+                }
+
                 // 3) Banner 落地页: 男女月票 TOP50 + 男女完本书库
                 for (gender in listOf(QidianRepository.Channel.Male, QidianRepository.Channel.Female)) {
                     runCatching {
@@ -107,7 +147,36 @@ object BookStorePrewarm {
                         putRankDetailCache(rankCacheKey("finish", QidianRepository.Channel.Publish), library)
                     }
 
-        LogUtils.d(TAG, "prewarm ok ranks=${channelRankCache.size} rankDetail=${rankDetailCache.size}")
+        LogUtils.d(
+            TAG,
+            "prewarm ok ranks=${channelRankCache.size} ext=${channelExtendedCache.size} rankDetail=${rankDetailCache.size}",
+        )
+    }
+
+    private suspend fun prewarmExtended(
+        channel: QidianRepository.Channel,
+        types: List<QidianRepository.RankType>,
+    ) {
+        val ext = LinkedHashMap<QidianRepository.RankType, List<QidianBook>>()
+        for (type in types) {
+            val full = runCatching {
+                when (channel) {
+                    QidianRepository.Channel.Publish ->
+                        PublishBookstore.fetchRankPages(type, target = 50)
+                    else -> QidianRepository.fetchRankPages(type, target = 50, gender = channel)
+                }
+            }.getOrNull()?.takeIf { it.isNotEmpty() } ?: continue
+            ext[type] = full
+        }
+        if (ext.isEmpty()) return
+        putExtendedCache(channel, ext)
+        preloadCovers(ext.values.flatMap { it.take(8) }.map { it.coverUrl }.distinct().take(24))
+    }
+
+    private fun preloadCovers(urls: List<String>) {
+        urls.filter { it.isNotBlank() }.forEach { url ->
+            runCatching { Glide.with(appCtx).load(url).preload() }
+        }
     }
 
     /** 跟 RankDetailActivity.loadFinishLibrary 同算法, 供预热复用 */

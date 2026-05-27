@@ -13,7 +13,7 @@ import java.io.File
  * 万象书屋 D-23: 拉后端 mirror cache (替代直抓 m.qidian.com).
  *
  * iOS [BookstoreMirror.swift] 对齐:
- *   - 内存 1 天 TTL + 磁盘 payload + SP etag
+ *   - 内存 7 天 TTL + 磁盘 payload (最多 30 天) + SP etag
  *   - 304 冷启动无内存 cache → 清 etag 重试拿 200 body (避免一直 fallback 直抓起点)
  *   - transient 错误 retry 1 次
  */
@@ -25,7 +25,8 @@ object WanxiangBookstoreMirror {
     private const val DEVICE_TOKEN_KEY = "token"
     private const val ETAG_SP = "wanxiang_bookstore_mirror"
     private const val ETAG_KEY = "etag"
-    private const val MEM_CACHE_TTL_MS = 24 * 60 * 60_000L   // 1 天, 跟服务端 mirror 节奏对齐
+    private const val MEM_CACHE_TTL_MS = 7L * 24 * 60 * 60_000L   // 7 天, 手动更新 mirror 时减少重复拉取
+    private const val DISK_MAX_AGE_MS = 30L * 24 * 60 * 60_000L
     private const val PLATFORM = "android"
 
     @Volatile
@@ -66,7 +67,7 @@ object WanxiangBookstoreMirror {
                 is Outcome.Ok -> return outcome.payload
                 is Outcome.Definitive -> {
                     LogUtils.d(TAG, outcome.reason)
-                    return null
+                    return staleDiskPayloadIfFresh(outcome.reason)
                 }
                 is Outcome.Transient -> {
                     if (attempt == 0) {
@@ -75,8 +76,7 @@ object WanxiangBookstoreMirror {
                 }
             }
         }
-        loadDiskCacheIfNeeded()
-        return cachedPayload
+        return staleDiskPayloadIfFresh("network exhausted")
     }
 
     private sealed class Outcome {
@@ -138,6 +138,21 @@ object WanxiangBookstoreMirror {
         }
     }
 
+    private fun staleDiskPayloadIfFresh(reason: String): JsonObject? {
+        loadDiskCacheIfNeeded()
+        if (cachedPayload != null && isDiskCacheFresh()) {
+            LogUtils.d(TAG, "using stale disk cache after $reason")
+            return cachedPayload
+        }
+        return null
+    }
+
+    private fun isDiskCacheFresh(): Boolean {
+        val file = diskFile
+        if (!file.exists()) return false
+        return System.currentTimeMillis() - file.lastModified() < DISK_MAX_AGE_MS
+    }
+
     private fun loadDiskCacheIfNeeded() {
         if (cachedPayload != null) return
         if (cachedEtag == null) {
@@ -145,7 +160,7 @@ object WanxiangBookstoreMirror {
                 .getString(ETAG_KEY, null)?.takeIf { it.isNotBlank() }
         }
         val file = diskFile
-        if (!file.exists()) return
+        if (!file.exists() || !isDiskCacheFresh()) return
         runCatching {
             val body = file.readText()
             JsonParser.parseString(body).asJsonObject

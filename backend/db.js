@@ -66,18 +66,6 @@ function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_ad_events_ts ON ad_events(ts);
     CREATE INDEX IF NOT EXISTS idx_ad_events_pp ON ad_events(placement, provider, ts);
-    CREATE TABLE IF NOT EXISTS crashes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
-      device_id TEXT, app_ver TEXT, brand TEXT, model TEXT, sdk_int INTEGER,
-      fingerprint TEXT, exception TEXT NOT NULL, stack TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_crashes_ts ON crashes(ts);
-    CREATE INDEX IF NOT EXISTS idx_crashes_fp ON crashes(fingerprint, ts);
-    CREATE TABLE IF NOT EXISTS audit_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL,
-      ip TEXT, action TEXT NOT NULL, target TEXT, detail TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
     CREATE TABLE IF NOT EXISTS app_versions (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       latest_code INTEGER NOT NULL DEFAULT 0, latest_name TEXT NOT NULL DEFAULT '',
@@ -230,8 +218,6 @@ function cleanupOldData() {
   const sessionCutoff = Date.now() - 7 * 86400 * 1000;
   db.prepare('DELETE FROM admin_session WHERE created_at < ?').run(sessionCutoff);
   db.prepare('DELETE FROM ad_events WHERE ts < ?').run(Date.now() - 30 * 86400 * 1000);
-  db.prepare('DELETE FROM crashes WHERE ts < ?').run(Date.now() - 90 * 86400 * 1000);
-  db.prepare('DELETE FROM audit_log WHERE ts < ?').run(Date.now() - 180 * 86400 * 1000);
   db.prepare("DELETE FROM feedback WHERE status IN ('done','spam') AND ts < ?")
     .run(Date.now() - 90 * 86400 * 1000);
   db.prepare('DELETE FROM device_tokens WHERE last_seen_at < ?')
@@ -240,8 +226,6 @@ function cleanupOldData() {
     .run(Date.now() - 30 * 86400 * 1000);
   db.prepare('DELETE FROM source_error_events WHERE ts < ?')
     .run(Date.now() - 30 * 86400 * 1000);
-  db.prepare('DELETE FROM events WHERE ts < ?')
-    .run(Date.now() - 90 * 86400 * 1000);
 }
 
 // ─── 初始化 ─────────────────────────────────────────────────
@@ -259,7 +243,6 @@ const adConfigModel      = require('./models/adConfig');
 const adEventsModel      = require('./models/adEvents');
 const deviceTokenModel   = require('./models/deviceToken');
 const iapModel           = require('./models/iap');
-const eventsModel        = require('./models/events');
 const promoModel         = require('./models/promo');
 const redeemModel        = require('./models/redeem');
 const alertsModel        = require('./models/alerts');
@@ -274,7 +257,6 @@ adConfigModel.init(db);
 adEventsModel.init(db);
 deviceTokenModel.init(db);
 iapModel.init(db);
-eventsModel.init(db);
 promoModel.init(db);
 redeemModel.init(db);
 alertsModel.init(db);
@@ -302,14 +284,7 @@ module.exports = {
   listSourceHealth: sourceHealthModel.listSourceHealth,
   sourceHealthSummary: sourceHealthModel.sourceHealthSummary,
   runSourceStaticCheck: sourceHealthModel.runSourceStaticCheck,
-  // bookstore feed + mirror
-  listBookstoreFeed: bookstoreFeedModel.listBookstoreFeed,
-  getBookstoreFeedEtag: bookstoreFeedModel.getBookstoreFeedEtag,
-  listAllBookstoreFeed: bookstoreFeedModel.listAllBookstoreFeed,
-  upsertBookstoreFeed: bookstoreFeedModel.upsertBookstoreFeed,
-  setBookstoreFeedEnabled: bookstoreFeedModel.setBookstoreFeedEnabled,
-  deleteBookstoreFeed: bookstoreFeedModel.deleteBookstoreFeed,
-  invalidateFeedCache: bookstoreFeedModel.invalidateFeedCache,
+  // bookstore mirror
   insertBookstoreMirror: bookstoreFeedModel.insertBookstoreMirror,
   getLatestBookstoreMirror: bookstoreFeedModel.getLatestBookstoreMirror,
   listRecentBookstoreMirror: bookstoreFeedModel.listRecentBookstoreMirror,
@@ -350,15 +325,10 @@ module.exports = {
   setAdConfigStaging: adConfigModel.setAdConfigStaging,
   commitAdConfigStaging: adConfigModel.commitAdConfigStaging,
   abortAdConfigStaging: adConfigModel.abortAdConfigStaging,
-  // ad events / crashes / audit / feedback
+  // ad events / feedback
   recordAdEvent: adEventsModel.recordAdEvent,
   adEventFunnel: adEventsModel.adEventFunnel,
   adProvidersToBreak: adEventsModel.adProvidersToBreak,
-  recordCrash: adEventsModel.recordCrash,
-  listCrashSummary: adEventsModel.listCrashSummary,
-  listCrashesByFingerprint: adEventsModel.listCrashesByFingerprint,
-  recordAudit: adEventsModel.recordAudit,
-  listAuditLog: adEventsModel.listAuditLog,
   recordFeedback: adEventsModel.recordFeedback,
   listFeedback: adEventsModel.listFeedback,
   updateFeedbackStatus: adEventsModel.updateFeedbackStatus,
@@ -379,15 +349,6 @@ module.exports = {
   saveIapReceipt: iapModel.saveIapReceipt,
   listActiveIapForDevice: iapModel.listActiveIapForDevice,
   setIapStatus: iapModel.setIapStatus,
-  // events
-  recordEvent: eventsModel.recordEvent,
-  recordEventsBulk: eventsModel.recordEventsBulk,
-  listEvents: eventsModel.listEvents,
-  eventTopList: eventsModel.eventTopList,
-  eventDailyDau: eventsModel.eventDailyDau,
-  eventFunnel: eventsModel.eventFunnel,
-  eventOverview: eventsModel.eventOverview,
-  eventRetentionMatrix: eventsModel.eventRetentionMatrix,
   // promo
   listPromoCodes: promoModel.listPromoCodes,
   createPromoCode: promoModel.createPromoCode,

@@ -111,7 +111,6 @@ struct SplashAdView: View {
     private func finish() {
         guard !jumped else { return }
         jumped = true
-        WanxiangAnalytics.shared.track("page_splash_done", type: "pv")
         onFinish()
     }
 

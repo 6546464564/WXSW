@@ -56,8 +56,6 @@ const rateLimitSources     = makeRateLimit({ windowMs: 60_000, max: 10, keyPrefi
 const rateLimitPing        = makeRateLimit({ windowMs: 10_000, max: 3, keyPrefix: 'p:' });
 const rateLimitAdConfig    = makeRateLimit({ windowMs: 5_000, max: 3, keyPrefix: 'a:' });
 const rateLimitAdEvent     = makeRateLimit({ windowMs: 3_000, max: 5, keyPrefix: 'e:' });
-const rateLimitCrash       = makeRateLimit({ windowMs: 60_000, max: 3, keyPrefix: 'c:' });
-const rateLimitEvents      = makeRateLimit({ windowMs: 5_000, max: 3, keyPrefix: 'ev:' });
 const rateLimitFeedback    = makeRateLimit({ windowMs: 5 * 60_000, max: 5, keyPrefix: 'f:' });
 const rateLimitSourceError = makeRateLimit({ windowMs: 30_000, max: 100, keyPrefix: 'se:' });
 const rateLimitRedeem      = makeRateLimit({ windowMs: 60_000, max: 5, keyPrefix: 'r:' });
@@ -65,6 +63,6 @@ const rateLimitRedeem      = makeRateLimit({ windowMs: 60_000, max: 5, keyPrefix
 module.exports = {
   makeRateLimit,
   rateLimitSources, rateLimitPing, rateLimitAdConfig,
-  rateLimitAdEvent, rateLimitCrash, rateLimitEvents,
+  rateLimitAdEvent,
   rateLimitFeedback, rateLimitSourceError, rateLimitRedeem,
 };

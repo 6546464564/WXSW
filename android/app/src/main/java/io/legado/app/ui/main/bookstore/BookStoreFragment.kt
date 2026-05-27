@@ -15,7 +15,6 @@ import io.legado.app.R
 import io.legado.app.base.BaseFragment
 import io.legado.app.data.appDb
 import io.legado.app.databinding.FragmentBookStoreBinding
-import io.legado.app.help.WanxiangAnalytics
 import io.legado.app.help.book.isNotShelf
 import io.legado.app.help.glide.ImageLoader
 import io.legado.app.ui.book.search.SearchActivity
@@ -366,11 +365,9 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
             }
         }
         binding.cardRank.setOnClickListener {
-            WanxiangAnalytics.track("bs_banner_rank", type = hero.name)
             RankDetailActivity.startRank(requireContext(), hero, hero.title, currentChannel)
         }
         binding.cardLibrary.setOnClickListener {
-            WanxiangAnalytics.track("bs_banner_library", type = "click")
             val libraryTitle = if (currentChannel == QidianRepository.Channel.Publish) {
                 getString(R.string.bs_library_publish)
             } else {
@@ -530,6 +527,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
         clearAllSlots()
         this.ranks = ranks
         extendedRanks.clear()
+        extendedRanks.putAll(BookStorePrewarm.getExtendedCache(currentChannel))
         extendJob?.cancel()
         var pool = mergeAllRanks(ranks)
         allBooks = pool
@@ -575,6 +573,7 @@ class BookStoreFragment() : BaseFragment(R.layout.fragment_book_store), MainFrag
                 if (!isAdded || currentChannel != ch) return@launch
                 if (full.isEmpty()) continue
                 extendedRanks[type] = full
+                BookStorePrewarm.putExtendedCache(currentChannel, extendedRanks.toMap())
                 when (type) {
                     mustReadType() -> rebindMustRead()
                     completeType() -> rebindComplete()

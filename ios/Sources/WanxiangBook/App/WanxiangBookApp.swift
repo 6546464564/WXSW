@@ -171,10 +171,12 @@ final class AppState: ObservableObject {
         try? await BookGroupRepository.shared.ensureSchema()
         // 万象书屋: 注入解析器健康上报 sink (BookSource 模块不直接依赖 WanxiangAPI)
         SourceHealthSinkRegistry.shared.register(WanxiangAPISourceHealthSink())
-        // 万象书屋: 启埋点 SDK (跟 Android `App.kt` `WanxiangAnalytics.init()` 等价)
-        await WanxiangAnalytics.shared.start()
         // 设备注册失败不影响主流程 (纯统计用途), 静默忽略
         try? await WanxiangAPI.shared.registerDeviceIfNeeded()
+        // 万象书屋 (perf F/H): 设备注册后立即后台拉 mirror JSON, 不等待书源 bootstrap / 榜单预热.
+        Task.detached(priority: .userInitiated) {
+            _ = await BookstoreMirror.shared.fetch(forceRefresh: false)
+        }
         await BookSourceRegistry.shared.bootstrap()
         isBootstrapped = true
         // 万象书屋: PromoCodeManager 优先拉 — 用户可能很快进 Gate 输入反馈码，
@@ -250,7 +252,6 @@ final class AppState: ObservableObject {
     func handleScenePhase(_ phase: ScenePhase) async {
         switch phase {
         case .active:
-            CrashBreadcrumb.leave("scene.active")
             // 后台回前台立即 ping 一次 + 重启 heartbeat
             await sendPingNow()
             if heartbeatTimer == nil || heartbeatTimer?.isCancelled == true {
@@ -266,7 +267,6 @@ final class AppState: ObservableObject {
             heartbeatTimer?.cancel()
             heartbeatTimer = nil
             SourceHealthChecker.shared.cancelHealthCheck()
-            await WanxiangAnalytics.shared.flush()
             URLCache.shared.removeAllCachedResponses()
             _BrowserResultCache.shared.clear()
             SyncHTTP.clearCache()
@@ -403,11 +403,9 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // 万象书屋 (2026-05-25): 启动主线程一次性缓存 device 信息, 后续崩溃上报等
+        // 万象书屋 (2026-05-25): 启动主线程一次性缓存 device 信息,
         // 跨线程路径直接读缓存, 避免 DispatchQueue.main.sync 跨线程死锁.
         WanxiangAPI.prefillDeviceCache()
-        CrashHandler.install()
-        MetricKitSubscriber.shared.start()
         // 万象书屋 (2026-05-25): 低内存设备 (SE/iPhone 6/7) 主动监控可用内存,
         // 比系统 didReceiveMemoryWarning 更早触发清理, 避免被 jetsam 直接 SIGKILL.
         LowMemoryGuard.shared.start()

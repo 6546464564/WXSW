@@ -76,7 +76,6 @@ public struct ReaderView: View {
         .background(SwipeBackBlocker())
         .navigationBarBackButtonHidden(true)
         // 万象书屋: 阅读器 PV (跟 Android `ReadBookActivity` 自动 trackPageName 等价)
-        .trackPageView("page_reader")
         .statusBarHidden(!menuVisible)
         .preferredColorScheme(config.theme.isDark ? .dark : .light)
         .sheet(isPresented: $styleSheet) {

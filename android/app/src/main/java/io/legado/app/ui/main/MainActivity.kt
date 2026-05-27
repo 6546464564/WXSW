@@ -31,7 +31,6 @@ import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.theme.elevation
 import io.legado.app.lib.theme.primaryColor
-import io.legado.app.ui.about.CrashLogsDialog
 import io.legado.app.ui.book.read.ReadBookActivity
 import io.legado.app.ui.main.bookshelf.BaseBookshelfFragment
 import io.legado.app.ui.main.bookshelf.style1.BookshelfFragment1
@@ -153,7 +152,6 @@ class MainActivity : VMBaseActivity<ActivityMainBinding, MainViewModel>(),
             upVersion()
             //设置本地密码
             setLocalPassword()
-            notifyAppCrash()
             //备份同步
             backupSync()
             //自动更新书籍
@@ -240,19 +238,6 @@ class MainActivity : VMBaseActivity<ActivityMainBinding, MainViewModel>(),
     private fun setLocalPassword() {
         if (LocalConfig.password == null) {
             LocalConfig.password = ""
-        }
-    }
-
-    private fun notifyAppCrash() {
-        if (!LocalConfig.appCrash || BuildConfig.DEBUG) {
-            return
-        }
-        LocalConfig.appCrash = false
-        alert(getString(R.string.draw), "检测到阅读发生了崩溃，是否打开崩溃日志以便报告问题？") {
-            yesButton {
-                showDialogFragment<CrashLogsDialog>()
-            }
-            noButton()
         }
     }
 

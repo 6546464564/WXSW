@@ -170,37 +170,4 @@ final class QidianRepositoryTests: XCTestCase {
         XCTAssertEqual(QidianRankType.finishBestSell.ssrKey, "bestSell")
         XCTAssertEqual(QidianRankType.finishDs.ssrKey, "ds")
     }
-
-    /// 后端 listBookstoreFeed 返回 camelCase (coverUrl/bookUrl/origin)
-    func test_feedPick_camelCaseApiFields() {
-        let item: [String: Any] = [
-            "name": "三体",
-            "author": "刘慈欣",
-            "coverUrl": "https://example.com/cover.jpg",
-            "bookUrl": "https://example.com/book/1",
-            "origin": "https://src.example",
-            "kind": "科幻",
-            "intro": "简介",
-        ]
-        let pick = QidianBook.feedPick(from: item)
-        XCTAssertNotNil(pick)
-        XCTAssertEqual(pick?.book.coverUrl, "https://example.com/cover.jpg")
-        XCTAssertEqual(pick?.targetURL, "https://example.com/book/1")
-        XCTAssertEqual(pick?.sourceOrigin, "https://src.example")
-    }
-
-    /// snake_case 仍兼容 (admin / 旧客户端)
-    func test_feedPick_snakeCaseFields() {
-        let item: [String: Any] = [
-            "name": "诡秘之主",
-            "cover_url": "https://example.com/guimi.jpg",
-            "target_url": "https://example.com/guimi",
-            "source_origin": "https://src2.example",
-        ]
-        let pick = QidianBook.feedPick(from: item)
-        XCTAssertNotNil(pick)
-        XCTAssertEqual(pick?.book.coverUrl, "https://example.com/guimi.jpg")
-        XCTAssertEqual(pick?.targetURL, "https://example.com/guimi")
-        XCTAssertEqual(pick?.sourceOrigin, "https://src2.example")
-    }
 }

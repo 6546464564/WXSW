@@ -115,7 +115,7 @@ object AdManager {
         if (granted) bootstrap(appContext, true)
     }
 
-    /** 万象书屋: WanxiangBackend / CrashHandler 上报前的隐私门, 一行检查即可. */
+    /** 万象书屋: WanxiangBackend 上报前的隐私门, 一行检查即可. */
     fun isConsented(): Boolean = consented
 
     /**

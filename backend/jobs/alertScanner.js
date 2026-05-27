@@ -6,10 +6,6 @@ function startAlertScanner(db) {
   async function evaluateAlertRule(rule) {
     const since = Date.now() - rule.window_min * 60_000;
     switch (rule.kind) {
-      case 'crash_burst': {
-        const c = db.__db.prepare('SELECT COUNT(*) AS c FROM crashes WHERE ts >= ?').get(since).c;
-        return c >= rule.threshold ? { metric: 'crashes', value: c } : null;
-      }
       case 'ad_error_rate': {
         const r = db.__db.prepare(
           `SELECT

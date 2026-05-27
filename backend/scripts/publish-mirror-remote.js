@@ -25,6 +25,13 @@ async function main() {
     : 0;
   console.log(`    出版 ${publish} 本 (四榜), 出版月票50 ${payload.yuepiaoTop50Publish?.length ?? 0}`);
 
+  const validation = qidianMirror.validateMirrorPayload(payload);
+  if (!validation.ok) {
+    console.error('>>> mirror 校验失败, 拒绝上传:');
+    validation.errors.forEach((e) => console.error(`    - ${e}`));
+    process.exit(1);
+  }
+
   console.log(`>>> 登录 ${BASE}...`);
   const loginRes = await fetch(`${BASE}/api/admin/login`, {
     method: 'POST',

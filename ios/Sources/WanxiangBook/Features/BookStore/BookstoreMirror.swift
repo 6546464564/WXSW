@@ -10,8 +10,9 @@
 //   3. 后端不可用 / 返 503 / 空 cache → fetch() 返 nil → QidianRepository 降级直抓 m.qidian
 //
 //  节流策略:
-//   - 内存缓存: 5 分钟内 hit 同一份 JSON, 不发任何请求
-//   - HTTP ETag: 5 分钟过后发请求带 If-None-Match, 命中 304 不传 body 节省流量
+//   - 内存缓存: 7 天内 hit 同一份 JSON, 不发任何请求
+//   - 磁盘缓存: 最多 30 天; 503 / 网络失败时优先用未过期的磁盘快照
+//   - HTTP ETag: 内存 TTL 过后发请求带 If-None-Match, 命中 304 不传 body 节省流量
 //
 
 import Foundation
@@ -30,7 +31,8 @@ actor BookstoreMirror {
     static let shared = BookstoreMirror()
 
     private let path = "/api/bookstore/mirror"
-    private let memCacheTtl: TimeInterval = 24 * 60 * 60   // 1 天, 跟服务端 mirror 节奏对齐
+    private let memCacheTtl: TimeInterval = 7 * 24 * 60 * 60   // 7 天, 手动更新 mirror 时减少重复拉取
+    private static let diskMaxAge: TimeInterval = 30 * 24 * 60 * 60
 
     private var cachedPayload: [String: Any]?
     private var cachedAt: Date = .distantPast
@@ -67,15 +69,14 @@ actor BookstoreMirror {
                 return payload
             case .definitive(let reason):
                 log.debug("\(reason)")
-                return nil
+                return staleDiskPayloadIfFresh(reason: reason)
             case .transient(let reason):
                 if attempt == 0 {
                     log.debug("transient \(reason), retry...")
                 }
             }
         }
-        loadDiskCacheIfNeeded()
-        return cachedPayload
+        return staleDiskPayloadIfFresh(reason: "network exhausted")
     }
 
     private enum FetchOutcome {
@@ -153,8 +154,31 @@ actor BookstoreMirror {
         UserDefaults.standard.removeObject(forKey: Self.etagDefaultsKey)
     }
 
+    private func staleDiskPayloadIfFresh(reason: String) -> [String: Any]? {
+        loadDiskCacheIfNeeded()
+        guard let mem = cachedPayload, isDiskCacheFresh() else { return nil }
+        log.debug("using stale disk cache after \(reason)")
+        return mem
+    }
+
+    private func isDiskCacheFresh() -> Bool {
+        guard FileManager.default.fileExists(atPath: Self.diskURL.path) else { return false }
+        guard let mod = (try? FileManager.default.attributesOfItem(atPath: Self.diskURL.path))?[.modificationDate] as? Date else {
+            return true
+        }
+        return Date().timeIntervalSince(mod) < Self.diskMaxAge
+    }
+
     private func loadDiskCacheIfNeeded() {
         guard cachedPayload == nil else { return }
+        guard FileManager.default.fileExists(atPath: Self.diskURL.path) else {
+            cachedEtag = UserDefaults.standard.string(forKey: Self.etagDefaultsKey)
+            return
+        }
+        guard isDiskCacheFresh() else {
+            cachedEtag = UserDefaults.standard.string(forKey: Self.etagDefaultsKey)
+            return
+        }
         guard let data = try? Data(contentsOf: Self.diskURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             cachedEtag = UserDefaults.standard.string(forKey: Self.etagDefaultsKey)

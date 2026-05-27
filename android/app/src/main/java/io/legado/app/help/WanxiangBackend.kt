@@ -11,8 +11,6 @@ import io.legado.app.help.http.okHttpClient
 import io.legado.app.utils.GSON
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.fromJsonArray
-import io.legado.app.ui.main.bookstore.BookstoreFeedPick
-import io.legado.app.ui.main.bookstore.feedPickFromJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -47,7 +45,7 @@ object WanxiangBackend {
      * 不上传任何其他设备信息.
      *
      * 万象书屋 D-16 (A-7): ANDROID_ID 拿不到时 fallback 走 anon ID, 持久化到 SP wanxiang_anon
-     * (与 WanxiangAnalytics 共用同一 KV, 保证两侧 deviceId 一致). 旧实现用 currentTimeMillis()
+     * deviceId 持久化在 SharedPreferences (wanxiang_device_id).
      * 作 anon ID, 进程重启就换, 后端把同一台设备识别为多个新设备 → DAU 5-10x 虚高.
      */
     private val deviceId: String by lazy {
@@ -71,7 +69,7 @@ object WanxiangBackend {
      *
      * 来源 SP wanxiang_device_token, 由 [registerDeviceIfNeeded] 在首次启动时拉取.
      * 一旦后端 device_tokens 表有该设备记录, 后端的 verifyDeviceToken 中间件
-     * 会要求所有受保护接口 (sources / ping / ad-event / crash / feedback / redeem) 都带这个 token.
+     * 会要求所有受保护接口 (sources / ping / ad-event / feedback / redeem) 都带这个 token.
      * 没接线的话生产环境 device_tokens 表一旦有数据, 客户端立刻全线 401.
      */
     private const val DEVICE_TOKEN_SP = "wanxiang_device"
@@ -185,10 +183,15 @@ object WanxiangBackend {
             // 已注册过的设备只读 SP, 不重复 register.
             runCatching { registerDeviceIfNeeded(url) }
                 .onFailure { LogUtils.d(TAG, "device register failed: ${it.message}") }
+            // 万象书屋 (perf H): mirror JSON 与书源拉取并行, 用户进书城前尽量已落盘/内存.
+            Coroutine.async {
+                runCatching { WanxiangBookstoreMirror.fetch() }
+                    .onFailure { LogUtils.d(TAG, "mirror prefetch failed: ${it.message}") }
+            }
             // 1) 拉取远端书源覆盖本地
             runCatching { fetchAndApplySources(url) }
                 .onFailure { LogUtils.d(TAG, "fetch sources failed: ${it.message}") }
-            // 2) 后台预热书城 mirror + 榜单 + feed (跟 iOS bootstrap prewarm 对齐)
+            // 2) 后台预热书城 mirror + 榜单 (跟 iOS bootstrap prewarm 对齐)
             runCatching { io.legado.app.ui.main.bookstore.BookStorePrewarm.prewarm() }
                 .onFailure { LogUtils.d(TAG, "bookstore prewarm failed: ${it.message}") }
         }
@@ -230,102 +233,6 @@ object WanxiangBackend {
         saveDeviceToken(token)
         LogUtils.d(TAG, "device token reissued, token=${token.take(8)}***")
         true
-    }
-
-    /**
-     * 拉书城运营 feed (/api/bookstore/feed) — 跟 iOS WanxiangAPI.fetchBookstoreFeed 对齐.
-     * ETag/304: 命中时用磁盘 cache, 冷启动 304 无 cache 时清 etag 重拉 200.
-     * @param channel male / female / publish
-     */
-    suspend fun fetchBookstoreFeed(channel: String): List<io.legado.app.ui.main.bookstore.BookstoreFeedPick> =
-        withContext(Dispatchers.IO) {
-            val url = baseUrl ?: return@withContext emptyList()
-            ensureDeviceRegistered()
-            val cachedEtag = readFeedEtag(channel)
-            var resp = requestBookstoreFeed(url, channel, cachedEtag)
-            if (resp?.raw?.code == 401 && reissueDeviceToken()) {
-                resp = requestBookstoreFeed(url, channel, cachedEtag)
-            }
-            var picks = parseFeedResponse(channel, resp)
-            if (picks == null && resp?.raw?.code == 304) {
-                clearFeedEtag(channel)
-                resp = requestBookstoreFeed(url, channel, null)
-                if (resp?.raw?.code == 401 && reissueDeviceToken()) {
-                    resp = requestBookstoreFeed(url, channel, null)
-                }
-                picks = parseFeedResponse(channel, resp)
-            }
-            picks ?: emptyList()
-        }
-
-    private suspend fun requestBookstoreFeed(url: String, channel: String, ifNoneMatch: String? = null) =
-        runCatching {
-            okHttpClient.newCallStrResponse(retry = 1) {
-                url("$url/api/bookstore/feed?channel=$channel")
-                header("Accept", "application/json")
-                header("X-Platform", PLATFORM)
-                header("X-Device-Id", deviceId)
-                deviceToken?.let { header("X-Device-Token", it) }
-                ifNoneMatch?.let { header("If-None-Match", it) }
-            }
-        }.getOrNull()
-
-    /** @return null = 304 但磁盘无 cache, 需清 etag 重试 */
-    private fun parseFeedResponse(
-        channel: String,
-        resp: io.legado.app.help.http.StrResponse?,
-    ): List<io.legado.app.ui.main.bookstore.BookstoreFeedPick>? {
-        if (resp == null) return emptyList()
-        when (resp.raw.code) {
-            304 -> return loadFeedItems(channel) ?: run {
-                LogUtils.d(TAG, "fetchBookstoreFeed 304 cold start channel=$channel")
-                null
-            }
-            !in 200..299 -> {
-                LogUtils.d(TAG, "fetchBookstoreFeed code=${resp.raw.code} channel=$channel")
-                return emptyList()
-            }
-        }
-        val body = resp.body ?: return emptyList()
-        persistFeedCache(channel, resp.raw.header("ETag"), body)
-        return parseFeedBody(body)
-    }
-
-    private fun parseFeedBody(body: String): List<io.legado.app.ui.main.bookstore.BookstoreFeedPick> {
-        val root = runCatching { JsonParser.parseString(body).asJsonObject }.getOrNull()
-            ?: return emptyList()
-        val arr = root.getAsJsonArray("items") ?: return emptyList()
-        return arr.mapNotNull { el ->
-            runCatching { feedPickFromJson(el.asJsonObject) }.getOrNull()
-        }
-    }
-
-    private const val FEED_CACHE_SP = "wanxiang_bookstore_feed"
-
-    private fun readFeedEtag(channel: String): String? =
-        appCtx.getSharedPreferences(FEED_CACHE_SP, android.content.Context.MODE_PRIVATE)
-            .getString("etag_$channel", null)?.takeIf { it.isNotBlank() }
-
-    private fun clearFeedEtag(channel: String) {
-        appCtx.getSharedPreferences(FEED_CACHE_SP, android.content.Context.MODE_PRIVATE)
-            .edit().remove("etag_$channel").apply()
-    }
-
-    private fun persistFeedCache(channel: String, etag: String?, body: String) {
-        val sp = appCtx.getSharedPreferences(FEED_CACHE_SP, android.content.Context.MODE_PRIVATE)
-        val editor = sp.edit().putString("items_$channel", body)
-        if (!etag.isNullOrBlank()) {
-            editor.putString("etag_$channel", etag)
-        }
-        editor.apply()
-    }
-
-    private fun loadFeedItems(channel: String): List<io.legado.app.ui.main.bookstore.BookstoreFeedPick>? {
-        val body = appCtx.getSharedPreferences(FEED_CACHE_SP, android.content.Context.MODE_PRIVATE)
-            .getString("items_$channel", null)?.takeIf { it.isNotBlank() }
-            ?: return null
-        val picks = parseFeedBody(body)
-        return picks.takeIf { it.isNotEmpty() || body.contains("\"items\":[]") }
     }
 
     // ===== 万象书屋 (方案 G' 客户端): X-Sources-Etag 被动同步 =====
@@ -545,51 +452,10 @@ object WanxiangBackend {
     }
 
     /**
-     * 崩溃上报: mini Sentry, 只在进程即将终止时的 CrashHandler 调用.
-     * 内部 runBlocking 跑 suspend 版 OkHttp + 5s 超时, 调用方已在独立线程.
-     * 万象书屋 PIPL: 用户撤回隐私同意后停止上报 deviceId.
-     */
-    fun reportCrashSync(
-        exception: String,
-        stack: String,
-        brand: String?,
-        model: String?,
-        sdkInt: Int?,
-        appVer: String?,
-    ) {
-        if (!io.legado.app.ad.AdManager.isConsented()) return
-        val url = baseUrl ?: return
-        runCatching {
-            val payload = buildString {
-                append('{')
-                append("\"exception\":").append(jsonStr(exception)).append(',')
-                append("\"stack\":").append(jsonStr(stack)).append(',')
-                append("\"deviceId\":").append(jsonStr(deviceId)).append(',')
-                if (!brand.isNullOrEmpty()) append("\"brand\":").append(jsonStr(brand)).append(',')
-                if (!model.isNullOrEmpty()) append("\"model\":").append(jsonStr(model)).append(',')
-                if (sdkInt != null) append("\"sdkInt\":").append(sdkInt).append(',')
-                append("\"appVer\":").append(jsonStr(appVer ?: ""))
-                append('}')
-            }
-            runBlocking {
-                withTimeoutOrNull(5_000) {
-                    okHttpClient.newCallStrResponse(retry = 0) {
-                        url("$url/api/crash-log")
-                        header("X-Platform", PLATFORM)
-                        header("X-Device-Id", deviceId)
-                        deviceToken?.let { header("X-Device-Token", it) }
-                        post(payload.toRequestBody("application/json".toMediaType()))
-                    }
-                }
-            }
-        }
-    }
-
-    /**
      * 万象书屋: 提交用户反馈/举报. 调用方在 IO 线程内 await.
      * @return true=提交成功, false=网络/校验失败 / 用户撤回隐私同意
      *
-     * PIPL 一致性: 跟 reportAdEvent / reportCrashSync 保持同一策略,
+     * PIPL 一致性: 跟 reportAdEvent 保持同一策略,
      * 用户撤回同意后不带 deviceId 上报. (反馈本身用户主动行为, 但因为 payload
      * 含 deviceId, 仍受同意策略约束)
      */

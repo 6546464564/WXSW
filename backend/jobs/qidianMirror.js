@@ -69,6 +69,67 @@ const FEMALE_SSR_FALLBACK_KEYS = ['dsRank', 'signRank'];
 
 const HOME_RANK_PREVIEW = 10;
 
+/** 发布前校验: 不完整 payload 拒绝写入, 避免覆盖已有好 cache */
+const MIN_RANK_BOOKS = 5;
+const MIN_YUEPIAO = 20;
+const MIN_FINISH_BOOKS = 3;
+const MIN_PUBLISH_RANK_BOOKS = 3;
+
+function validateMirrorPayload(payload) {
+  const errors = [];
+  if (!payload || typeof payload !== 'object') {
+    return { ok: false, errors: ['payload must be object'] };
+  }
+  if (!payload.ranks || typeof payload.ranks !== 'object') {
+    errors.push('missing ranks');
+  } else {
+    for (const key of RANK_KEYS) {
+      const list = payload.ranks[key];
+      if (!Array.isArray(list) || list.length < MIN_RANK_BOOKS) {
+        errors.push(`ranks.${key} need >= ${MIN_RANK_BOOKS} books, got ${list?.length ?? 0}`);
+      }
+    }
+  }
+  if (!payload.finish || typeof payload.finish !== 'object') {
+    errors.push('missing finish');
+  } else {
+    for (const key of FINISH_KEYS) {
+      const list = payload.finish[key];
+      if (!Array.isArray(list) || list.length < MIN_FINISH_BOOKS) {
+        errors.push(`finish.${key} need >= ${MIN_FINISH_BOOKS} books, got ${list?.length ?? 0}`);
+      }
+    }
+  }
+  if (!Array.isArray(payload.yuepiaoTop50) || payload.yuepiaoTop50.length < MIN_YUEPIAO) {
+    errors.push(`yuepiaoTop50 need >= ${MIN_YUEPIAO}, got ${payload.yuepiaoTop50?.length ?? 0}`);
+  }
+  if (!payload.ranksFemale || typeof payload.ranksFemale !== 'object') {
+    errors.push('missing ranksFemale');
+  } else {
+    const femaleKeys = [...new Set([
+      ...FEMALE_MAJAX_RANKS.map((r) => r.key),
+      ...FEMALE_SSR_FALLBACK_KEYS,
+    ])];
+    for (const key of femaleKeys) {
+      const list = payload.ranksFemale[key];
+      if (!Array.isArray(list) || list.length < MIN_RANK_BOOKS) {
+        errors.push(`ranksFemale.${key} need >= ${MIN_RANK_BOOKS} books, got ${list?.length ?? 0}`);
+      }
+    }
+  }
+  if (!payload.ranksPublish || typeof payload.ranksPublish !== 'object') {
+    errors.push('missing ranksPublish');
+  } else {
+    for (const { key } of PUBLISH_RANK_SPECS) {
+      const list = payload.ranksPublish[key];
+      if (!Array.isArray(list) || list.length < MIN_PUBLISH_RANK_BOOKS) {
+        errors.push(`ranksPublish.${key} need >= ${MIN_PUBLISH_RANK_BOOKS} books, got ${list?.length ?? 0}`);
+      }
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 /**
  * 解析 m.qidian.com SSR HTML 中的 vite-plugin-ssr JSON.
  * 起点用 vite-plugin-ssr 把 pageData 写在 <script id="vite-plugin-ssr_pageContext">,
@@ -445,6 +506,10 @@ async function fetchFemaleMirrorData(maleRanks, maleYuepiao50) {
  */
 async function fetchAndCache(db) {
   const payload = await fetchMirrorPayload();
+  const validation = validateMirrorPayload(payload);
+  if (!validation.ok) {
+    throw new Error(`mirror validation failed: ${validation.errors.join('; ')}`);
+  }
   const payloadStr = JSON.stringify(payload);
   const etag = crypto.createHash('md5').update(payloadStr).digest('hex');
 
@@ -472,7 +537,7 @@ async function fetchAndCache(db) {
   });
 
   // 只保留最近 24 条
-  db.cleanupOldBookstoreMirror(24);
+  db.cleanupOldBookstoreMirror(3);
 
   return { totalBooks, etag, version: payload.version };
 }
@@ -489,7 +554,7 @@ function recordFailure(db, err) {
       ok: 0,
       err_msg: String(err?.message || err).slice(0, 500),
     });
-    db.cleanupOldBookstoreMirror(24);
+    db.cleanupOldBookstoreMirror(3);
   } catch (innerErr) {
     console.error('[qidianMirror] recordFailure also failed:', innerErr);
   }
@@ -499,6 +564,7 @@ module.exports = {
   fetchAndCache,
   fetchMirrorPayload,
   recordFailure,
+  validateMirrorPayload,
   // 仅测试导出
   _internal: {
     extractPageData,

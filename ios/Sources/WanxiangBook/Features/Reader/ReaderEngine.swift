@@ -382,9 +382,6 @@ public final class ReaderEngine: ObservableObject {
         }
         loadingIndices.insert(index)
         updateLoadingState()
-        if !silent, let title = chapters[safe: index]?.title {
-            CrashBreadcrumb.leave("reader.ch\(index):\(title.prefix(16))")
-        }
         defer {
             loadingIndices.remove(index)
             updateLoadingState()
