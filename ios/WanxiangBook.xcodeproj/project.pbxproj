@@ -878,13 +878,6 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
-		D97459C4FDA741B64EF755D3 /* Analytics */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Analytics;
-			sourceTree = "<group>";
-		};
 		DA76A25F87F66DFFB4BCA644 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -923,7 +916,6 @@
 			isa = PBXGroup;
 			children = (
 				3E3F6DA3C92C22752DF015C3 /* Ad */,
-				D97459C4FDA741B64EF755D3 /* Analytics */,
 				B3A0E95D27D7E92B93B51317 /* App */,
 				4B2BBB0E71C6B2D5D82C76BA /* BookSource */,
 				1F48A16E12ECE5F087935D5B /* Database */,
