@@ -79,18 +79,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>20260526.2</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.wanxiang.reader</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>wanxiang</string>
-			</array>
-		</dict>
-	</array>
+	<string>20260527.2</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
