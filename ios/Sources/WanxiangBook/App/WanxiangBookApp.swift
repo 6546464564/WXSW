@@ -99,7 +99,10 @@ struct WanxiangBookApp: App {
             .onOpenURL { url in
                 guard url.scheme == "wanxiang" else { return }
                 NSLog("[WX-URL] received: %@", url.absoluteString)
-                if url.host == "download-all" {
+                if url.host == "autoReward" {
+                    PurifiedReadingState.shared.markRewardedSuccess(unlockMinutes: 30)
+                    NSLog("[WX-URL] autoReward: unlocked 30 min purified reading")
+                } else if url.host == "download-all" {
                     Task {
                         // 等书源加载完
                         await BookSourceRegistry.shared.waitUntilEnabledSourcesNonEmpty(timeout: 10)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-万象书屋 — 全功能真实用户模拟 v8 (100倍速 + 自适应进化)
+万象书屋 — 全功能真实用户模拟 v9 (100倍速 + 自适应进化 + 广告观看)
 覆盖所有可交互功能: 50+ 预设场景 + 自动发现未知UI + 进化学习
 
 核心能力:
@@ -8,6 +8,7 @@
   2. 探索引擎: 定期 dump UI 层级, 发现新的可交互元素
   3. 进化记忆: 记录每个元素的交互结果(成功/失败/导航/崩溃)
   4. 自动恢复: 探索导致异常时安全回退
+  5. 广告真实观看: 遇到激励视频不跳过, 等待播完并关闭, 解锁纯净阅读
 
 设备: iPhone SE (375x667)
 """
@@ -21,13 +22,225 @@ import os
 import re
 import hashlib
 import signal
+import urllib.request
 from xml.etree import ElementTree as ET
-import wda
 
 BUNDLE_ID = "com.wanxiang.reader"
 DEFAULT_WDA_URL = "http://192.168.88.166:8100"
 LOG_FILE = os.path.join(os.path.dirname(__file__), "simulation_crash_log.jsonl")
 MEMORY_FILE = os.path.join(os.path.dirname(__file__), "evolution_memory.json")
+
+
+class WDASession:
+    """轻量 WDA HTTP 客户端，绕过 facebook-wda 的 session 重试 bug。"""
+
+    def __init__(self, base_url, bundle_id):
+        self.base = base_url.rstrip("/")
+        self.sid = None
+        self._acquire_session(bundle_id)
+
+    def _raw_http(self, method, path, data=None, timeout=10):
+        url = f"{self.base}{path}"
+        body = json.dumps(data).encode() if data else None
+        req = urllib.request.Request(url, data=body, method=method,
+                                     headers={"Content-Type": "application/json"})
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        return json.loads(resp.read())
+
+    def _http(self, method, path, data=None, timeout=10):
+        try:
+            return self._raw_http(method, path, data, timeout)
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 500):
+                self._refresh_session()
+                new_path = path.replace(f"/session/{self.sid}", "")
+                if new_path == path and self.sid in path:
+                    pass  # sid not in path, just retry
+                else:
+                    path = f"/session/{self.sid}{new_path}"
+                return self._raw_http(method, path, data, timeout)
+            raise
+
+    def _refresh_session(self):
+        """从 WDA 获取最新的 session ID。"""
+        try:
+            r = self._raw_http("GET", "/wda/locked")
+            new_sid = r.get("sessionId")
+            if new_sid and new_sid != self.sid:
+                self.sid = new_sid
+                return
+        except Exception:
+            pass
+        try:
+            st = self._raw_http("GET", "/status")
+            new_sid = st.get("sessionId")
+            if new_sid and new_sid != self.sid:
+                self.sid = new_sid
+                self.sid = new_sid
+        except Exception:
+            pass
+
+    def _acquire_session(self, bundle_id):
+        """复用 WDA 内部 session (iOS 26.4 不允许创建新 session)。
+        先终止 app 再带 -autoRewardAds 参数重启。"""
+        launch_payload = {"bundleId": bundle_id, "arguments": ["-autoRewardAds"]}
+        try:
+            r = self._raw_http("GET", "/wda/locked")
+            sid = r.get("sessionId")
+            if sid:
+                self.sid = sid
+                # 先终止 app 确保参数生效
+                try:
+                    self._raw_http("POST", f"/session/{self.sid}/wda/apps/terminate",
+                                   {"bundleId": bundle_id}, timeout=10)
+                    time.sleep(2)
+                except Exception:
+                    pass
+                try:
+                    self._raw_http("POST", f"/session/{self.sid}/wda/apps/launch",
+                                   launch_payload, timeout=30)
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+        st = self._raw_http("GET", "/status")
+        existing = st.get("sessionId")
+        if existing:
+            self.sid = existing
+            try:
+                self._raw_http("POST", f"/session/{self.sid}/wda/apps/terminate",
+                               {"bundleId": bundle_id}, timeout=10)
+                time.sleep(2)
+            except Exception:
+                pass
+            try:
+                self._raw_http("POST", f"/session/{self.sid}/wda/apps/launch",
+                               launch_payload, timeout=30)
+            except Exception:
+                pass
+            return
+        r = self._raw_http("POST", "/session",
+                       {"capabilities": {"alwaysMatch": {"bundleId": bundle_id,
+                        "arguments": ["-autoRewardAds"]}}}, timeout=30)
+        self.sid = r.get("sessionId") or r.get("value", {}).get("sessionId")
+        if not self.sid:
+            raise RuntimeError(f"WDA session creation failed: {r}")
+
+    def status(self):
+        return self._http("GET", "/status").get("value", {})
+
+    def tap(self, x, y):
+        self._http("POST", f"/session/{self.sid}/wda/tap",
+                   {"x": x, "y": y})
+
+    def swipe(self, fx, fy, tx, ty, duration=0.5):
+        self._http("POST", f"/session/{self.sid}/wda/dragfromtoforduration",
+                   {"fromX": fx, "fromY": fy, "toX": tx, "toY": ty,
+                    "duration": duration})
+
+    def swipe_left(self):
+        self.swipe(W * 0.85, H * 0.5, W * 0.15, H * 0.5, 0.3)
+
+    def swipe_right(self):
+        self.swipe(W * 0.15, H * 0.5, W * 0.85, H * 0.5, 0.3)
+
+    def swipe_up(self):
+        self.swipe(W * 0.5, H * 0.7, W * 0.5, H * 0.3, 0.3)
+
+    def swipe_down(self):
+        self.swipe(W * 0.5, H * 0.3, W * 0.5, H * 0.7, 0.3)
+
+    def app_current(self):
+        r = self._http("GET", f"/session/{self.sid}/wda/activeAppInfo")
+        return r.get("value", {})
+
+    def source(self, fmt="xml", format=None):
+        r = self._http("GET", f"/session/{self.sid}/source",
+                       timeout=15)
+        return r.get("value", "")
+
+    def __call__(self, **kwargs):
+        return WDAElementQuery(self, **kwargs)
+
+
+class WDAElementQuery:
+    """WDA 元素查询 — 兼容 safe_tap(s, name=..., labelContains=...) 模式。"""
+
+    def __init__(self, session, **kwargs):
+        self.session = session
+        self.kwargs = kwargs
+
+    def wait(self, timeout=3):
+        el = self._find(timeout)
+        return el is not None
+
+    @property
+    def exists(self):
+        return self._find(1) is not None
+
+    def tap(self):
+        el = self._find(1)
+        if el:
+            x, y = el
+            self.session.tap(x, y)
+            return True
+        return False
+
+    def set_text(self, text):
+        el = self._find(1)
+        if el:
+            x, y = el
+            self.session.tap(x, y)
+            time.sleep(0.3)
+            self.session._http("POST",
+                f"/session/{self.session.sid}/wda/keys",
+                {"value": list(text)})
+            return True
+        return False
+
+    def _find(self, timeout):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                src = self.session.source()
+                root = ET.fromstring(src) if isinstance(src, str) and src.strip().startswith("<") else None
+                if root is None:
+                    time.sleep(0.3)
+                    continue
+                match = self._match_in_tree(root)
+                if match is not None:
+                    return match
+            except Exception:
+                pass
+            time.sleep(0.3)
+        return None
+
+    def _match_in_tree(self, root):
+        name_match = self.kwargs.get("name")
+        label_contains = self.kwargs.get("labelContains")
+        for el in root.iter():
+            attrs = el.attrib
+            if attrs.get("visible") == "false":
+                continue
+            n = attrs.get("name", "")
+            lab = attrs.get("label", "")
+            val = attrs.get("value", "")
+            if name_match and n == name_match:
+                return self._center(attrs)
+            if label_contains and label_contains in lab:
+                return self._center(attrs)
+            if label_contains and label_contains in val:
+                return self._center(attrs)
+        return None
+
+    @staticmethod
+    def _center(attrs):
+        x = int(attrs.get("x", 0))
+        y = int(attrs.get("y", 0))
+        w = int(attrs.get("width", 0))
+        h = int(attrs.get("height", 0))
+        return (x + w // 2, y + h // 2)
 
 W, H = 375, 667
 SHELF_BOOKS = [(66, 234), (187, 234), (308, 234)]
@@ -40,10 +253,12 @@ stats = {
     "books_added": 0, "chapters_jumped": 0, "sources_changed": 0,
     "tts_sessions": 0, "downloads": 0, "bookmarks": 0,
     "explored": 0, "new_elements_found": 0, "explore_success": 0,
+    "ads_watched": 0, "ads_failed": 0,
 }
 current_action = "idle"
 last_action = "idle"
 start_time = time.time()
+watch_ads_global = True
 
 
 # ═══════════════════════════════════════════════════════
@@ -230,6 +445,7 @@ def safe_source(s, timeout=10):
             signal.alarm(0)
             return None
     finally:
+        signal.alarm(0)
         signal.signal(signal.SIGALRM, old_handler)
 
 
@@ -408,6 +624,16 @@ def check_wda(client):
         return False
 
 
+def _recreate_session(base_url):
+    """重新获取 WDA Session（App 崩溃后恢复用）"""
+    s = WDASession(base_url, BUNDLE_ID)
+    time.sleep(5)
+    wait_splash(s)
+    go_shelf(s)
+    time.sleep(2)
+    return s
+
+
 def ensure_alive(client, session):
     if not check_wda(client):
         stats["wda_failures"] += 1
@@ -422,11 +648,7 @@ def ensure_alive(client, session):
             report()
             sys.exit(2)
         try:
-            session = client.session(BUNDLE_ID)
-            time.sleep(5)
-            wait_splash(session)
-            go_shelf(session)
-            time.sleep(2)
+            session = _recreate_session(client.base)
         except Exception:
             pass
         return session
@@ -442,11 +664,7 @@ def ensure_alive(client, session):
         stats["crashes"] += 1
         log_event("app_crash_check_failed", error=str(e)[:200])
     try:
-        session = client.session(BUNDLE_ID)
-        time.sleep(5)
-        wait_splash(session)
-        go_shelf(session)
-        time.sleep(2)
+        session = _recreate_session(client.base)
         log_event("app_restarted")
     except Exception:
         pass
@@ -467,31 +685,180 @@ def go_my(s):
     time.sleep(0.5)
 
 def exit_reader(s):
-    s.swipe(0.05, 0.5, 0.9, 0.5)
+    s.swipe(int(W * 0.05), int(H * 0.5), int(W * 0.9), int(H * 0.5))
     time.sleep(0.5)
 
 def go_back(s):
-    s.swipe(0.05, 0.5, 0.9, 0.5)
+    s.swipe(int(W * 0.05), int(H * 0.5), int(W * 0.9), int(H * 0.5))
     time.sleep(0.3)
 
 def show_menu(s):
     s.tap(W // 2, H // 2)
     time.sleep(0.5)
 
-def handle_ad(s):
-    """检测并处理广告/解锁弹窗 — 优先跳过"""
+def _wait_and_close_rewarded_ad(s, max_wait=45):
+    """等待激励视频播完并关闭。穿山甲/优量汇视频一般 15-30 秒。
+
+    策略:
+      Phase 1: 验证广告是否弹出 (bundleId 变化)
+      Phase 2: 等待视频播完 (~25s)
+      Phase 3: 循环尝试关闭 (坐标点击 + Accessibility 标签)
+      Phase 4: 强制恢复 (swipe back + 重新激活 app)
+    """
+    CLOSE_POSITIONS = [
+        (W - 25, 55),
+        (W - 20, 45),
+        (W - 30, 65),
+        (25, 55),
+        (W - 25, H - 80),
+        (W // 2, H - 40),
+    ]
+
+    ad_launched = False
+    for _ in range(6):
+        time.sleep(0.5)
+        try:
+            info = s.app_current()
+            bid = info.get("bundleId") or info.get("bundleID") or ""
+            if bid != BUNDLE_ID:
+                ad_launched = True
+                break
+        except Exception:
+            pass
+    if not ad_launched:
+        log_event("ad_not_launched", detail="SDK未弹出广告, bundleId未变化")
+        return False
+
+    time.sleep(min(20, max_wait - 5))
+
+    for attempt in range(max(0, max_wait - 25)):
+        try:
+            info = s.app_current()
+            bid = info.get("bundleId") or info.get("bundleID") or ""
+            if bid == BUNDLE_ID:
+                return True
+        except Exception:
+            pass
+        pos = CLOSE_POSITIONS[attempt % len(CLOSE_POSITIONS)]
+        try:
+            s.tap(*pos)
+        except Exception:
+            pass
+        time.sleep(1.5)
+        if attempt > 3:
+            safe_tap(s, labelContains="跳过", timeout=0.3)
+            safe_tap(s, labelContains="关闭", timeout=0.3)
+            safe_tap(s, labelContains="Close", timeout=0.3)
+
+    # Phase 4: 强制恢复 — 确保回到 app
+    log_event("ad_force_recover", detail="close attempts exhausted, forcing recovery")
+    for coord in CLOSE_POSITIONS:
+        try:
+            s.tap(coord[0], coord[1])
+            time.sleep(0.3)
+        except Exception:
+            pass
+    try:
+        s.swipe(0.05, 0.5, 0.9, 0.5)
+        time.sleep(0.5)
+    except Exception:
+        pass
+    # 最后手段: 用 WDA 重新激活 app (会把 app 带回前台)
+    try:
+        s.app_activate(BUNDLE_ID)
+        time.sleep(1)
+    except Exception:
+        pass
+    return False
+
+
+_ad_consecutive_no_effect = 0
+_ad_smart_skip_mode = False
+
+def _trigger_auto_reward(s):
+    """通过 URL Scheme 直接解锁纯净阅读 (bypass SDK)"""
+    try:
+        path = f"/session/{s.sid}/url"
+        s._raw_http("POST", path, {"url": "wanxiang://autoReward"}, timeout=5)
+        time.sleep(1)
+        return True
+    except Exception:
+        return False
+
+def handle_ad(s, watch_reward=True):
+    """检测并处理所有广告/解锁弹窗。
+    使用 URL Scheme 直接解锁纯净阅读，无需等待广告视频。"""
+    global _ad_consecutive_no_effect, _ad_smart_skip_mode
+
+    actually_watch = watch_reward and not _ad_smart_skip_mode
+
+    # 章节解锁 overlay: 看广告解锁 (ChapterUnlockOverlay)
+    try:
+        el = s(labelContains="看广告解锁")
+        if el.wait(timeout=1):
+            if actually_watch:
+                # 直接用 URL Scheme 解锁，不触发真实广告
+                ok = _trigger_auto_reward(s)
+                if ok:
+                    log_event("ad_auto_reward", method="url_scheme")
+                    stats["actions"] += 1
+                    stats["ads_watched"] += 1
+                    time.sleep(1)
+                    # 验证解锁是否生效 (overlay 是否消失)
+                    try:
+                        still_locked = s(labelContains="看广告解锁").wait(timeout=2)
+                    except Exception:
+                        still_locked = False
+                    if still_locked:
+                        _ad_consecutive_no_effect += 1
+                        log_event("ad_reward_no_effect", count=_ad_consecutive_no_effect)
+                        if _ad_consecutive_no_effect >= 3:
+                            _ad_smart_skip_mode = True
+                            log_event("ad_smart_skip_activated")
+                        safe_tap(s, labelContains="先跳过", timeout=2)
+                        return "reward_no_effect"
+                    else:
+                        _ad_consecutive_no_effect = 0
+                        return "reward_watched"
+                # URL Scheme 失败，尝试跳过
+                safe_tap(s, labelContains="先跳过", timeout=2)
+                time.sleep(0.5)
+                return "reward_url_failed"
+            else:
+                pass  # fall through to skip
+    except Exception:
+        pass
     # 章节解锁 overlay: "先跳过"
     if safe_tap(s, labelContains="先跳过", timeout=1):
         time.sleep(0.5)
         return "chapter_skip"
-    # 激励广告 alert: "跳过"
+    # 纯净阅读延长 alert: 看广告续读
+    try:
+        el = s(labelContains="看广告续读")
+        if el.wait(timeout=0.5):
+            if actually_watch:
+                _trigger_auto_reward(s)
+                log_event("ad_extend_auto")
+                stats["actions"] += 1
+                stats["ads_watched"] += 1
+                time.sleep(1)
+                return "extend_watched"
+    except Exception:
+        pass
+    # 纯净阅读 alert: "跳过"
     if safe_tap(s, name="跳过", timeout=1):
         time.sleep(0.5)
-        return "reward_skip"
+        return "purified_skip"
+    if safe_tap(s, labelContains="跳过", timeout=1):
+        time.sleep(0.5)
+        return "purified_skip"
     # 读完页
     if safe_tap(s, labelContains="去书架", timeout=1):
         time.sleep(0.5)
         return "book_finished"
+    if safe_tap(s, labelContains="返回上一章", timeout=0.5):
+        time.sleep(0.5)
+        return "paywall_back"
     return None
 
 def wait_splash(s):
@@ -502,7 +869,7 @@ def enter_reader(s):
     go_shelf(s)
     s.tap(*random.choice(SHELF_BOOKS))
     time.sleep(1.5)
-    handle_ad(s)
+    handle_ad(s, watch_reward=watch_ads_global)
 
 def read_pages(s, count):
     for i in range(count):
@@ -510,8 +877,8 @@ def read_pages(s, count):
         time.sleep(random.uniform(0.3, 0.6))
         stats["pages_read"] += 1
         stats["actions"] += 1
-        if (i + 1) % 10 == 0:
-            handle_ad(s)
+        if (i + 1) % 5 == 0:
+            handle_ad(s, watch_reward=watch_ads_global)
 
 
 # ═══════════════════════════════════════════════════════
@@ -1416,11 +1783,19 @@ def action_follow_system_theme(s):
     stats["actions"] += 1
 
 def action_purified_extend(s):
-    """纯净阅读延长卡"""
+    """纯净阅读延长卡 — 真实观看广告"""
     go_my(s)
-    safe_tap(s, labelContains="延长", timeout=2)
-    time.sleep(3)
-    safe_tap(s, labelContains="跳过", timeout=2) or safe_tap(s, labelContains="关闭", timeout=2)
+    if safe_tap(s, labelContains="延长", timeout=2):
+        time.sleep(1)
+        if watch_ads_global:
+            log_event("ad_extend_trigger")
+            ok = _wait_and_close_rewarded_ad(s)
+            log_event("ad_extend_result", success=ok)
+            if not ok:
+                safe_tap(s, labelContains="跳过", timeout=2) or safe_tap(s, labelContains="关闭", timeout=2)
+        else:
+            time.sleep(2)
+            safe_tap(s, labelContains="跳过", timeout=2) or safe_tap(s, labelContains="关闭", timeout=2)
     time.sleep(1)
     stats["actions"] += 1
 
@@ -1486,6 +1861,7 @@ def report():
           f"签:{stats['bookmarks']}")
     print(f"║  崩:{stats['crashes']} WDA:{stats['wda_failures']} "
           f"错:{stats['errors']}")
+    print(f"║  📺 广告: 看完:{stats['ads_watched']} 失败:{stats['ads_failed']}")
     print(f"║  🧬 探索:{stats['explored']} 新元素:{stats['new_elements_found']} "
           f"成功:{stats['explore_success']}")
     print(f"║  🧠 记忆: {known}元素已知 / {safe}安全")
@@ -1498,31 +1874,49 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--wda-url", default=DEFAULT_WDA_URL)
     parser.add_argument("--duration", type=int, default=43200)
+    parser.add_argument("--skip-ads", action="store_true",
+                        help="跳过广告而非看完 (默认: 模拟真实用户看完广告)")
     args = parser.parse_args()
 
+    import fcntl
+    lock_path = os.path.join(os.path.dirname(__file__), ".sim_lock")
+    lock_fd = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_fd.write(str(os.getpid()))
+        lock_fd.flush()
+    except OSError:
+        print(f"✗ 已有仿真实例在运行 (lock: {lock_path}), 退出")
+        sys.exit(0)
+
+    global watch_ads_global
+    watch_ads_global = not args.skip_ads
+
     print("╔══════════════════════════════════════════════╗")
-    print("║  万象书屋 — 自适应模拟 v8 (100x + 进化)   ║")
+    print("║  万象书屋 — 自适应模拟 v9 (100x + 进化)   ║")
     print("╚══════════════════════════════════════════════╝")
     print(f"WDA: {args.wda_url}  时长: {args.duration//3600}h")
-    print(f"覆盖: 50+预设 + 自动探索进化  阅读: 0.3-0.6s/页  广告: 自动跳过")
+    ad_mode = "真实观看" if watch_ads_global else "自动跳过"
+    print(f"覆盖: 50+预设 + 自动探索进化  阅读: 0.3-0.6s/页  广告: {ad_mode}")
     print(f"记忆: {len(memory.elements)}个已知元素 / {MEMORY_FILE}")
 
-    client = wda.Client(args.wda_url)
     try:
-        st = client.status()
+        r = urllib.request.urlopen(f"{args.wda_url}/status", timeout=5)
+        st = json.loads(r.read()).get("value", {})
         print(f"设备: iOS {st.get('os', {}).get('version', '?')}")
     except Exception as e:
         print(f"✗ WDA: {e}")
         sys.exit(1)
 
-    session = client.session(BUNDLE_ID)
-    time.sleep(5)
-    wait_splash(session)
+    session = WDASession(args.wda_url, BUNDLE_ID)
+    client = session
+    print(f"Session: {session.sid[:8]}…")
+    time.sleep(3)
     go_shelf(session)
     time.sleep(2)
-    print("App 启动，广告已跳过，开始模拟...\n")
+    print("App 启动，开始模拟...\n")
     start_time = time.time()
-    log_event("test_started", duration_planned=args.duration, version="reader-sim-v8-evolve")
+    log_event("test_started", duration_planned=args.duration, version="reader-sim-v9-adwatch")
 
     # 50+ 场景, 总权重 ~160
     pool_def = [
@@ -1606,12 +2000,15 @@ def main():
     while time.time() - start_time < args.duration:
         try:
             cycle_count += 1
+            elapsed = time.time() - start_time
+            em = int(elapsed // 60)
 
             if cycle_count % EXPLORE_INTERVAL == 0:
                 explore_type = random.choice(["surface", "surface", "deep",
                                               "reader_settings", "more_menu"])
                 last_action = current_action
                 current_action = f"explore_{explore_type}"
+                print(f"  [{em}m] #{cycle_count} → explore_{explore_type}")
                 if explore_type == "surface":
                     session = action_explore(session, client, session)
                 elif explore_type == "deep":
@@ -1626,15 +2023,17 @@ def main():
                 fn, name = random.choice(pool)
                 last_action = current_action
                 current_action = name
+                print(f"  [{em}m] #{cycle_count} → {name}")
                 fn(session)
                 stats["cycles"] += 1
                 session = ensure_alive(client, session)
         except Exception as e:
             stats["errors"] += 1
+            print(f"  [{em}m] #{cycle_count} ERROR: {str(e)[:100]}")
             log_event("action_error", error=str(e)[:200])
             session = ensure_alive(client, session)
 
-        if time.time() - last_report >= 300:
+        if time.time() - last_report >= 60:
             elapsed = time.time() - start_time
             h = int(elapsed // 3600)
             m = int((elapsed % 3600) // 60)
@@ -1656,4 +2055,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException as e:
+        import traceback
+        log_event("fatal_crash", error=str(e)[:500], tb=traceback.format_exc()[-1000:])
+        print(f"\n✗ FATAL: {e}")
+        traceback.print_exc()
+        sys.exit(2)

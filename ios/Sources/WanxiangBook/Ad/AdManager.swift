@@ -318,6 +318,14 @@ public final class AdManager: ObservableObject {
 
     /// 看广告解锁纯净阅读 (对齐 Android loadAndShowRewarded)
     public func showRewardedToUnlock(minutes: Int = 30) async -> Bool {
+        // 测试模式: 跳过真实广告，直接解锁
+        if CommandLine.arguments.contains("-autoRewardAds") {
+            adLog("showRewarded: AUTO-REWARD (test mode)")
+            PurifiedReadingState.shared.markRewardedSuccess(unlockMinutes: minutes)
+            PurifiedReadingState.shared.resetAdFailures()
+            return true
+        }
+
         adLog("showRewarded called: consented=\(consented) bootstrapped=\(bootstrapped)")
         guard consented else { return false }
         if !bootstrapped { await bootstrap() }
