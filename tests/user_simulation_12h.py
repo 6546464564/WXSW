@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-万象书屋 — 全功能真实用户模拟 v9 (100倍速 + 自适应进化 + 广告观看)
-覆盖所有可交互功能: 50+ 预设场景 + 自动发现未知UI + 进化学习
+万象书屋 — 全功能真实用户模拟 v10 (200倍速 + 自适应进化 + 广告观看)
+覆盖所有可交互功能: 80+ 预设场景 + 自动发现未知UI + 进化学习
 
 核心能力:
   1. 预设 50+ 场景覆盖已知功能
@@ -29,6 +29,16 @@ BUNDLE_ID = "com.wanxiang.reader"
 DEFAULT_WDA_URL = "http://192.168.88.166:8100"
 LOG_FILE = os.path.join(os.path.dirname(__file__), "simulation_crash_log.jsonl")
 MEMORY_FILE = os.path.join(os.path.dirname(__file__), "evolution_memory.json")
+
+SEARCH_KEYWORDS = [
+    "斗破苍穹", "完美世界", "遮天", "凡人修仙传", "诛仙", "斗罗大陆",
+    "盘龙", "神墓", "星辰变", "吞噬星空", "武动乾坤", "大主宰",
+    "雪鹰领主", "莽荒纪", "九鼎记", "永生", "仙逆", "一念永恒",
+    "我欲封天", "求魔", "三寸人间", "龙族", "全职法师", "元尊",
+    "都市", "修仙", "玄幻", "武侠", "仙侠", "科幻", "历史", "军事",
+    "灵域", "圣墟", "飞剑问道", "牧神记", "剑来", "大道朝天",
+    "万古神帝", "太初", "灵剑尊", "万域之王", "帝霸", "天道图书馆",
+]
 
 
 class WDASession:
@@ -242,10 +252,47 @@ class WDAElementQuery:
         h = int(attrs.get("height", 0))
         return (x + w // 2, y + h // 2)
 
-W, H = 375, 667
-SHELF_BOOKS = [(66, 234), (187, 234), (308, 234)]
-TAB_Y = 635
-TAB_SHELF_X, TAB_STORE_X, TAB_MY_X = 62, 187, 312
+W, H = 375, 667  # defaults; overridden at runtime by _detect_screen_size()
+
+def _detect_screen_size(wda_url):
+    """Auto-detect device screen size from WDA."""
+    global W, H
+    try:
+        r = urllib.request.urlopen(f"{wda_url}/window/size", timeout=5)
+        d = json.loads(r.read()).get("value", {})
+        W = int(d.get("width", 375))
+        H = int(d.get("height", 667))
+    except Exception:
+        pass
+
+def _tab_coords():
+    return {
+        "TAB_Y": H - 32,
+        "TAB_SHELF_X": int(W * 0.167),
+        "TAB_STORE_X": int(W * 0.5),
+        "TAB_MY_X": int(W * 0.833),
+        "SHELF_BOOKS": [
+            (int(W * 0.176), int(H * 0.35)),
+            (int(W * 0.5), int(H * 0.35)),
+            (int(W * 0.824), int(H * 0.35)),
+        ],
+    }
+
+_tc = _tab_coords()
+SHELF_BOOKS = _tc["SHELF_BOOKS"]
+TAB_Y = _tc["TAB_Y"]
+TAB_SHELF_X = _tc["TAB_SHELF_X"]
+TAB_STORE_X = _tc["TAB_STORE_X"]
+TAB_MY_X = _tc["TAB_MY_X"]
+
+def _refresh_coords():
+    global SHELF_BOOKS, TAB_Y, TAB_SHELF_X, TAB_STORE_X, TAB_MY_X
+    tc = _tab_coords()
+    SHELF_BOOKS = tc["SHELF_BOOKS"]
+    TAB_Y = tc["TAB_Y"]
+    TAB_SHELF_X = tc["TAB_SHELF_X"]
+    TAB_STORE_X = tc["TAB_STORE_X"]
+    TAB_MY_X = tc["TAB_MY_X"]
 
 stats = {
     "cycles": 0, "errors": 0, "crashes": 0, "actions": 0,
@@ -674,27 +721,27 @@ def ensure_alive(client, session):
 # ─── 基础导航 ─────────────────────────────────────
 def go_shelf(s):
     s.tap(TAB_SHELF_X, TAB_Y)
-    time.sleep(0.3)
+    time.sleep(0.15)
 
 def go_store(s):
     s.tap(TAB_STORE_X, TAB_Y)
-    time.sleep(0.5)
+    time.sleep(0.25)
 
 def go_my(s):
     s.tap(TAB_MY_X, TAB_Y)
-    time.sleep(0.5)
+    time.sleep(0.25)
 
 def exit_reader(s):
     s.swipe(int(W * 0.05), int(H * 0.5), int(W * 0.9), int(H * 0.5))
-    time.sleep(0.5)
+    time.sleep(0.25)
 
 def go_back(s):
     s.swipe(int(W * 0.05), int(H * 0.5), int(W * 0.9), int(H * 0.5))
-    time.sleep(0.3)
+    time.sleep(0.15)
 
 def show_menu(s):
     s.tap(W // 2, H // 2)
-    time.sleep(0.5)
+    time.sleep(0.25)
 
 def _wait_and_close_rewarded_ad(s, max_wait=45):
     """等待激励视频播完并关闭。穿山甲/优量汇视频一般 15-30 秒。
@@ -772,76 +819,47 @@ def _wait_and_close_rewarded_ad(s, max_wait=45):
     return False
 
 
-_ad_consecutive_no_effect = 0
-_ad_smart_skip_mode = False
-
-def _trigger_auto_reward(s):
-    """通过 URL Scheme 直接解锁纯净阅读 (bypass SDK)"""
-    try:
-        path = f"/session/{s.sid}/url"
-        s._raw_http("POST", path, {"url": "wanxiang://autoReward"}, timeout=5)
-        time.sleep(1)
-        return True
-    except Exception:
-        return False
-
 def handle_ad(s, watch_reward=True):
     """检测并处理所有广告/解锁弹窗。
-    使用 URL Scheme 直接解锁纯净阅读，无需等待广告视频。"""
-    global _ad_consecutive_no_effect, _ad_smart_skip_mode
+    App 以 -autoRewardAds 启动时，点击"看广告解锁"会自动完成（不弹真实广告）。"""
 
-    actually_watch = watch_reward and not _ad_smart_skip_mode
-
-    # 章节解锁 overlay: 看广告解锁 (ChapterUnlockOverlay)
+    # 章节解锁 overlay: 点击"看广告解锁"（-autoRewardAds 模式下自动完成）
     try:
         el = s(labelContains="看广告解锁")
         if el.wait(timeout=1):
-            if actually_watch:
-                # 直接用 URL Scheme 解锁，不触发真实广告
-                ok = _trigger_auto_reward(s)
-                if ok:
-                    log_event("ad_auto_reward", method="url_scheme")
-                    stats["actions"] += 1
-                    stats["ads_watched"] += 1
-                    time.sleep(1)
-                    # 验证解锁是否生效 (overlay 是否消失)
-                    try:
-                        still_locked = s(labelContains="看广告解锁").wait(timeout=2)
-                    except Exception:
-                        still_locked = False
-                    if still_locked:
-                        _ad_consecutive_no_effect += 1
-                        log_event("ad_reward_no_effect", count=_ad_consecutive_no_effect)
-                        if _ad_consecutive_no_effect >= 3:
-                            _ad_smart_skip_mode = True
-                            log_event("ad_smart_skip_activated")
-                        safe_tap(s, labelContains="先跳过", timeout=2)
-                        return "reward_no_effect"
-                    else:
-                        _ad_consecutive_no_effect = 0
-                        return "reward_watched"
-                # URL Scheme 失败，尝试跳过
-                safe_tap(s, labelContains="先跳过", timeout=2)
-                time.sleep(0.5)
-                return "reward_url_failed"
-            else:
-                pass  # fall through to skip
+            if watch_reward:
+                el.tap()
+                log_event("ad_auto_reward", method="autoRewardAds_flag")
+                stats["actions"] += 1
+                stats["ads_watched"] += 1
+                time.sleep(2)
+                # 验证 overlay 是否消失
+                try:
+                    still_locked = s(labelContains="看广告解锁").wait(timeout=2)
+                except Exception:
+                    still_locked = False
+                if not still_locked:
+                    return "reward_watched"
+            # 如果自动解锁失败或不看广告，点"先跳过"
+            safe_tap(s, labelContains="先跳过", timeout=2)
+            time.sleep(0.5)
+            return "chapter_skip"
     except Exception:
         pass
-    # 章节解锁 overlay: "先跳过"
+    # 兜底：单独检测"先跳过"
     if safe_tap(s, labelContains="先跳过", timeout=1):
         time.sleep(0.5)
         return "chapter_skip"
-    # 纯净阅读延长 alert: 看广告续读
+    # 纯净阅读延长 alert: 点击"看广告续读"（自动完成）
     try:
         el = s(labelContains="看广告续读")
         if el.wait(timeout=0.5):
-            if actually_watch:
-                _trigger_auto_reward(s)
+            if watch_reward:
+                el.tap()
                 log_event("ad_extend_auto")
                 stats["actions"] += 1
                 stats["ads_watched"] += 1
-                time.sleep(1)
+                time.sleep(2)
                 return "extend_watched"
     except Exception:
         pass
@@ -868,13 +886,13 @@ def wait_splash(s):
 def enter_reader(s):
     go_shelf(s)
     s.tap(*random.choice(SHELF_BOOKS))
-    time.sleep(1.5)
+    time.sleep(0.8)
     handle_ad(s, watch_reward=watch_ads_global)
 
 def read_pages(s, count):
     for i in range(count):
         s.swipe_left()
-        time.sleep(random.uniform(0.3, 0.6))
+        time.sleep(random.uniform(0.15, 0.3))
         stats["pages_read"] += 1
         stats["actions"] += 1
         if (i + 1) % 5 == 0:
@@ -1669,7 +1687,7 @@ def action_search_precision(s):
         time.sleep(0.5)
     tf = s(type="TextField")
     if tf.exists:
-        tf.set_text(random.choice(["斗破苍穹", "完美世界", "遮天", "凡人修仙传"]))
+        tf.set_text(random.choice(SEARCH_KEYWORDS))
         time.sleep(0.5)
         safe_tap(s, name="Search", type="Button", timeout=3)
         stats["books_searched"] += 1
@@ -1819,6 +1837,482 @@ def action_download_center_ops(s):
         go_back(s)
     stats["actions"] += 1
 
+# ═══════════════════════════════════════════════════════
+# L. 压力/竞态场景
+# ═══════════════════════════════════════════════════════
+
+def action_rapid_tab_switch(s):
+    """连续快速切换 Tab × 30-50 次"""
+    tabs = [
+        lambda: go_shelf(s),
+        lambda: go_store(s),
+        lambda: go_my(s),
+    ]
+    n = random.randint(30, 50)
+    for _ in range(n):
+        random.choice(tabs)()
+        time.sleep(random.uniform(0.05, 0.2))
+    time.sleep(1)
+    stats["actions"] += n
+
+def action_multi_book_memory(s):
+    """连续打开 5 本书不关闭，制造内存压力"""
+    go_shelf(s)
+    time.sleep(0.5)
+    for i in range(5):
+        s.tap(random.randint(30, 340), random.randint(120, 500))
+        time.sleep(1.5)
+        read_pages(s, random.randint(5, 15))
+        go_back(s)
+        time.sleep(0.3)
+    stats["actions"] += 5
+
+def action_search_while_reading(s):
+    """阅读中搜索再返回，验证阅读状态"""
+    enter_reader(s)
+    read_pages(s, random.randint(10, 20))
+    show_menu(s)
+    page_before = current_action
+    exit_reader(s)
+    if safe_tap(s, name="magnifyingglass", timeout=2):
+        time.sleep(0.5)
+        tf = s(type="TextField")
+        if tf.exists:
+            tf.set_text(random.choice(SEARCH_KEYWORDS))
+            time.sleep(0.5)
+            safe_tap(s, name="Search", type="Button", timeout=3)
+            time.sleep(2)
+        go_back(s)
+    enter_reader(s)
+    read_pages(s, random.randint(3, 5))
+    exit_reader(s)
+    stats["actions"] += 3
+
+def action_rapid_source_change(s):
+    """连续换源 3 次不等加载"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="更多", timeout=2):
+        time.sleep(0.3)
+        if safe_tap(s, name="arrow.triangle.2.circlepath", timeout=2):
+            time.sleep(1)
+            for _ in range(3):
+                s.tap(W // 2, random.randint(200, 400))
+                time.sleep(0.5)
+                stats["sources_changed"] += 1
+            go_back(s)
+    read_pages(s, random.randint(3, 5))
+    exit_reader(s)
+
+def action_concurrent_download(s):
+    """触发多本书同时下载"""
+    go_shelf(s)
+    for _ in range(3):
+        s.tap(random.randint(30, 340), random.randint(120, 500))
+        time.sleep(1)
+        show_menu(s)
+        if safe_tap(s, name="更多", timeout=1):
+            time.sleep(0.3)
+            if safe_tap(s, name="arrow.down.circle", timeout=1):
+                time.sleep(0.5)
+                safe_tap(s, labelContains="全本", timeout=1)
+                time.sleep(0.5)
+                stats["downloads"] += 1
+        exit_reader(s)
+        time.sleep(0.3)
+    stats["actions"] += 3
+
+def action_tts_rapid_toggle(s):
+    """快速启停 TTS × 15 次"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="speaker.wave.2.fill", timeout=2):
+        time.sleep(1)
+        for _ in range(15):
+            safe_tap(s, name="pause.fill", timeout=1) or safe_tap(s, name="pause", timeout=0.5)
+            time.sleep(0.2)
+            safe_tap(s, name="play.fill", timeout=1) or safe_tap(s, name="play", timeout=0.5)
+            time.sleep(0.2)
+        stats["tts_sessions"] += 1
+        time.sleep(1)
+        s.tap(W // 2, H // 2)
+    exit_reader(s)
+
+
+# ═══════════════════════════════════════════════════════
+# M. 网络/离线场景
+# ═══════════════════════════════════════════════════════
+
+def action_offline_read(s):
+    """模拟离线阅读（进入阅读器后翻大量页看错误处理）"""
+    enter_reader(s)
+    read_pages(s, random.randint(80, 200))
+    if safe_tap(s, labelContains="重试", timeout=1):
+        time.sleep(2)
+    elif safe_tap(s, labelContains="换源", timeout=1):
+        time.sleep(2)
+        stats["sources_changed"] += 1
+    read_pages(s, random.randint(5, 10))
+    exit_reader(s)
+
+def action_search_error_recovery(s):
+    """搜索失败后重试"""
+    go_shelf(s)
+    if safe_tap(s, name="magnifyingglass", timeout=2):
+        time.sleep(0.5)
+        tf = s(type="TextField")
+        if tf.exists:
+            tf.set_text(random.choice(SEARCH_KEYWORDS))
+            time.sleep(0.5)
+            safe_tap(s, name="Search", type="Button", timeout=3)
+            time.sleep(random.uniform(3, 8))
+            if safe_tap(s, labelContains="重试", timeout=2):
+                time.sleep(5)
+            stats["books_searched"] += 1
+        go_back(s)
+    stats["actions"] += 1
+
+def action_store_error_recovery(s):
+    """书城加载失败后刷新"""
+    go_store(s)
+    time.sleep(2)
+    if safe_tap(s, labelContains="重试", timeout=1) or safe_tap(s, labelContains="刷新", timeout=1):
+        time.sleep(3)
+    s.swipe(W // 2, 200, W // 2, 500, duration=0.3)
+    time.sleep(3)
+    stats["actions"] += 1
+
+
+# ═══════════════════════════════════════════════════════
+# N. 数据完整性场景
+# ═══════════════════════════════════════════════════════
+
+def action_progress_persist(s):
+    """阅读 → 强杀 App → 重启 → 验证恢复"""
+    enter_reader(s)
+    read_pages(s, random.randint(30, 60))
+    time.sleep(1)
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/apps/terminate",
+                {"bundleId": BUNDLE_ID}, timeout=10)
+    except Exception:
+        pass
+    time.sleep(3)
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/apps/launch",
+                {"bundleId": BUNDLE_ID, "arguments": ["-autoRewardAds"]}, timeout=15)
+    except Exception:
+        pass
+    time.sleep(5)
+    go_shelf(s)
+    time.sleep(1)
+    enter_reader(s)
+    read_pages(s, random.randint(3, 5))
+    exit_reader(s)
+    stats["actions"] += 3
+
+def action_bookmark_persist(s):
+    """添加书签 → 强杀 → 重启 → 检查书签"""
+    enter_reader(s)
+    read_pages(s, random.randint(10, 30))
+    try:
+        s.tap_hold(W // 2, H // 2, duration=2.0)
+    except Exception:
+        s.tap(W // 2, H // 2)
+        time.sleep(2)
+    time.sleep(1)
+    if safe_tap(s, labelContains="书签", timeout=2):
+        stats["bookmarks"] += 1
+        time.sleep(1)
+    exit_reader(s)
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/apps/terminate",
+                {"bundleId": BUNDLE_ID}, timeout=10)
+    except Exception:
+        pass
+    time.sleep(3)
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/apps/launch",
+                {"bundleId": BUNDLE_ID, "arguments": ["-autoRewardAds"]}, timeout=15)
+    except Exception:
+        pass
+    time.sleep(5)
+    go_shelf(s)
+    stats["actions"] += 2
+
+def action_download_resume(s):
+    """开始下载 → 强杀 → 重启 → 检查下载管理"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="更多", timeout=2):
+        time.sleep(0.3)
+        if safe_tap(s, name="arrow.down.circle", timeout=2):
+            time.sleep(0.5)
+            safe_tap(s, labelContains="50章", timeout=1) or safe_tap(s, labelContains="全本", timeout=1)
+            time.sleep(1)
+            stats["downloads"] += 1
+    exit_reader(s)
+    time.sleep(2)
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/apps/terminate",
+                {"bundleId": BUNDLE_ID}, timeout=10)
+    except Exception:
+        pass
+    time.sleep(3)
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/apps/launch",
+                {"bundleId": BUNDLE_ID, "arguments": ["-autoRewardAds"]}, timeout=15)
+    except Exception:
+        pass
+    time.sleep(5)
+    go_my(s)
+    safe_tap(s, name="my.row.download_manage", timeout=2)
+    time.sleep(2)
+    go_back(s)
+    stats["actions"] += 3
+
+
+# ═══════════════════════════════════════════════════════
+# O. UI 边界场景
+# ═══════════════════════════════════════════════════════
+
+GARBAGE_INPUTS = [
+    "💩🔥🎉🐛", "'; DROP TABLE books;--", "<script>alert(1)</script>",
+    "a" * 500, "　" * 100, "\n\n\n", "🇨🇳" * 50,
+    "null", "undefined", "NaN", "true", "false",
+    "\x00\x01\x02", "http://evil.com", "file:///etc/passwd",
+    "斗" * 200, "《》【】「」", "1234567890" * 50,
+]
+
+def action_empty_search(s):
+    """搜索不存在/特殊字符关键词"""
+    go_shelf(s)
+    if safe_tap(s, name="magnifyingglass", timeout=2):
+        time.sleep(0.5)
+        tf = s(type="TextField")
+        if tf.exists:
+            query = random.choice(GARBAGE_INPUTS)
+            tf.set_text(query[:100])
+            time.sleep(0.3)
+            safe_tap(s, name="Search", type="Button", timeout=3)
+            stats["books_searched"] += 1
+            time.sleep(random.uniform(3, 8))
+        go_back(s)
+    stats["actions"] += 1
+
+def action_long_input(s):
+    """搜索框输入超长字符串"""
+    go_shelf(s)
+    if safe_tap(s, name="magnifyingglass", timeout=2):
+        time.sleep(0.5)
+        tf = s(type="TextField")
+        if tf.exists:
+            long_str = random.choice(["修仙", "都市", "玄幻"]) * random.randint(100, 300)
+            tf.set_text(long_str[:500])
+            time.sleep(0.5)
+            safe_tap(s, name="Search", type="Button", timeout=3)
+            time.sleep(3)
+        go_back(s)
+    stats["actions"] += 1
+
+def action_font_size_extreme(s):
+    """字号调到极端值"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="设置", timeout=2) or safe_tap(s, name="textformat.size", timeout=2):
+        time.sleep(1)
+        for _ in range(random.randint(15, 25)):
+            if random.random() > 0.5:
+                safe_tap(s, name="plus", timeout=0.3) or safe_tap(s, name="textformat.size.larger", timeout=0.3)
+            else:
+                safe_tap(s, name="minus", timeout=0.3) or safe_tap(s, name="textformat.size.smaller", timeout=0.3)
+            time.sleep(0.1)
+        time.sleep(0.5)
+        safe_tap(s, labelContains="完成", timeout=2)
+    read_pages(s, random.randint(10, 20))
+    exit_reader(s)
+
+def action_toc_scroll_bottom(s):
+    """目录滚到底部"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="目录", timeout=2) or safe_tap(s, name="list.bullet", timeout=2):
+        time.sleep(1.5)
+        for _ in range(random.randint(20, 40)):
+            s.swipe_up()
+            time.sleep(0.15)
+        time.sleep(1)
+        s.tap(W // 2, random.randint(300, 500))
+        time.sleep(2)
+        stats["chapters_jumped"] += 1
+        read_pages(s, random.randint(5, 10))
+    exit_reader(s)
+
+def action_pull_refresh_rapid(s):
+    """连续快速下拉刷新 × 10"""
+    targets = [go_shelf, go_store, go_my]
+    random.choice(targets)(s)
+    time.sleep(0.5)
+    for _ in range(10):
+        s.swipe(W // 2, 180, W // 2, 500, duration=0.15)
+        time.sleep(0.1)
+    time.sleep(2)
+    stats["actions"] += 10
+
+
+# ═══════════════════════════════════════════════════════
+# P. 系统交互场景
+# ═══════════════════════════════════════════════════════
+
+def action_background_long(s):
+    """后台 10-30 秒 → 回前台"""
+    enter_reader(s)
+    read_pages(s, random.randint(5, 15))
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/pressButton", {"name": "home"}, timeout=5)
+    except Exception:
+        pass
+    wait_sec = random.randint(10, 30)
+    time.sleep(wait_sec)
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/apps/activate",
+                {"bundleId": BUNDLE_ID}, timeout=10)
+    except Exception:
+        try:
+            s._http("POST", f"/session/{s.sid}/wda/apps/launch",
+                    {"bundleId": BUNDLE_ID, "arguments": ["-autoRewardAds"]}, timeout=15)
+        except Exception:
+            pass
+    time.sleep(3)
+    read_pages(s, random.randint(3, 5))
+    exit_reader(s)
+    stats["actions"] += 2
+
+def action_background_tts(s):
+    """TTS 播放 → 后台 → 验证继续 → 回前台"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="speaker.wave.2.fill", timeout=2):
+        time.sleep(3)
+        stats["tts_sessions"] += 1
+        try:
+            s._http("POST", f"/session/{s.sid}/wda/pressButton", {"name": "home"}, timeout=5)
+        except Exception:
+            pass
+        time.sleep(random.randint(5, 15))
+        try:
+            s._http("POST", f"/session/{s.sid}/wda/apps/activate",
+                    {"bundleId": BUNDLE_ID}, timeout=10)
+        except Exception:
+            try:
+                s._http("POST", f"/session/{s.sid}/wda/apps/launch",
+                        {"bundleId": BUNDLE_ID, "arguments": ["-autoRewardAds"]}, timeout=15)
+            except Exception:
+                pass
+        time.sleep(2)
+        s.tap(W // 2, H // 2)
+        time.sleep(1)
+    exit_reader(s)
+
+def action_multi_app_switch(s):
+    """切到其他 App 再回来（模拟多任务切换）"""
+    enter_reader(s)
+    read_pages(s, random.randint(5, 10))
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/apps/launch",
+                {"bundleId": "com.apple.mobilesafari"}, timeout=10)
+    except Exception:
+        pass
+    time.sleep(random.randint(3, 8))
+    try:
+        s._http("POST", f"/session/{s.sid}/wda/apps/activate",
+                {"bundleId": BUNDLE_ID}, timeout=10)
+    except Exception:
+        try:
+            s._http("POST", f"/session/{s.sid}/wda/apps/launch",
+                    {"bundleId": BUNDLE_ID, "arguments": ["-autoRewardAds"]}, timeout=15)
+        except Exception:
+            pass
+    time.sleep(3)
+    read_pages(s, random.randint(3, 5))
+    exit_reader(s)
+    stats["actions"] += 2
+
+def action_double_tap_center(s):
+    """阅读中双击页面中心（可能触发缩放/菜单）"""
+    enter_reader(s)
+    read_pages(s, random.randint(5, 10))
+    s.tap(W // 2, H // 2)
+    time.sleep(0.1)
+    s.tap(W // 2, H // 2)
+    time.sleep(1)
+    read_pages(s, random.randint(3, 5))
+    exit_reader(s)
+
+def action_screenshot_share(s):
+    """截图分享面板"""
+    enter_reader(s)
+    read_pages(s, random.randint(5, 15))
+    show_menu(s)
+    if safe_tap(s, name="更多", timeout=2):
+        time.sleep(0.5)
+        if safe_tap(s, name="square.and.arrow.up", timeout=2) or safe_tap(s, labelContains="分享", timeout=2):
+            time.sleep(3)
+            safe_tap(s, labelContains="取消", timeout=3) or safe_tap(s, labelContains="Cancel", timeout=2)
+            time.sleep(1)
+    exit_reader(s)
+    stats["actions"] += 1
+
+
+# ═══════════════════════════════════════════════════════
+# Q. 广告增强场景
+# ═══════════════════════════════════════════════════════
+
+def action_ad_timeout(s):
+    """快速触发广告解锁看超时处理"""
+    enter_reader(s)
+    read_pages(s, random.randint(50, 100))
+    if safe_tap(s, labelContains="看广告", timeout=2):
+        time.sleep(random.randint(3, 10))
+        safe_tap(s, labelContains="跳过", timeout=2) or safe_tap(s, labelContains="关闭", timeout=2)
+        time.sleep(1)
+    read_pages(s, random.randint(3, 5))
+    exit_reader(s)
+    stats["actions"] += 1
+
+def action_ad_rapid_trigger(s):
+    """连续触发广告（解锁→关闭→再触发）"""
+    enter_reader(s)
+    for _ in range(3):
+        read_pages(s, random.randint(30, 60))
+        if safe_tap(s, labelContains="看广告", timeout=1):
+            time.sleep(2)
+            safe_tap(s, labelContains="跳过", timeout=3) or safe_tap(s, labelContains="关闭", timeout=3)
+            time.sleep(1)
+    exit_reader(s)
+    stats["actions"] += 3
+
+def action_ad_during_tts(s):
+    """TTS 播放中遇到广告"""
+    enter_reader(s)
+    show_menu(s)
+    if safe_tap(s, name="speaker.wave.2.fill", timeout=2):
+        time.sleep(2)
+        stats["tts_sessions"] += 1
+        read_pages(s, random.randint(30, 80))
+        if safe_tap(s, labelContains="看广告", timeout=1):
+            time.sleep(3)
+            safe_tap(s, labelContains="跳过", timeout=3) or safe_tap(s, labelContains="关闭", timeout=3)
+            time.sleep(1)
+        s.tap(W // 2, H // 2)
+        time.sleep(1)
+    exit_reader(s)
+
+
+# ═══════════════════════════════════════════════════════
+# K. 设置深层 (原有)
+# ═══════════════════════════════════════════════════════
+
 def action_change_source_deep(s):
     """换源 sheet 深层操作 (过滤/评分/置顶)"""
     enter_reader(s)
@@ -1893,11 +2387,11 @@ def main():
     watch_ads_global = not args.skip_ads
 
     print("╔══════════════════════════════════════════════╗")
-    print("║  万象书屋 — 自适应模拟 v9 (100x + 进化)   ║")
+    print("║  万象书屋 — 自适应模拟 v10 (200x + 进化)  ║")
     print("╚══════════════════════════════════════════════╝")
     print(f"WDA: {args.wda_url}  时长: {args.duration//3600}h")
     ad_mode = "真实观看" if watch_ads_global else "自动跳过"
-    print(f"覆盖: 50+预设 + 自动探索进化  阅读: 0.3-0.6s/页  广告: {ad_mode}")
+    print(f"覆盖: 80+预设 + 自动探索进化  阅读: 0.15-0.3s/页(200x)  广告: {ad_mode}")
     print(f"记忆: {len(memory.elements)}个已知元素 / {MEMORY_FILE}")
 
     try:
@@ -1908,6 +2402,10 @@ def main():
         print(f"✗ WDA: {e}")
         sys.exit(1)
 
+    _detect_screen_size(args.wda_url)
+    _refresh_coords()
+    print(f"屏幕: {W}x{H}")
+
     session = WDASession(args.wda_url, BUNDLE_ID)
     client = session
     print(f"Session: {session.sid[:8]}…")
@@ -1916,7 +2414,7 @@ def main():
     time.sleep(2)
     print("App 启动，开始模拟...\n")
     start_time = time.time()
-    log_event("test_started", duration_planned=args.duration, version="reader-sim-v9-adwatch")
+    log_event("test_started", duration_planned=args.duration, version="reader-sim-v10-full")
 
     # 50+ 场景, 总权重 ~160
     pool_def = [
@@ -1988,6 +2486,37 @@ def main():
         (action_search_content, "search_content", 1),
         (action_shelf_manage, "shelf_manage", 1),
         (action_reading_record, "read_record", 1),
+        # L. 压力/竞态 (5%)
+        (action_rapid_tab_switch, "rapid_tab", 2),
+        (action_multi_book_memory, "multi_book_mem", 2),
+        (action_search_while_reading, "search_in_read", 1),
+        (action_rapid_source_change, "rapid_source", 1),
+        (action_concurrent_download, "conc_download", 1),
+        (action_tts_rapid_toggle, "tts_toggle", 1),
+        # M. 网络/离线 (3%)
+        (action_offline_read, "offline_read", 1),
+        (action_search_error_recovery, "search_err", 1),
+        (action_store_error_recovery, "store_err", 1),
+        # N. 数据完整性 (3%)
+        (action_progress_persist, "prog_persist", 1),
+        (action_bookmark_persist, "bm_persist", 1),
+        (action_download_resume, "dl_resume", 1),
+        # O. UI 边界 (3%)
+        (action_empty_search, "empty_search", 1),
+        (action_long_input, "long_input", 1),
+        (action_font_size_extreme, "font_extreme", 1),
+        (action_toc_scroll_bottom, "toc_bottom", 1),
+        (action_pull_refresh_rapid, "refresh_rapid", 1),
+        # P. 系统交互 (3%)
+        (action_background_long, "bg_long", 1),
+        (action_background_tts, "bg_tts", 1),
+        (action_multi_app_switch, "multi_app", 1),
+        (action_double_tap_center, "dbl_tap", 1),
+        (action_screenshot_share, "screenshot", 1),
+        # Q. 广告增强 (2%)
+        (action_ad_timeout, "ad_timeout", 1),
+        (action_ad_rapid_trigger, "ad_rapid", 1),
+        (action_ad_during_tts, "ad_tts", 1),
     ]
     pool = []
     for fn, name, w in pool_def:

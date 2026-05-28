@@ -73,64 +73,68 @@
       "name": "本章",
       "label": "本章",
       "first_seen": "2026-05-27 05:48:21",
-      "attempts": 2,
-      "successes": 2,
+      "attempts": 3,
+      "successes": 3,
       "failures": 0,
       "safe": true,
       "dangerous": false,
       "results": [
         "ok",
-        "ok"
+        "ok",
+        "navigated"
       ],
-      "last_seen": "2026-05-27 09:30:46"
+      "last_seen": "2026-05-28 08:38:36"
     },
     "ebda604d43d1": {
       "type": "XCUIElementTypeButton",
       "name": "取消",
       "label": "取消",
       "first_seen": "2026-05-27 05:48:25",
-      "attempts": 2,
-      "successes": 2,
+      "attempts": 3,
+      "successes": 3,
       "failures": 0,
       "safe": true,
       "dangerous": false,
       "results": [
         "navigated",
+        "navigated",
         "navigated"
       ],
-      "last_seen": "2026-05-27 09:30:50"
+      "last_seen": "2026-05-28 08:38:26"
     },
     "70110f6f25ae": {
       "type": "XCUIElementTypeImage",
       "name": "magnifyingglass",
       "label": "搜索",
       "first_seen": "2026-05-27 05:48:31",
-      "attempts": 2,
-      "successes": 2,
+      "attempts": 3,
+      "successes": 3,
       "failures": 0,
       "safe": true,
       "dangerous": false,
       "results": [
         "navigated",
+        "ok",
         "ok"
       ],
-      "last_seen": "2026-05-27 13:08:26"
+      "last_seen": "2026-05-28 05:02:13"
     },
     "bec1d089055c": {
       "type": "XCUIElementTypeButton",
       "name": "更多",
       "label": "更多",
       "first_seen": "2026-05-27 06:04:22",
-      "attempts": 2,
-      "successes": 2,
+      "attempts": 3,
+      "successes": 3,
       "failures": 0,
       "safe": true,
       "dangerous": false,
       "results": [
         "navigated",
+        "navigated",
         "navigated"
       ],
-      "last_seen": "2026-05-27 11:08:39"
+      "last_seen": "2026-05-28 05:30:30"
     },
     "121b2c75148b": {
       "type": "XCUIElementTypeButton",
@@ -598,30 +602,33 @@
       "name": "搜索内容",
       "label": "搜索内容",
       "first_seen": "2026-05-27 09:30:40",
-      "attempts": 1,
-      "successes": 1,
+      "attempts": 2,
+      "successes": 2,
       "failures": 0,
-      "safe": false,
+      "safe": true,
       "dangerous": false,
       "results": [
-        "ok"
+        "ok",
+        "navigated"
       ],
-      "last_seen": "2026-05-27 09:30:40"
+      "last_seen": "2026-05-28 08:38:31"
     },
     "b571108a68a2": {
       "type": "XCUIElementTypeButton",
       "name": "magnifyingglass",
       "label": "搜索",
       "first_seen": "2026-05-27 10:05:01",
-      "attempts": 1,
-      "successes": 1,
+      "attempts": 3,
+      "successes": 3,
       "failures": 0,
-      "safe": false,
+      "safe": true,
       "dangerous": false,
       "results": [
+        "navigated",
+        "navigated",
         "navigated"
       ],
-      "last_seen": "2026-05-27 10:05:01"
+      "last_seen": "2026-05-28 08:34:49"
     },
     "d488be77b7f9": {
       "type": "XCUIElementTypeButton",
@@ -673,31 +680,34 @@
       "name": "tab.my",
       "label": "我的",
       "first_seen": "2026-05-27 11:08:31",
-      "attempts": 1,
-      "successes": 1,
+      "attempts": 3,
+      "successes": 3,
       "failures": 0,
-      "safe": false,
+      "safe": true,
       "dangerous": false,
       "results": [
+        "navigated",
+        "navigated",
         "navigated"
       ],
-      "last_seen": "2026-05-27 11:08:31"
+      "last_seen": "2026-05-28 09:52:51"
     },
     "7a38c9fc26fb": {
       "type": "XCUIElementTypeButton",
       "name": "tab.bookshelf",
       "label": "书架",
       "first_seen": "2026-05-27 11:08:47",
-      "attempts": 2,
-      "successes": 2,
+      "attempts": 3,
+      "successes": 3,
       "failures": 0,
       "safe": true,
       "dangerous": false,
       "results": [
         "navigated",
-        "navigated"
+        "navigated",
+        "ok"
       ],
-      "last_seen": "2026-05-27 12:21:11"
+      "last_seen": "2026-05-28 04:57:18"
     },
     "06f2ee9c59c4": {
       "type": "XCUIElementTypeButton",
@@ -749,15 +759,17 @@
       "name": "tab.bookstore",
       "label": "书城",
       "first_seen": "2026-05-27 12:20:52",
-      "attempts": 1,
-      "successes": 1,
+      "attempts": 3,
+      "successes": 3,
       "failures": 0,
-      "safe": false,
+      "safe": true,
       "dangerous": false,
       "results": [
+        "navigated",
+        "navigated",
         "navigated"
       ],
-      "last_seen": "2026-05-27 12:20:52"
+      "last_seen": "2026-05-28 05:30:36"
     },
     "0fb59075deae": {
       "type": "XCUIElementTypeButton",
@@ -839,15 +851,16 @@
       "name": "关闭",
       "label": "关闭",
       "first_seen": "2026-05-27 13:08:38",
-      "attempts": 1,
-      "successes": 1,
+      "attempts": 2,
+      "successes": 2,
       "failures": 0,
-      "safe": false,
+      "safe": true,
       "dangerous": false,
       "results": [
+        "navigated",
         "navigated"
       ],
-      "last_seen": "2026-05-27 13:08:38"
+      "last_seen": "2026-05-28 05:02:18"
     },
     "c3b1799a0cfc": {
       "type": "XCUIElementTypeButton",
@@ -936,15 +949,16 @@
       "name": "定时关闭",
       "label": "定时关闭",
       "first_seen": "2026-05-27 14:01:26",
-      "attempts": 1,
-      "successes": 1,
+      "attempts": 2,
+      "successes": 2,
       "failures": 0,
-      "safe": false,
+      "safe": true,
       "dangerous": false,
       "results": [
+        "navigated",
         "navigated"
       ],
-      "last_seen": "2026-05-27 14:01:26"
+      "last_seen": "2026-05-28 05:13:58"
     },
     "80434a95df8c": {
       "type": "XCUIElementTypeImage",
@@ -1009,15 +1023,705 @@
         "navigated"
       ],
       "last_seen": "2026-05-27 14:44:51"
+    },
+    "42ea7eb85625": {
+      "type": "XCUIElementTypeButton",
+      "name": "hand.thumbsdown",
+      "label": "不喜欢",
+      "first_seen": "2026-05-28 02:13:52",
+      "attempts": 2,
+      "successes": 2,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "ok",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 07:08:05"
+    },
+    "c60b8f4e8aa0": {
+      "type": "XCUIElementTypeButton",
+      "name": "hand.thumbsup",
+      "label": "赞",
+      "first_seen": "2026-05-28 02:13:58",
+      "attempts": 3,
+      "successes": 3,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "navigated",
+        "navigated",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 06:52:14"
+    },
+    "4703f5b32251": {
+      "type": "XCUIElementTypeImage",
+      "name": "change-chapter-source-sheet",
+      "label": "过滤",
+      "first_seen": "2026-05-28 02:14:07",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 02:14:07"
+    },
+    "e1606ac3eb0c": {
+      "type": "XCUIElementTypeButton",
+      "name": "漫画",
+      "label": "漫画",
+      "first_seen": "2026-05-28 03:05:36",
+      "attempts": 2,
+      "successes": 2,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "navigated",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 03:59:03"
+    },
+    "9164a327cc47": {
+      "type": "XCUIElementTypeButton",
+      "name": "校验超时",
+      "label": "校验超时",
+      "first_seen": "2026-05-28 03:05:43",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 03:05:43"
+    },
+    "56a07eb6186d": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "源分组",
+      "label": "源分组",
+      "first_seen": "2026-05-28 03:05:51",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 03:05:51"
+    },
+    "ea3af8d40217": {
+      "type": "XCUIElementTypeButton",
+      "name": "9.28校验",
+      "label": "9.28校验",
+      "first_seen": "2026-05-28 03:24:11",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 03:24:11"
+    },
+    "8f8b41b4cb17": {
+      "type": "XCUIElementTypeButton",
+      "name": "⛎JJ城",
+      "label": "⛎JJ城",
+      "first_seen": "2026-05-28 03:24:19",
+      "attempts": 2,
+      "successes": 2,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "navigated",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 03:58:50"
+    },
+    "83cfcab9a1fe": {
+      "type": "XCUIElementTypeButton",
+      "name": "海淘者",
+      "label": "海淘者",
+      "first_seen": "2026-05-28 03:24:25",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 03:24:25"
+    },
+    "bfe3d677196e": {
+      "type": "XCUIElementTypeButton",
+      "name": "change-chapter-source-sheet",
+      "label": "开头",
+      "first_seen": "2026-05-28 03:52:54",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "ok"
+      ],
+      "last_seen": "2026-05-28 03:52:54"
+    },
+    "e99533194b8d": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "change-chapter-source-sheet",
+      "label": "会说话的肘子",
+      "first_seen": "2026-05-28 03:52:58",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "ok"
+      ],
+      "last_seen": "2026-05-28 03:52:58"
+    },
+    "3f2e7ee4ebe1": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "change-chapter-source-sheet",
+      "label": "当前过滤条件下没有候选, 试试清空筛选",
+      "first_seen": "2026-05-28 03:53:02",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "ok"
+      ],
+      "last_seen": "2026-05-28 03:53:02"
+    },
+    "735f30125466": {
+      "type": "XCUIElementTypeButton",
+      "name": "寿横大佬最新力作",
+      "label": "寿横大佬最新力作",
+      "first_seen": "2026-05-28 03:58:56",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 03:58:56"
+    },
+    "5df4f14fb0fe": {
+      "type": "XCUIElementTypeButton",
+      "name": "xmark.circle.fill",
+      "label": "关闭",
+      "first_seen": "2026-05-28 04:20:07",
+      "attempts": 2,
+      "successes": 2,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "navigated",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 04:45:01"
+    },
+    "93296476aaec": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "加载目录…",
+      "label": "加载目录…",
+      "first_seen": "2026-05-28 04:20:13",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 04:20:13"
+    },
+    "e49d41a906ad": {
+      "type": "XCUIElementTypeImage",
+      "name": "exclamationmark.triangle",
+      "label": "警告",
+      "first_seen": "2026-05-28 04:31:49",
+      "attempts": 3,
+      "successes": 3,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "ok",
+        "ok",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 06:19:25"
+    },
+    "683858348f3b": {
+      "type": "XCUIElementTypeButton",
+      "name": "重试",
+      "label": "重试",
+      "first_seen": "2026-05-28 04:31:51",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 04:31:51"
+    },
+    "43d1b26850d5": {
+      "type": "XCUIElementTypeButton",
+      "name": "换源",
+      "label": "换源",
+      "first_seen": "2026-05-28 04:31:55",
+      "attempts": 2,
+      "successes": 2,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "navigated",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 06:19:17"
+    },
+    "88777266af4e": {
+      "type": "XCUIElementTypeButton",
+      "name": "返回",
+      "label": "返回",
+      "first_seen": "2026-05-28 04:45:07",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 04:45:07"
+    },
+    "ca62ed61c717": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "书架",
+      "label": "书架",
+      "first_seen": "2026-05-28 04:57:13",
+      "attempts": 3,
+      "successes": 3,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "navigated",
+        "ok",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 08:34:59"
+    },
+    "314ff1363809": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "目录(0 章)",
+      "label": "目录(0 章)",
+      "first_seen": "2026-05-28 05:02:15",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "ok"
+      ],
+      "last_seen": "2026-05-28 05:02:15"
+    },
+    "e9b41e7ee0e5": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "1/1 句",
+      "label": "1/1 句",
+      "first_seen": "2026-05-28 05:13:54",
+      "attempts": 2,
+      "successes": 2,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "ok",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 08:26:31"
+    },
+    "7652521bcc97": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "听书",
+      "label": "听书",
+      "first_seen": "2026-05-28 05:14:04",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "ok"
+      ],
+      "last_seen": "2026-05-28 05:14:04"
+    },
+    "e28b6bfbeaf8": {
+      "type": "XCUIElementTypeButton",
+      "name": "全部、1",
+      "label": "全部、1",
+      "first_seen": "2026-05-28 05:30:42",
+      "attempts": 3,
+      "successes": 3,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "navigated",
+        "ok",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 09:12:36"
+    },
+    "8132ca2f0531": {
+      "type": "XCUIElementTypeButton",
+      "name": "rectangle.3.group",
+      "label": "书架布局",
+      "first_seen": "2026-05-28 05:50:31",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 05:50:31"
+    },
+    "8c7bc45f62ef": {
+      "type": "XCUIElementTypeButton",
+      "name": "arrow.clockwise",
+      "label": "更新目录",
+      "first_seen": "2026-05-28 05:50:38",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 05:50:38"
+    },
+    "3ce28729c70d": {
+      "type": "XCUIElementTypeButton",
+      "name": "folder.badge.gearshape",
+      "label": "分组管理",
+      "first_seen": "2026-05-28 05:50:44",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 05:50:44"
+    },
+    "3f9ef225583f": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "找不到此书的源 http://m.qudushu.org,请在搜索/书城重新加入此书",
+      "label": "找不到此书的源 http://m.qudushu.org,请在搜索/书城重新加入此书",
+      "first_seen": "2026-05-28 06:19:34",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 06:19:34"
+    },
+    "0913566f3623": {
+      "type": "XCUIElementTypeButton",
+      "name": "🎃推书君网🎃、青山、101.86万字、10,966ms",
+      "label": "🎃推书君网🎃、青山、101.86万字、10,966ms",
+      "first_seen": "2026-05-28 06:52:23",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 06:52:23"
+    },
+    "14a577594bd3": {
+      "type": "XCUIElementTypeButton",
+      "name": "hand.thumbsup.fill",
+      "label": "赞",
+      "first_seen": "2026-05-28 07:07:49",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 07:07:49"
+    },
+    "406ca7ea7832": {
+      "type": "XCUIElementTypeTextField",
+      "name": "change-source-sheet",
+      "label": "",
+      "first_seen": "2026-05-28 07:07:58",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 07:07:58"
+    },
+    "936236ca568a": {
+      "type": "XCUIElementTypeButton",
+      "name": "change-source-sheet",
+      "label": "结尾",
+      "first_seen": "2026-05-28 07:47:23",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "ok"
+      ],
+      "last_seen": "2026-05-28 07:47:23"
+    },
+    "11b99695da18": {
+      "type": "XCUIElementTypeCell",
+      "name": "！",
+      "label": "！",
+      "first_seen": "2026-05-28 07:47:27",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 07:47:27"
+    },
+    "dc387f5bd4a3": {
+      "type": "XCUIElementTypeKey",
+      "name": "颜文字",
+      "label": "颜文字",
+      "first_seen": "2026-05-28 07:47:34",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 07:47:34"
+    },
+    "0140e45a2e06": {
+      "type": "XCUIElementTypeButton",
+      "name": "slider.horizontal.3",
+      "label": "编辑",
+      "first_seen": "2026-05-28 08:26:23",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 08:26:23"
+    },
+    "bfb250ec747d": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "青山",
+      "label": "青山",
+      "first_seen": "2026-05-28 08:26:39",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 08:26:39"
+    },
+    "4f6676a58842": {
+      "type": "XCUIElementTypeButton",
+      "name": "青山、未读、28m 前",
+      "label": "青山、未读、28m 前",
+      "first_seen": "2026-05-28 08:34:54",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 08:34:54"
+    },
+    "0441c8dc0333": {
+      "type": "XCUIElementTypeButton",
+      "name": "青山、1/507、10m 前",
+      "label": "青山、1/507、10m 前",
+      "first_seen": "2026-05-28 09:12:30",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 09:12:30"
+    },
+    "76fd757a5f9f": {
+      "type": "XCUIElementTypeButton",
+      "name": "应用伪装、切换到伪装界面,保护隐私",
+      "label": "应用伪装、切换到伪装界面,保护隐私",
+      "first_seen": "2026-05-28 09:21:50",
+      "attempts": 2,
+      "successes": 2,
+      "failures": 0,
+      "safe": true,
+      "dangerous": false,
+      "results": [
+        "navigated",
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 09:52:37"
+    },
+    "aaeab08cbbd6": {
+      "type": "XCUIElementTypeButton",
+      "name": "my.row.theme_mode",
+      "label": "主题模式、跟随系统浅色/深色、跟随系统",
+      "first_seen": "2026-05-28 09:21:56",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 09:21:56"
+    },
+    "53218e086d3b": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "v1.0.0 · build 20260528.1",
+      "label": "v1.0.0 · build 20260528.1",
+      "first_seen": "2026-05-28 09:22:03",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 09:22:03"
+    },
+    "a54adfc7993e": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "您好!欢迎您给我们提出使用中遇到的问题或意见!\n请详细描述您遇到的问题:比如 哪本小说无法阅读或者其他问题!\n请勿提交恶意谩骂以及反动词语! 谢谢~",
+      "label": "您好!欢迎您给我们提出使用中遇到的问题或意见!\n请详细描述您遇到的问题:比如 哪本小说无法阅读或者其他问题!\n请勿提交恶意谩骂以及反动词语! 谢谢~",
+      "first_seen": "2026-05-28 09:42:55",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "ok"
+      ],
+      "last_seen": "2026-05-28 09:42:55"
+    },
+    "3456e85fbda3": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "联系方式",
+      "label": "联系方式",
+      "first_seen": "2026-05-28 09:42:57",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "ok"
+      ],
+      "last_seen": "2026-05-28 09:42:57"
+    },
+    "41cd6ca7a1c6": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "(必填)",
+      "label": "(必填)",
+      "first_seen": "2026-05-28 09:42:59",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "ok"
+      ],
+      "last_seen": "2026-05-28 09:42:59"
+    },
+    "b84747ff086a": {
+      "type": "XCUIElementTypeStaticText",
+      "name": "纯净阅读",
+      "label": "纯净阅读",
+      "first_seen": "2026-05-28 09:52:44",
+      "attempts": 1,
+      "successes": 1,
+      "failures": 0,
+      "safe": false,
+      "dangerous": false,
+      "results": [
+        "navigated"
+      ],
+      "last_seen": "2026-05-28 09:52:44"
     }
   },
   "screens": {
     "26c46195": {
-      "last_seen": "2026-05-27 12:03:20",
+      "last_seen": "2026-05-28 10:24:28",
       "element_count": 4
     },
     "b4b79814": {
-      "last_seen": "2026-05-27 09:30:35",
+      "last_seen": "2026-05-28 08:38:23",
       "element_count": 5
     },
     "309428d3": {
@@ -1091,12 +1795,88 @@
     "ede36cd1": {
       "last_seen": "2026-05-27 14:44:41",
       "element_count": 11
+    },
+    "d843e4db": {
+      "last_seen": "2026-05-28 02:13:46",
+      "element_count": 39
+    },
+    "1746e199": {
+      "last_seen": "2026-05-28 03:05:31",
+      "element_count": 13
+    },
+    "8168ad17": {
+      "last_seen": "2026-05-28 03:24:07",
+      "element_count": 13
+    },
+    "c6f5059e": {
+      "last_seen": "2026-05-28 03:52:51",
+      "element_count": 13
+    },
+    "a24d8425": {
+      "last_seen": "2026-05-28 03:58:45",
+      "element_count": 13
+    },
+    "ce5af573": {
+      "last_seen": "2026-05-28 04:20:04",
+      "element_count": 2
+    },
+    "4a4916a0": {
+      "last_seen": "2026-05-28 06:19:11",
+      "element_count": 7
+    },
+    "9cefa6ca": {
+      "last_seen": "2026-05-28 04:44:56",
+      "element_count": 7
+    },
+    "4c13b38a": {
+      "last_seen": "2026-05-28 08:01:28",
+      "element_count": 9
+    },
+    "7e338000": {
+      "last_seen": "2026-05-28 05:02:10",
+      "element_count": 3
+    },
+    "a9bec96d": {
+      "last_seen": "2026-05-28 08:26:18",
+      "element_count": 12
+    },
+    "e5b2a049": {
+      "last_seen": "2026-05-28 05:50:26",
+      "element_count": 5
+    },
+    "49dcce65": {
+      "last_seen": "2026-05-28 06:51:58",
+      "element_count": 38
+    },
+    "eacad555": {
+      "last_seen": "2026-05-28 07:07:43",
+      "element_count": 39
+    },
+    "52f54a9b": {
+      "last_seen": "2026-05-28 07:47:13",
+      "element_count": 44
+    },
+    "9f74810f": {
+      "last_seen": "2026-05-28 08:34:44",
+      "element_count": 9
+    },
+    "ec377f35": {
+      "last_seen": "2026-05-28 09:12:20",
+      "element_count": 9
+    },
+    "b89e483b": {
+      "last_seen": "2026-05-28 09:52:33",
+      "element_count": 14
+    },
+    "f3a1fac2": {
+      "last_seen": "2026-05-28 09:42:52",
+      "element_count": 13
     }
   },
-  "last_updated": "2026-05-27 15:20:02",
+  "last_updated": "2026-05-28 10:26:27",
   "stats": {
-    "total": 65,
-    "safe": 25,
+    "total": 110,
+    "safe": 42,
     "dangerous": 0
   }
 }

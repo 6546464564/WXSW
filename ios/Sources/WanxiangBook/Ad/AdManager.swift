@@ -306,13 +306,19 @@ public final class AdManager: ObservableObject {
 
     // MARK: - 确认弹窗逻辑 (对齐 Android RewardedAdHelper.tryPrompt)
 
+    /// 广告 SDK 是否有可用的 rewarded provider（不含冷却/状态检查）
+    public var hasRewardedAdProvider: Bool {
+        guard consented, enabled, !reviewMode, bootstrapped else { return false }
+        return pickProvider(for: .rewardedReadingUnlock) != nil
+            || CommandLine.arguments.contains("-autoRewardAds")
+    }
+
     /// 是否应该弹出"看广告解锁"确认对话框 (对齐 Android `RewardedAdHelper.tryPrompt` 前置判断)
     /// 调用方频率不限, 不满足节奏/未同意/远端关位 都返回 false
     public func shouldPromptRewarded() -> Bool {
-        guard consented, enabled, !reviewMode, bootstrapped else { return false }
+        guard hasRewardedAdProvider else { return false }
         guard !PurifiedReadingState.shared.isActive else { return false }
         guard PurifiedReadingState.shared.canShowRewardedAdNow() else { return false }
-        guard pickProvider(for: .rewardedReadingUnlock) != nil else { return false }
         return true
     }
 
@@ -322,7 +328,6 @@ public final class AdManager: ObservableObject {
         if CommandLine.arguments.contains("-autoRewardAds") {
             adLog("showRewarded: AUTO-REWARD (test mode)")
             PurifiedReadingState.shared.markRewardedSuccess(unlockMinutes: minutes)
-            PurifiedReadingState.shared.resetAdFailures()
             return true
         }
 
@@ -331,11 +336,7 @@ public final class AdManager: ObservableObject {
         if !bootstrapped { await bootstrap() }
 
         guard let pick = pickProvider(for: .rewardedReadingUnlock) else {
-            adLog("showRewarded: no provider (pickProvider nil) → record failure")
-            let graced = PurifiedReadingState.shared.recordAdFailureAndCheckGrace()
-            if graced {
-                adLog("showRewarded: grace triggered, granting \(PurifiedReadingState.adFailureGraceMinutes) min free")
-            }
+            adLog("showRewarded: no provider (pickProvider nil)")
             return false
         }
         adLog("showRewarded: provider=\(pick.provider.name.rawValue) posId=\(pick.posId)")
@@ -353,12 +354,6 @@ public final class AdManager: ObservableObject {
         )
         if success {
             PurifiedReadingState.shared.markRewardedSuccess(unlockMinutes: minutes)
-            PurifiedReadingState.shared.resetAdFailures()
-        } else {
-            let graced = PurifiedReadingState.shared.recordAdFailureAndCheckGrace()
-            if graced {
-                adLog("showRewarded: grace triggered after failure")
-            }
         }
         return success
     }

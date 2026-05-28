@@ -900,6 +900,11 @@ public struct ReaderView: View {
             showChapterPaywall = false
             return
         }
+        // 没有可用的广告 provider 时跳过所有付费墙和提示
+        guard cfg.hasRewardedAdProvider else {
+            showChapterPaywall = false
+            return
+        }
         let adConfig = cfg.cachedConfig ?? [:]
         guard let chapterUnlock = (adConfig["chapterUnlock"] as? [String: Any]),
               (chapterUnlock["enabled"] as? Bool) == true else {
@@ -907,10 +912,9 @@ public struct ReaderView: View {
             if AdManager.shared.shouldPromptRewarded() { showRewardedPrompt = true }
             return
         }
-        let freeChapters = (chapterUnlock["freeChapters"] as? Int) ?? 3
         let blockOnSkip = (chapterUnlock["blockOnSkip"] as? Bool) ?? true
 
-        guard PurifiedReadingState.shared.shouldRequireUnlock(freeChapters: freeChapters) else {
+        guard PurifiedReadingState.shared.shouldRequireUnlock() else {
             showChapterPaywall = false
             if AdManager.shared.shouldPromptRewarded() { showRewardedPrompt = true }
             return
@@ -931,10 +935,6 @@ public struct ReaderView: View {
         Task {
             let success = await AdManager.shared.showRewardedToUnlock(minutes: unlockMinutes)
             await MainActor.run {
-                // 广告成功 / 宽限期生效 / 广告失败均关闭付费墙
-                // 广告失败时（模拟器/无网络/无广告填充）不卡死 UI：
-                //   失败计数已在 showRewardedToUnlock 内通过 recordAdFailureAndCheckGrace 累计，
-                //   连续 3 次失败后宽限期自动开启；本次放行让用户继续，paywall 下次触发时再拦。
                 showChapterPaywall = false
                 chapterPaywallLoading = false
             }
@@ -1067,8 +1067,6 @@ public struct ReaderView: View {
             let target = crossChapterTargetPageId
             crossChapterTargetPageId = nil
             repaginateCurrent(targetPageId: target)
-            let key = "\(engine.book.bookUrl)|\(newIdx)"
-            PurifiedReadingState.shared.markChapterOpened(uniqueKey: key)
             checkChapterPaywall()
         }
         .onChange(of: engine.loadingChapter) { _ in debouncedRepaginate() }
@@ -1166,9 +1164,6 @@ public struct ReaderView: View {
         if args.contains("--TestChapterPaywall") {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                for i in 0..<5 {
-                    PurifiedReadingState.shared.markChapterOpened(uniqueKey: "test://paywall|\(i)")
-                }
                 checkChapterPaywall()
             }
         }
