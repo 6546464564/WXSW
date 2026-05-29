@@ -134,12 +134,18 @@ function upsertSource(srcJson) {
 
 function bulkUpsert(arr) {
   const tx = db.transaction((items) => {
-    let created = 0, updated = 0;
+    let created = 0, updated = 0, skipped = 0;
+    const errors = [];
     for (const it of items) {
-      const r = upsertSource(it);
-      if (r.action === 'created') created++; else updated++;
+      try {
+        const r = upsertSource(it);
+        if (r.action === 'created') created++; else updated++;
+      } catch (e) {
+        skipped++;
+        errors.push({ url: (it && it.bookSourceUrl) || '(unknown)', error: e.message });
+      }
     }
-    return { created, updated };
+    return { created, updated, skipped, errors: errors.slice(0, 20) };
   });
   return tx(arr);
 }

@@ -1195,6 +1195,14 @@
                 if (r.ok) {
                     closeAdd();
                     loadSources();
+                    const parts = [];
+                    if (r.created) parts.push('新增 ' + r.created + ' 条');
+                    if (r.updated) parts.push('更新 ' + r.updated + ' 条');
+                    if (r.skipped) parts.push('跳过 ' + r.skipped + ' 条(格式无效)');
+                    if (parts.length) alert('导入完成：' + parts.join('，'));
+                    if (r.errors && r.errors.length) {
+                        console.warn('跳过的书源:', r.errors);
+                    }
                 } else {
                     err.textContent = r.msg || '保存失败';
                     err.classList.remove('hidden');

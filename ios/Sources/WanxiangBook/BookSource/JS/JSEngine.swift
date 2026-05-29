@@ -859,6 +859,18 @@ public actor JSEngine {
             ]
         }
         java.setObject(startBrowserAwait, forKeyedSubscript: "startBrowserAwait" as NSString)
+
+        let refreshTocUrl: @convention(block) () -> Void = { }
+        java.setObject(refreshTocUrl, forKeyedSubscript: "refreshTocUrl" as NSString)
+
+        let javaCookieGet: @convention(block) (String) -> String = { url in
+            CookieJarStore.getCookie(url: url)
+        }
+        java.setObject(javaCookieGet, forKeyedSubscript: "getCookie" as NSString)
+
+        let javaLang: @convention(block) () -> String = { "zh" }
+        java.setObject(javaLang, forKeyedSubscript: "lang" as NSString)
+
         let randomUUID: @convention(block) () -> String = {
             UUID().uuidString
         }
@@ -1750,6 +1762,24 @@ public actor JSEngine {
                 }
                 return out;
             };
+            // java.setContent(content) — Legado AnalyzeRule.setContent,
+            // replaces the current source for subsequent rule evaluation.
+            java.setContent = function(content) {
+                if (typeof content === 'string') {
+                    src = content;
+                    if (typeof result !== 'undefined') result = content;
+                }
+            };
+            // java.headerMap — Legado response header map (simple stub).
+            if (!java.headerMap) {
+                java.headerMap = { _m: {}, put: function(k,v){ this._m[k]=v; }, get: function(k){ return this._m[k]||''; } };
+            }
+            // java.url — alias for baseUrl (current page URL).
+            Object.defineProperty(java, 'url', {
+                get: function() { return (typeof baseUrl !== 'undefined') ? baseUrl : ''; },
+                set: function(v) { if (typeof baseUrl !== 'undefined') baseUrl = v; },
+                configurable: true
+            });
         })();
         """)
 
