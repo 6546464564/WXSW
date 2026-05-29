@@ -36,7 +36,6 @@ public struct ReaderView: View {
     @State private var currentPageId: String? = nil
     @State private var dictKeyword: String? = nil
     @State private var browserUrl: URL? = nil
-    @State private var showFinishedView: Bool = false
     @State private var showTtsPlayer: Bool = false
     @State private var showSearchContent: Bool = false
     @State private var showContentEdit: Bool = false
@@ -172,7 +171,7 @@ public struct ReaderView: View {
                 onDown: { Task { @MainActor in
                     autoRead.resetCountdown()
                     if let next = nextPageId() { handlePageJump(to: next) }
-                    else { Task { await engine.nextChapter() } }
+                    else { advanceOrFinish() }
                 } }
             )
         }
@@ -395,13 +394,8 @@ public struct ReaderView: View {
             }
         )) {
             ForEach(pages) { page in
-                ReaderPageView(
+                pageOrFinished(
                     page: page,
-                    config: config,
-                    bookName: engine.book.name,
-                    chapterCount: engine.chapters.count,
-                    chapterAttrString: chapterAttrCache[page.chapterIndex],
-                    onTapMenu: { withAnimation { menuVisible.toggle() } },
                     onTapPrev: {
                         if let id = prevPageId() {
                             currentPageId = id
@@ -415,10 +409,9 @@ public struct ReaderView: View {
                             currentPageId = id
                             handlePageJump(to: id)
                         } else {
-                            Task { await engine.nextChapter() }
+                            advanceOrFinish()
                         }
-                    },
-                    onSelectionAction: { action, text in handleSelection(action: action, text: text) }
+                    }
                 )
                 .tag(page.id)
             }
@@ -437,7 +430,7 @@ public struct ReaderView: View {
                     // 相邻章只缓冲边界页 — 用 TabView 缓冲边界判断, 不能用 page.isLastPage
                     // (预览页 pageIndex=3 但整章有 100 页时 isLastPage=false, 会导致滑不动).
                     if dx < -40, isLastPageInBuffer(dragStartPageId), nextPageId() == nil {
-                        Task { await engine.nextChapter() }
+                        advanceOrFinish()
                     } else if dx > 40, isFirstPageInBuffer(dragStartPageId), prevPageId() == nil {
                         Task { await engine.goToChapter(max(0, engine.currentChapterIndex - 1)) }
                     }
@@ -449,15 +442,9 @@ public struct ReaderView: View {
     private var simulatePager: some View {
         PageCurlContainer(
             pages: pages.map { p in
-                (id: p.id, view: ReaderPageView(
+                (id: p.id, view: AnyView(pageOrFinished(
                     page: p,
-                    config: config,
-                    bookName: engine.book.name,
-                    chapterCount: engine.chapters.count,
-                    chapterAttrString: chapterAttrCache[p.chapterIndex],
-                    onTapMenu: { withAnimation { menuVisible.toggle() } },
                     onTapPrev: {
-                        // 万象书屋: 仿真模式下不加 withAnimation, PVC 自己管理 curl 动画
                         if let id = prevPageId() {
                             currentPageId = id
                             handlePageJump(to: id)
@@ -470,11 +457,10 @@ public struct ReaderView: View {
                             currentPageId = id
                             handlePageJump(to: id)
                         } else {
-                            Task { await engine.nextChapter() }
+                            advanceOrFinish()
                         }
-                    },
-                    onSelectionAction: { action, text in handleSelection(action: action, text: text) }
-                ))
+                    }
+                )))
             },
             currentId: Binding(
                 get: { currentPageId ?? pages.first?.id ?? "" },
@@ -511,12 +497,26 @@ public struct ReaderView: View {
                         }
                 }
                 ForEach(pages) { page in
-                    chapterPageBody(page: page)
-                        .padding(.horizontal, config.paddingHorizontal)
+                    if page.isFinishedPlaceholder {
+                        BookFinishedView(
+                            bookName: engine.book.name,
+                            theme: config.theme,
+                            onGoBookshelf: { dismiss() },
+                            onGoBookStore: { dismiss() },
+                            onChangeSource: { showChangeSource = true },
+                            onWatchAdToContinue: {
+                                Task { _ = await AdManager.shared.showRewardedToUnlock() }
+                            }
+                        )
+                        .frame(height: UIScreen.main.bounds.height * 0.8)
+                    } else {
+                        chapterPageBody(page: page)
+                            .padding(.horizontal, config.paddingHorizontal)
+                    }
                 }
                 // 滚动模式：滚到底部时加载下一章
                 if engine.currentChapterIndex + 1 < engine.chapters.count {
-                    if let last = pages.last {
+                    if let last = pages.last, !last.isFinishedPlaceholder {
                         Color.clear.frame(height: 1)
                             .onAppear {
                                 guard !scrollPagerNextLoading,
@@ -594,7 +594,7 @@ public struct ReaderView: View {
                     }
                     Divider()
                     Button {
-                        autoRead.toggle(onTurn: { Task { await self.engine.nextChapter() } })
+                        autoRead.toggle(onTurn: { self.advanceOrFinish() })
                     } label: {
                         Label(autoRead.isRunning ? "停止自动翻页" : "自动翻页",
                               systemImage: autoRead.isRunning ? "stop.circle" : "play.circle")
@@ -700,12 +700,11 @@ public struct ReaderView: View {
                         styleSheet = true
                     }
                     menuBtn("chevron.right", "下一章") {
-                        Task {
-                            if engine.currentChapterIndex + 1 >= engine.chapters.count {
-                                showFinishedView = true
-                            } else {
-                                await engine.nextChapter()
-                            }
+                        if engine.currentChapterIndex + 1 < engine.chapters.count {
+                            Task { await engine.nextChapter() }
+                        } else if let fp = pages.last, fp.isFinishedPlaceholder {
+                            currentPageId = fp.id
+                            menuVisible = false
                         }
                     }
                 }
@@ -988,38 +987,23 @@ public struct ReaderView: View {
         ZStack {
             config.theme.background.ignoresSafeArea()
 
-            if showFinishedView {
-                BookFinishedView(
-                    bookName: engine.book.name,
-                    onGoBookshelf: { dismiss() },
-                    onGoBookStore: { dismiss() },
-                    onChangeSource: { },
-                    onWatchAdToContinue: {
-                        Task {
-                            _ = await AdManager.shared.showRewardedToUnlock()
-                            showFinishedView = false
+            VStack(spacing: 0) {
+                PurifiedTopBar()
+                contentView(canvasSize: geo.size)
+                    .allowsHitTesting(!styleSheet)
+                    .background(
+                        GeometryReader { contentGeo in
+                            Color.clear
+                                .onAppear {
+                                    contentCanvasSize = contentGeo.size
+                                    debouncedRepaginate()
+                                }
+                                .onChange(of: contentGeo.size) { newSize in
+                                    contentCanvasSize = newSize
+                                    debouncedRepaginate()
+                                }
                         }
-                    }
-                )
-            } else {
-                VStack(spacing: 0) {
-                    PurifiedTopBar()
-                    contentView(canvasSize: geo.size)
-                        .allowsHitTesting(!styleSheet)
-                        .background(
-                            GeometryReader { contentGeo in
-                                Color.clear
-                                    .onAppear {
-                                        contentCanvasSize = contentGeo.size
-                                        debouncedRepaginate()
-                                    }
-                                    .onChange(of: contentGeo.size) { newSize in
-                                        contentCanvasSize = newSize
-                                        debouncedRepaginate()
-                                    }
-                            }
-                        )
-                }
+                    )
             }
 
             if menuVisible {
@@ -1246,9 +1230,25 @@ public struct ReaderView: View {
         let posSnapshot = preciseCharPos
         let hasRestored = hasRestoredPagePosition
 
+        let isLastChapter = idx + 1 >= engine.chapters.count
         let apply: (RepaginateWorkResult) -> Void = { work in
             self.chapterAttrCache = work.attrCache
-            self.pages = work.combined
+            var combined = work.combined
+            if isLastChapter, let last = work.currPages.last {
+                var finishedPage = ReaderPage(
+                    id: "\(last.chapterIndex)-\(last.totalPages)",
+                    chapterIndex: last.chapterIndex,
+                    pageIndex: last.totalPages,
+                    totalPages: last.totalPages + 1,
+                    text: "", chapterTitle: last.chapterTitle,
+                    charOffset: last.charOffset + last.charLength,
+                    charLength: 0, canvasSize: last.canvasSize,
+                    ctWasteH: 0, ctLineCount: 0, startsNewParagraph: false
+                )
+                finishedPage.isFinishedPlaceholder = true
+                combined.append(finishedPage)
+            }
+            self.pages = combined
             self.applyRepaginatePageSelection(
                 work: work,
                 idx: idx,
@@ -1413,6 +1413,46 @@ public struct ReaderView: View {
                 chapterIndex: chapterIndex,
                 chapterTitle: nil,
                 chapterPos: chapterPos
+            )
+        }
+    }
+
+    /// 翻页到最后一页后继续前进：读完页已内嵌为末页，此处仅处理非末章的下一章切换
+    private func advanceOrFinish() {
+        if engine.currentChapterIndex + 1 < engine.chapters.count {
+            Task { await engine.nextChapter() }
+        }
+    }
+
+    /// 内嵌读完页：当 page 是 finishedPlaceholder 时渲染 BookFinishedView，否则渲染正常页
+    @ViewBuilder
+    private func pageOrFinished(
+        page: ReaderPage,
+        onTapPrev: @escaping () -> Void,
+        onTapNext: @escaping () -> Void
+    ) -> some View {
+        if page.isFinishedPlaceholder {
+            BookFinishedView(
+                bookName: engine.book.name,
+                theme: config.theme,
+                onGoBookshelf: { dismiss() },
+                onGoBookStore: { dismiss() },
+                onChangeSource: { showChangeSource = true },
+                onWatchAdToContinue: {
+                    Task { _ = await AdManager.shared.showRewardedToUnlock() }
+                }
+            )
+        } else {
+            ReaderPageView(
+                page: page,
+                config: config,
+                bookName: engine.book.name,
+                chapterCount: engine.chapters.count,
+                chapterAttrString: chapterAttrCache[page.chapterIndex],
+                onTapMenu: { withAnimation { menuVisible.toggle() } },
+                onTapPrev: onTapPrev,
+                onTapNext: onTapNext,
+                onSelectionAction: { action, text in handleSelection(action: action, text: text) }
             )
         }
     }

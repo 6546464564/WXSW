@@ -90,56 +90,63 @@ struct ChapterUnlockOverlay: View {
 
 struct BookFinishedView: View {
     let bookName: String
+    var theme: ReaderThemeKind? = nil
     let onGoBookshelf: () -> Void
     let onGoBookStore: () -> Void
     let onChangeSource: () -> Void
     let onWatchAdToContinue: () -> Void
+
+    private var bg: Color { theme?.background ?? WanxiangColors.background }
+    private var fg: Color { theme?.textColor ?? WanxiangColors.textPrimary }
+    private var fgSec: Color { (theme?.textColor ?? WanxiangColors.textSecondary).opacity(0.6) }
+    private var btnBg: Color { (theme?.textColor ?? WanxiangColors.primary).opacity(0.15) }
 
     var body: some View {
         VStack(spacing: 20) {
             Spacer()
             Image(systemName: "moon.stars.fill")
                 .font(.system(size: 56))
-                .foregroundStyle(WanxiangColors.primary)
+                .foregroundStyle(fg.opacity(0.7))
             Text("作者努力更新中")
                 .font(.title2.weight(.semibold))
+                .foregroundStyle(fg)
             Text("「\(bookName)」最新章节已读完")
                 .font(.subheadline)
-                .foregroundStyle(WanxiangColors.textSecondary)
+                .foregroundStyle(fgSec)
 
             VStack(spacing: 10) {
                 Button(action: onGoBookshelf) {
                     Label("去书架", systemImage: "books.vertical")
                         .frame(maxWidth: 280).padding(.vertical, 10)
-                        .background(WanxiangColors.primary)
-                        .foregroundStyle(.white)
+                        .background(fg.opacity(0.85))
+                        .foregroundStyle(bg)
                         .clipShape(Capsule())
                 }
                 Button(action: onGoBookStore) {
                     Label("去书城", systemImage: "storefront")
                         .frame(maxWidth: 280).padding(.vertical, 10)
-                        .background(WanxiangColors.accent)
-                        .foregroundStyle(.white)
+                        .background(fg.opacity(0.6))
+                        .foregroundStyle(bg)
                         .clipShape(Capsule())
                 }
                 Button(action: onChangeSource) {
                     Label("看看其它源", systemImage: "arrow.triangle.swap")
                         .frame(maxWidth: 280).padding(.vertical, 10)
-                        .background(WanxiangColors.divider)
-                        .foregroundStyle(WanxiangColors.textPrimary)
+                        .background(btnBg)
+                        .foregroundStyle(fg)
                         .clipShape(Capsule())
                 }
                 Button(action: onWatchAdToContinue) {
                     Text("看广告续读 →")
                         .font(.caption)
-                        .foregroundStyle(WanxiangColors.primary)
+                        .foregroundStyle(fgSec)
                 }
                 .padding(.top, 4)
             }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(WanxiangColors.background.ignoresSafeArea())
+        .background(bg.ignoresSafeArea())
     }
 }
 

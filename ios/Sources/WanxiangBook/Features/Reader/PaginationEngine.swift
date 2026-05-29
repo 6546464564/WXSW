@@ -48,6 +48,9 @@ public struct ReaderPage: Identifiable, Hashable, Sendable {
     /// 本页是否从段落边界开始 (非续行), 用于渲染时决定是否加 paragraphSpacingBefore
     public let startsNewParagraph: Bool
 
+    /// 最后一章读完后的占位页（显示"作者努力更新中"）
+    public var isFinishedPlaceholder: Bool = false
+
     public var isFirstPage: Bool { pageIndex == 0 }
     public var isLastPage: Bool { pageIndex == totalPages - 1 }
 
