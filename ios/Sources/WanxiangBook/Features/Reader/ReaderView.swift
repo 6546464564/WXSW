@@ -935,8 +935,10 @@ public struct ReaderView: View {
         Task {
             let success = await AdManager.shared.showRewardedToUnlock(minutes: unlockMinutes)
             await MainActor.run {
-                showChapterPaywall = false
                 chapterPaywallLoading = false
+                if success {
+                    showChapterPaywall = false
+                }
             }
         }
     }

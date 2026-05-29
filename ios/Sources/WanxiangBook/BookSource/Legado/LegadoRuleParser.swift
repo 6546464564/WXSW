@@ -96,6 +96,9 @@ public enum LegadoRuleParser {
             } else if rule.hasPrefix("http") || rule.hasPrefix("/") {
                 // URL 模板
                 mode = .regex
+            } else {
+                // 包含 {{...}} 占位符的混合模板 (例: `{{expr}}/literal/{{expr2}}.html`)
+                mode = .regex
             }
         }
 

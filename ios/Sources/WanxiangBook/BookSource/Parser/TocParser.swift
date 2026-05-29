@@ -33,7 +33,8 @@ public final class TocParser: @unchecked Sendable {
         var seenKeys = Set<String>()
         // 万象书屋: legado nextTocUrl 文档支持「单 URL / URL 数组 / JS 一次返多页」
         // 跟 ContentParser 一致用 queue + visited
-        var queue: [String] = [info.tocUrl ?? info.bookUrl]
+        let tocUrlForQueue = info.tocUrl ?? info.bookUrl
+        var queue: [String] = [tocUrlForQueue]
         var visitedPages = Set<String>()
         var pageCount = 0
 

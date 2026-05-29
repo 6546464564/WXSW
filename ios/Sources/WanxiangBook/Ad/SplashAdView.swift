@@ -111,6 +111,7 @@ struct SplashAdView: View {
     private func finish() {
         guard !jumped else { return }
         jumped = true
+        AdManager.shared.cancelPendingSplash()
         onFinish()
     }
 

@@ -96,11 +96,15 @@ public actor LegadoRuleEngine {
     private var memoryWarningObserver: Any?
 
     public init() {
+        #if canImport(UIKit)
         memoryWarningObserver = NotificationCenter.default.addObserver(
             forName: .wanxiangMemoryWarning, object: nil, queue: nil
         ) { _ in
             Task { await LegadoRuleEngine.shared.resetPutStore() }
         }
+        #else
+        memoryWarningObserver = nil
+        #endif
     }
 
     deinit {
@@ -454,8 +458,15 @@ public actor LegadoRuleEngine {
         // 万象书屋 (2026-05-12): 目录正文等场景 input 经常是 **单个 JSON object 字符串**,
         // 若整串注进 JSCore 仍为 string，`result.serialName` 等为 undefined ⇒ 书名全空 ⇒ 0 章
         // (QQ浏览器柳树 toc). **优先 JSON.parse**, 对齐 Android JSONObject 语义;
-        // 非 JSON (`<html>`、普通句子) 仍走 stringify 字符串, init 规则的 `JSON.parse(result)` 保持可用.
-        scope.result = coerceJsResultValue(from: result)
+        // 非 JSON (`<html>`、普通句子) 仍走 stringify 字符串.
+        // 万象书屋 (2026-05-28 fix): JS 含 `JSON.parse(result)` 时必须保持 result 为 string,
+        // 否则 JSON.parse(object) → toString() → "[object Object]" → SyntaxError.
+        // 书生阅读 ruleBookInfo.init 是典型案例.
+        if script.contains("JSON.parse(result)") {
+            scope.result = stringifyOptional(result)
+        } else {
+            scope.result = coerceJsResultValue(from: result)
+        }
         scope.key = ctx.key
         scope.page = ctx.page
         scope.bookSource = ctx.bookSource
@@ -476,10 +487,8 @@ public actor LegadoRuleEngine {
         } catch {
             if ProcessInfo.processInfo.environment["WX_DEBUG_RULE"] != nil {
                 let errStr = String(describing: error).replacingOccurrences(of: "\n", with: " ")
-                print("[runJS.fail] \(script.prefix(60)) | err=\(errStr)")
-                if ProcessInfo.processInfo.environment["WX_DEBUG_RULE_VERBOSE"] != nil {
-                    print("[runJS.fail.full] (\(script.count) chars):\n\(script)\n---END---")
-                }
+                let scriptOneLine = script.replacingOccurrences(of: "\n", with: "↵").prefix(120)
+                print("[runJS.fail] err=\(errStr) script=\(scriptOneLine)")
             }
             return nil
         }
@@ -550,9 +559,10 @@ public actor LegadoRuleEngine {
     /// 万象书屋: legado `<X,Y>` 模板 — 第 1 页取 X (常为空), 第 2 页起取 Y
     /// 例: `https://x.com/list<,?p={{page}}>` → page1: "https://x.com/list"  page2: "https://x.com/list?p=2"
     /// 限制: X / Y 内不能含 `<` / `>` / `,` 字面量 (跟 Android 一致, 简单非贪婪扫描)
+    /// 安全: 禁止跨行匹配, 避免把 JS 比较运算符 `<` `>` 误判为模板分隔符 (书生阅读 init bug)
     nonisolated private func expandPagePicker(_ s: String, page: Int) -> String {
         guard s.contains("<"), s.contains(">"), s.contains(",") else { return s }
-        guard let regex = try? NSRegularExpression(pattern: #"<([^<>,]*),([^<>]*)>"#) else { return s }
+        guard let regex = try? NSRegularExpression(pattern: #"<([^<>,\n\r]*),([^<>\n\r]*)>"#) else { return s }
         let nsstr = s as NSString
         let matches = regex.matches(in: s, range: NSRange(0..<nsstr.length)).reversed()
         var out = s

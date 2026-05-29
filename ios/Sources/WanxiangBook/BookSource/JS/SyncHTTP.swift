@@ -13,6 +13,7 @@
 //
 
 import Foundation
+import ObjectiveC
 
 public struct SyncHTTPResponse: Sendable {
     public let body: String
@@ -20,15 +21,38 @@ public struct SyncHTTPResponse: Sendable {
     public let headers: [String: String]
 }
 
-/// 万象书屋: 阻止跟随重定向, 让 java.get 能拿 location header
-final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate {
+/// Anti-hijack redirect delegate (mirrors HTTPFetcher.AntiHijackDelegate).
+/// Follows legitimate redirects (domain moves, http→https) but blocks
+/// known anti-crawl traps (google/baidu/bing). Max 6 hops to prevent loops.
+final class SyncHTTPRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    private let blacklistHosts: Set<String> = [
+        "www.google.com", "google.com",
+        "www.baidu.com", "baidu.com",
+        "www.bing.com", "bing.com",
+        "www.yandex.com", "about:blank",
+    ]
+    private static let maxRedirects = 6
+
     func urlSession(_ session: URLSession,
                     task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest,
                     completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)   // nil = 不跟随
+        guard let newURL = request.url, let newHost = newURL.host?.lowercased() else {
+            completionHandler(request)
+            return
+        }
+        if blacklistHosts.contains(newHost) { completionHandler(nil); return }
+        if let scheme = newURL.scheme?.lowercased(), scheme != "http", scheme != "https" {
+            completionHandler(nil); return
+        }
+        let count = (objc_getAssociatedObject(task, &Self.redirectCountKey) as? Int) ?? 0
+        if count + 1 >= Self.maxRedirects { completionHandler(nil); return }
+        objc_setAssociatedObject(task, &Self.redirectCountKey, count + 1, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        completionHandler(request)
     }
+
+    private static var redirectCountKey: UInt8 = 0
 }
 
 public enum SyncHTTP {
@@ -48,7 +72,7 @@ public enum SyncHTTP {
         cfg.httpCookieStorage = HTTPCookieStorage.shared
         cfg.httpShouldSetCookies = true
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: cfg, delegate: NoRedirectDelegate(), delegateQueue: nil)
+        return URLSession(configuration: cfg, delegate: SyncHTTPRedirectDelegate(), delegateQueue: nil)
     }()
 
     /// GET 请求 — 始终返回 `SyncHTTPResponse`（对齐 Android `JsExtensions.ajax`：

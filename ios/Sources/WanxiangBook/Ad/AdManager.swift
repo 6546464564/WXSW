@@ -304,6 +304,13 @@ public final class AdManager: ObservableObject {
         return r
     }
 
+    public func cancelPendingSplash() {
+        #if canImport(BUAdSDK)
+        CsjSplashDelegateBridge.shared.forceFinish()
+        CsjFullscreenDelegateBridge.shared.cancelIfPending()
+        #endif
+    }
+
     // MARK: - 确认弹窗逻辑 (对齐 Android RewardedAdHelper.tryPrompt)
 
     /// 广告 SDK 是否有可用的 rewarded provider（不含冷却/状态检查）

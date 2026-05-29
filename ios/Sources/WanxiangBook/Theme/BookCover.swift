@@ -12,6 +12,7 @@ import CommonCrypto
 
 public struct BookCover: View {
     public let url: String?
+    public let fallbackUrl: String?
     public let width: CGFloat
     public let height: CGFloat
     /// 万象书屋 (2026-05-11): 真 URL 加载失败 / 缺失时, 用 bookTitle 渲染彩色占位封面,
@@ -20,8 +21,9 @@ public struct BookCover: View {
     @State private var image: UIImage?
     @State private var isLoading = false
 
-    public init(url: String?, width: CGFloat, height: CGFloat, bookTitle: String? = nil) {
+    public init(url: String?, width: CGFloat, height: CGFloat, bookTitle: String? = nil, fallbackUrl: String? = nil) {
         self.url = url
+        self.fallbackUrl = fallbackUrl
         self.width = width
         self.height = height
         self.bookTitle = bookTitle
@@ -41,7 +43,8 @@ public struct BookCover: View {
         }
         .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .task(id: normalizedURLKey) {
+        .task(id: coverTaskKey) {
+            guard image == nil else { return }
             await load()
         }
     }
@@ -98,63 +101,76 @@ public struct BookCover: View {
         url?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    /// 同时包含 primary + fallback 的 key, 保证 fallback 异步到达后触发重试
+    private var coverTaskKey: String {
+        normalizedURLKey + "|" + (fallbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+    }
+
     @MainActor
     private func load() async {
         image = nil
-        guard let request = Self.makeImageRequest(from: normalizedURLKey) else {
-            isLoading = false
-            return
+
+        var urls = [normalizedURLKey, fallbackUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""]
+            .filter { !$0.isEmpty }
+        guard !urls.isEmpty else { isLoading = false; return }
+
+        for (idx, rawUrl) in urls.enumerated() {
+            if let ui = await tryLoadImage(rawUrl: rawUrl, showSpinner: idx == 0) {
+                image = ui; isLoading = false; return
+            }
         }
-        let cacheKey = request.url?.absoluteString ?? normalizedURLKey
-        // 1. 内存缓存 — 命中走快速路径不限并发, 避免 24 个 cell 进 limiter 排队
-        if let cached = BookCoverImageCache.shared.image(for: cacheKey) {
-            image = cached
-            isLoading = false
-            return
+
+        // 全部失败 → 自动按书名搜起点封面
+        if let title = bookTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            if let qidian = await QidianBook.lookupQidianCover(name: title), !qidian.isEmpty {
+                if let ui = await tryLoadImage(rawUrl: qidian, showSpinner: false) {
+                    image = ui; isLoading = false
+                    Task.detached(priority: .background) {
+                        try? await BookshelfRepository.shared.updateCoverByName(title, coverUrl: qidian)
+                    }
+                    return
+                }
+            }
         }
-        // 万象书屋 (2026-05-25): 全局 limiter 限并发, 防 BookStoreView 进入瞬间 24 个 BookCover
-        // 同时启动 @MainActor task 导致 main actor 持续被唤醒, XCTest waitForIdle 15s 超时.
-        // SE 真机 Monkey 测试 4/4 卡死前都是 "📚 流程: 书城" — 进店瞬间高密度 view tree + 24 个
-        // load task 并发让 XCUI watchdog 等不到 idle.
+        image = nil
+        isLoading = false
+    }
+
+    @MainActor
+    private func tryLoadImage(rawUrl: String, showSpinner: Bool) async -> UIImage? {
+        guard let request = Self.makeImageRequest(from: rawUrl) else { return nil }
+        let cacheKey = request.url?.absoluteString ?? rawUrl
+
+        if let cached = BookCoverImageCache.shared.image(for: cacheKey) { return cached }
+
         await BookCoverLoadLimiter.shared.acquire()
         defer { Task { await BookCoverLoadLimiter.shared.release() } }
 
-        // 2. 磁盘缓存 (跟 Android Glide setDiskCache 1GB 行为对齐)
         if let disk = await BookCoverDiskCache.shared.load(key: cacheKey) {
             BookCoverImageCache.shared.set(disk, for: cacheKey)
-            image = disk
-            isLoading = false
-            return
+            return disk
         }
-        isLoading = true
+
+        if showSpinner { isLoading = true }
         do {
             let (data, resp) = try await BookCoverImageSession.shared.data(for: request)
             if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                isLoading = false
-                return
+                return nil
             }
-            // 3. 下采样到 cell 实际显示尺寸 (跟 Glide 自动 thumbnail 行为对齐)
-            //    1MB 原图 → 50×70 缩略, 内存占用从几 MB → 几十 KB,
-            //    decode 也快得多 (preparingThumbnail 用 ImageIO 单独 thumbnail pipeline).
-            let target = CGSize(width: width * 2, height: height * 2)   // @2x retina
+            let target = CGSize(width: width * 2, height: height * 2)
             let decoded: UIImage? = await Task.detached(priority: .userInitiated) {
                 guard let raw = UIImage(data: data) else { return nil }
                 return await raw.byPreparingThumbnail(ofSize: target) ?? raw
             }.value
-            guard let ui = decoded else {
-                isLoading = false
-                return
-            }
+            guard let ui = decoded else { return nil }
             BookCoverImageCache.shared.set(ui, for: cacheKey)
-            // 异步写磁盘 (不阻塞 UI)
             Task.detached(priority: .background) {
                 await BookCoverDiskCache.shared.save(ui, key: cacheKey)
             }
-            image = ui
+            return ui
         } catch {
-            image = nil
+            return nil
         }
-        isLoading = false
     }
 
     /// Legado 图片 URL 可写成 `https://img/x.jpg,{"headers":{"Referer":"..."}}`.

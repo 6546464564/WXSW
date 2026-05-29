@@ -120,10 +120,10 @@ enum LegadoHTMLParse {
     private static let workPermitTimeoutSec: Double = 8.0
 
     static func withWorkPermit<T: Sendable>(_ body: @Sendable () throws -> T) async rethrows -> T {
-        // #region agent log
+        #if canImport(UIKit)
         DebugActivityTracker.shared.begin("cssparse")
         defer { DebugActivityTracker.shared.end("cssparse") }
-        // #endregion
+        #endif
         await workPermit.wait()
         defer { workPermit.signal() }
         return try body()
@@ -165,12 +165,13 @@ enum LegadoHTMLParse {
     }
 
     private static func hasEnoughMemoryForParse() -> Bool {
+        #if canImport(UIKit)
         if #available(iOS 13.0, *) {
             let avail = UInt64(os_proc_available_memory())
-            // 0 表示不可用, 此时不拒绝
             if avail == 0 { return true }
             return avail >= minAvailableBytesForParse
         }
+        #endif
         return true
     }
 

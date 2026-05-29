@@ -236,96 +236,43 @@ public final class SourceHealthChecker: ObservableObject {
         }
     }
 
-    // MARK: - 功能二: 加书时自动选最优源
-
-    /// 把书加入书架后调用：并发搜索所有源，选分数最高的更新书架记录.
-    /// - Parameters:
-    ///   - book: 刚加入书架的 ShelfBook
-    ///   - keyword: 搜索关键词（通常用书名）
-    ///
-    /// 万象书屋: 找到可信结果（≥3 个源返回）或 8s 后超时，取 SourcePerformanceTracker score 最高的.
     public func autoSelectBestSource(for book: ShelfBook, keyword: String) {
-        Task.detached(priority: .utility) {
-            await self._autoSelect(book: book, keyword: keyword)
-        }
-    }
-
-    private func _autoSelect(book: ShelfBook, keyword: String) async {
-        let sources = await BookSourceRegistry.shared.sources
-        let enabled = sources.filter { $0.enabled == true }
-        guard !enabled.isEmpty else { return }
-
-        // 候选集合：所有找到这本书的 SearchBook
-        actor CandidateStore {
-            var candidates: [SearchBook] = []
-            func add(_ items: [SearchBook]) { candidates.append(contentsOf: items) }
-            func getAll() -> [SearchBook] { candidates }
-        }
-        let store = CandidateStore()
-
-        // 最多等 10 秒，并发不超过 9
-        let stream = BookSourceEngine.shared.searchAll(
-            in: enabled,
-            key: keyword,
-            maxConcurrency: 9,
-            perSourceTimeoutSec: 10
-        )
-
-        var found = 0
-        for await (source, result) in stream {
-            if case .success(let books) = result {
-                // 过滤：书名和作者都匹配
-                let matched = books.filter { sb in
-                    sb.name.lowercased() == book.name.lowercased() ||
-                    (sb.author.lowercased() == book.author.lowercased() && !book.author.isEmpty)
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let sources = await MainActor.run { BookSourceRegistry.shared.sources.filter { $0.enabled } }
+            guard !sources.isEmpty else { return }
+            let engine = BookSourceEngine.shared
+            let stream = await engine.searchAll(in: sources, key: keyword, maxConcurrency: 9, perSourceTimeoutSec: 10)
+            var bestScore: Double = -1
+            var bestBook: SearchBook?
+            var checked = 0
+            for await (_, result) in stream {
+                if case .success(let books) = result {
+                    let matched = books.filter { sb in
+                        sb.name.lowercased() == book.name.lowercased() ||
+                        (!book.author.isEmpty && sb.author.lowercased() == book.author.lowercased())
+                    }
+                    for sb in matched {
+                        let score = SourcePerformanceTracker.shared.stats(for: sb.origin)?.score ?? 50
+                        if score > bestScore { bestScore = score; bestBook = sb }
+                    }
+                    if !matched.isEmpty { checked += 1 }
+                    if checked >= 3 { break }
                 }
-                if !matched.isEmpty {
-                    await store.add(matched)
-                    found += 1
-                    // 找到 3 个源就够了
-                    if found >= 3 { break }
+            }
+            guard let best = bestBook, best.origin != book.origin else { return }
+            let updated = ShelfBook(
+                bookUrl: best.bookUrl, name: best.name, author: best.author,
+                origin: best.origin, originName: best.originName,
+                coverUrl: best.coverUrl ?? book.coverUrl, intro: best.intro ?? book.intro,
+                kind: book.kind, tocUrl: best.bookUrl
+            )
+            do {
+                try await BookshelfRepository.shared.add(updated)
+                if updated.bookUrl != book.bookUrl {
+                    try await BookshelfRepository.shared.remove(bookUrl: book.bookUrl)
                 }
-                // 顺便记录性能数据
-                _ = source  // already recorded inside BookSourceEngine
-            }
-        }
-
-        let candidates = await store.getAll()
-        guard !candidates.isEmpty else { return }
-
-        // 按 SourcePerformanceTracker 分数选最优
-        let tracker = SourcePerformanceTracker.shared
-        let best = candidates.max { a, b in
-            let sa = tracker.stats(for: a.origin)?.score ?? 50
-            let sb = tracker.stats(for: b.origin)?.score ?? 50
-            return sa < sb
-        }
-
-        guard let best else { return }
-        guard best.origin != book.origin else { return }  // 已经是最好的
-
-        // 构造新的 ShelfBook，切换到最优源
-        let updated = ShelfBook(
-            bookUrl: best.bookUrl,
-            name: best.name,
-            author: best.author,
-            origin: best.origin,
-            originName: best.originName,
-            coverUrl: best.coverUrl ?? book.coverUrl,
-            intro: best.intro ?? book.intro,
-            kind: book.kind,
-            tocUrl: best.bookUrl  // SearchBook 没有 tocUrl 字段，先用 bookUrl 代替
-        )
-
-        // 先加新书（upsert），再删旧书
-        do {
-            try await BookshelfRepository.shared.add(updated)
-            // 仅当 URL 不同时才删旧记录
-            if updated.bookUrl != book.bookUrl {
-                try await BookshelfRepository.shared.remove(bookUrl: book.bookUrl)
-            }
-        } catch {
-            // 静默失败：不影响用户体验，保留原来的源
+            } catch {}
         }
     }
 }

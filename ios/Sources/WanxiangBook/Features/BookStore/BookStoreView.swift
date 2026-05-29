@@ -958,6 +958,53 @@ final class BookStoreViewModel: ObservableObject {
         self.lastAppliedChannel = channel
         let types = [mustReadType, completeType, recommendType]
         Task { await ensureExtendedRanks(for: types, channel: channel) }
+        Self.preResolveBookstoreBooks(allBooks)
+    }
+
+    /// 后台预搜索书城书籍, 结果缓存到 SearchVariantsCache,
+    /// 用户点进详情页时 resolveSourceIfNeeded 能秒命中.
+    private static var preResolveTask: Task<Void, Never>?
+
+    static func preResolveBookstoreBooks(_ books: [QidianBook]) {
+        preResolveTask?.cancel()
+        preResolveTask = Task.detached(priority: .utility) {
+            await BookSourceRegistry.shared.waitUntilEnabledSourcesNonEmpty(timeout: 8)
+            let sources = await BookSourceRegistry.shared.enabledSources
+            guard !sources.isEmpty else { return }
+
+            var seen = Set<String>()
+            var stubs: [SearchBook] = []
+            for b in books.prefix(20) {
+                let stub = b.toSearchStub()
+                guard seen.insert(stub.dedupeKey).inserted else { continue }
+                guard SearchVariantsCache.shared.get(key: stub.dedupeKey).isEmpty else { continue }
+                stubs.append(stub)
+            }
+            guard !stubs.isEmpty else { return }
+
+            let cap = min(sources.count, 3)
+            await withTaskGroup(of: Void.self) { group in
+                var inflight = 0
+                for stub in stubs {
+                    if Task.isCancelled { return }
+                    while inflight >= 4 { _ = await group.next(); inflight -= 1 }
+                    inflight += 1
+                    group.addTask {
+                        for src in sources.prefix(cap) {
+                            guard !Task.isCancelled else { return }
+                            guard let results = try? await BookSourceEngine.shared.search(in: src, key: stub.name) else { continue }
+                            let author = stub.author.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if let match = results.first(where: {
+                                $0.name == stub.name && (author.isEmpty || $0.author == author)
+                            }) {
+                                SearchVariantsCache.shared.set(key: stub.dedupeKey, variants: [match])
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// 万象书屋 D-22: 把 9 (or 4) 榜单的所有书去重合并成一个池, 给"换一批"用.

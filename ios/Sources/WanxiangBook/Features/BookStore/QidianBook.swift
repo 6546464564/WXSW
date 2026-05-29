@@ -203,4 +203,119 @@ extension QidianBook {
         }
         return nil
     }
+
+    private static let qidianCoverTemplate = "https://bookcover.yuewen.com/qdbimg/349573/%@/300"
+
+    /// 查找起点封面 URL: 先查 BookstoreMirror 缓存, 没有则直接搜 m.qidian.com.
+    static func lookupQidianCover(name: String) async -> String? {
+        guard !name.isEmpty else { return nil }
+
+        let cached = await coverLookupCache.get(name)
+        if cached.hit { return cached.url }
+
+        // 1. 快速路径: BookstoreMirror 缓存查找
+        if let payload = await BookstoreMirror.shared.fetch() {
+            if let url = mirrorLookup(name: name, payload: payload) {
+                await coverLookupCache.set(name, url: url)
+                return url
+            }
+        }
+
+        // 2. 慢路径: 搜索 m.qidian.com SSR
+        let result = await searchQidianCover(name: name)
+        await coverLookupCache.set(name, url: result)
+        return result
+    }
+
+    private static let coverLookupCache = QidianCoverLookupCache()
+
+    private static func mirrorLookup(name: String, payload: [String: Any]) -> String? {
+        func searchInRanks(_ obj: [String: Any]) -> String? {
+            for (_, value) in obj {
+                guard let arr = value as? [[String: Any]] else { continue }
+                if let url = findBid(name: name, in: arr) { return url }
+            }
+            return nil
+        }
+        for key in ["ranks", "ranksFemale", "ranksPublish"] {
+            if let obj = payload[key] as? [String: Any],
+               let url = searchInRanks(obj) { return url }
+        }
+        if let obj = payload["finish"] as? [String: Any],
+           let url = searchInRanks(obj) { return url }
+        for key in ["yuepiaoTop50", "yuepiaoTop50Female", "yuepiaoTop50Publish"] {
+            if let arr = payload[key] as? [[String: Any]],
+               let url = findBid(name: name, in: arr) { return url }
+        }
+        return nil
+    }
+
+    private static func findBid(name: String, in arr: [[String: Any]]) -> String? {
+        for item in arr {
+            let n = (item["name"] as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard n == name else { continue }
+            if let bid = item["bid"] as? String, !bid.isEmpty {
+                return String(format: qidianCoverTemplate, bid)
+            }
+            if let bid = item["bid"] as? Int {
+                return String(format: qidianCoverTemplate, "\(bid)")
+            }
+            if let cover = item["coverUrl"] as? String, !cover.isEmpty {
+                return cover
+            }
+        }
+        return nil
+    }
+
+    /// 搜索 m.qidian.com SSR 页面获取 bookId, 拼接封面 URL.
+    private static func searchQidianCover(name: String) async -> String? {
+        guard let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "https://m.qidian.com/soushu/\(encoded)") else { return nil }
+        var req = URLRequest(url: url, timeoutInterval: 6)
+        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode),
+              let html = String(data: data, encoding: .utf8) else { return nil }
+
+        // SSR: <script type="application/json">{"pageContext":{...}}</script>
+        guard let range = html.range(of: "\"bid\":"),
+              let numStart = html[range.upperBound...].firstIndex(where: { $0.isNumber }) else { return nil }
+        var numEnd = numStart
+        while numEnd < html.endIndex && html[numEnd].isNumber { numEnd = html.index(after: numEnd) }
+        let bid = String(html[numStart..<numEnd])
+        guard !bid.isEmpty else { return nil }
+        return String(format: qidianCoverTemplate, bid)
+    }
+}
+
+/// 起点封面 URL 查询缓存 (内存 + UserDefaults 持久化)
+private actor QidianCoverLookupCache {
+    private var store: [String: String]
+    private var misses: Set<String> = []
+    private static let udKey = "wx_qidianCoverCache"
+
+    init() {
+        store = UserDefaults.standard.dictionary(forKey: Self.udKey) as? [String: String] ?? [:]
+    }
+
+    func get(_ name: String) -> (hit: Bool, url: String?) {
+        if let url = store[name] { return (true, url) }
+        if misses.contains(name) { return (true, nil) }
+        return (false, nil)
+    }
+
+    func set(_ name: String, url: String?) {
+        if let url = url {
+            store[name] = url
+            misses.remove(name)
+            if store.count > 500 {
+                let drop = store.count - 400
+                store = Dictionary(uniqueKeysWithValues: Array(store.dropFirst(drop)))
+            }
+            UserDefaults.standard.set(store, forKey: Self.udKey)
+        } else {
+            misses.insert(name)
+        }
+    }
 }

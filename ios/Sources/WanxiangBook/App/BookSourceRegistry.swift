@@ -113,9 +113,76 @@ public final class BookSourceRegistry: ObservableObject {
             self.isLoaded = true
             self.lastSourcesEtag = result.etag
             print("[BookSourceRegistry] in-memory loaded \(remote.count) sources from backend (etag=\(result.etag ?? "n/a"))")
+
+            // 自诊断 (调试完成后已移除常驻调用)
         } catch {
             // 网络/超时/401/任何 throw → 不动内存, 让用户继续用现有源
             print("[BookSourceRegistry] refresh failed (keeping \(sources.count) in-memory): \(error)")
+        }
+    }
+
+    private static func selfDiagnoseSearch(sources: [BookSource]) async {
+        let tag = "[BSR-DIAG]"
+        guard let source = sources.first(where: { $0.searchUrl != nil && !($0.searchUrl?.isEmpty ?? true) }) else {
+            print("\(tag) no searchable source found")
+            return
+        }
+        let keyword = source.ruleSearch?.checkKeyWord ?? "斗破苍穹"
+        print("\(tag) testing search: source=\(source.bookSourceName) keyword=\(keyword)")
+        print("\(tag) searchUrl: \(source.searchUrl ?? "nil")")
+        print("\(tag) bookList: \(String((source.ruleSearch?.bookList ?? "nil").prefix(100)))")
+        print("\(tag) comment: \(source.bookSourceComment?.count ?? 0) chars")
+
+        let js = JSEngine()
+        let dispatcher = SelectorDispatcher(js: js)
+        let fetcher = HTTPFetcher.shared
+
+        // Step 1: render URL
+        let rendered = await URLTemplate.renderAsync(
+            source.searchUrl ?? "", bookSource: source, jsEngine: js,
+            baseURL: source.bookSourceUrl, key: keyword, page: 1)
+        print("\(tag) rendered URL: \(rendered.url)")
+        print("\(tag) method: \(rendered.method)")
+
+        // Step 2: fetch
+        do {
+            let baseHeaders = await source.resolvedHeaders(js: js)
+            let resp = try await fetcher.fetch(
+                urlString: rendered.url, method: rendered.method,
+                body: rendered.body,
+                headers: baseHeaders.merging(rendered.headers, uniquingKeysWith: { _, b in b }),
+                sourceKey: source.bookSourceUrl, retries: 1)
+            print("\(tag) HTTP status: \(resp.statusCode) body: \(resp.bodyText.count) chars")
+            print("\(tag) body preview: \(String(resp.bodyText.prefix(200)))")
+
+            // Step 3: selectList with bookList rule
+            let listRule = source.ruleSearch?.bookList ?? ""
+            let scope = JSContextScope()
+            scope.baseUrl = resp.finalURL?.absoluteString ?? rendered.url
+            scope.src = resp.bodyText
+            scope.key = keyword
+            scope.page = 1
+            scope.bookSource = source
+            let nodes = try await dispatcher.selectList(
+                rule: listRule, source: resp.bodyText, baseUrl: scope.baseUrl, jsContext: scope)
+            print("\(tag) nodes: \(nodes.count)")
+            if let first = nodes.first {
+                print("\(tag) first node: \(String(first.prefix(200)))")
+            }
+        } catch {
+            print("\(tag) FAILED at step: \(error)")
+        }
+
+        // Also test via BookSourceEngine.search
+        print("\(tag) testing via BookSourceEngine.search...")
+        do {
+            let results = try await BookSourceEngine.shared.search(in: source, key: keyword)
+            print("\(tag) engine search: \(results.count) results")
+            for b in results.prefix(3) {
+                print("\(tag)   book: \(b.name) by \(b.author) url=\(String(b.bookUrl.prefix(80)))")
+            }
+        } catch {
+            print("\(tag) engine search FAILED: \(error)")
         }
     }
 

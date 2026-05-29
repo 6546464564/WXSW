@@ -107,7 +107,6 @@ public final class SearchParser: @unchecked Sendable {
         }
 
         bodyText = LegadoHTMLParse.clampSource(bodyText)
-
         // 2. 选书列表
         let scope = JSContextScope()
         scope.baseUrl = finalBaseUrl

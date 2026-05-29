@@ -363,6 +363,21 @@ public actor BookshelfRepository {
         NotificationCenter.default.post(name: .wanxiangBookshelfChanged, object: nil)
     }
 
+    /// 按书名回写封面 URL (覆盖现有值 — 调用方已确认旧 URL 加载失败)
+    public func updateCoverByName(_ name: String, coverUrl: String) async throws {
+        try await DB.shared.openIfNeeded()
+        try await DB.shared.execQuery { handle in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(handle, """
+                UPDATE books SET coverUrl = ? WHERE name = ?
+            """, -1, &stmt, nil) == SQLITE_OK else { return }
+            sqlite3_bind_text(stmt, 1, coverUrl, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT)
+            _ = sqlite3_step(stmt)
+        }
+    }
+
     // MARK: - Helpers
 
     private nonisolated func readRow(_ stmt: OpaquePointer?) -> ShelfBook? {

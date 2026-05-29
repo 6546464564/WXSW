@@ -42,6 +42,8 @@ struct BookDetailView: View {
     @State private var isResolvingSource = false
     /// 万象书屋 (UX 2026-05-11): stub 模式找源失败 (60 源 + 双关键词全 miss) → 显示失败兜底.
     @State private var resolveFailed = false
+    /// 起点封面 fallback URL (从 BookstoreMirror 按书名查找)
+    @State private var qidianFallbackCover: String?
 
     init(book: SearchBook, source: BookSource?) {
         self.book = book
@@ -52,14 +54,91 @@ struct BookDetailView: View {
 
     /// 万象书屋: SearchBook 字段优先用 fetchInfo 拿到的真实详情, 没拿到时 fallback
     private var displayedIntro: String {
+        Self.cleanedIntro(raw: rawIntro).text
+    }
+
+    private var rawIntro: String {
         let fromInfo = vm.info?.intro?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !fromInfo.isEmpty { return fromInfo }
         return book.intro?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
-    private var displayedKind: String {
+
+    /// 从 intro 中提取嵌入的更新时间 (书生阅读等源把更新时间放在简介里而非独立字段)
+    private var introEmbeddedUpdateTime: String? {
+        Self.cleanedIntro(raw: rawIntro).updateTime
+    }
+
+    private struct CleanedIntro {
+        let text: String
+        let updateTime: String?
+    }
+
+    /// 清理书源 intro 中常见的元数据前缀和尾部路由信息,
+    /// 只保留正文描述, 同时提取嵌入的更新时间.
+    private static func cleanedIntro(raw text: String) -> CleanedIntro {
+        var lines = text.components(separatedBy: .newlines)
+        var extractedTime: String?
+
+        let updateEmojis = ["🔔", "🧑", "🕐", "⏰"]
+        let updatePrefixes = updateEmojis.flatMap { e in
+            ["\(e) 更新：", "\(e)更新：", "\(e) 更新:", "\(e)更新:",
+             "\(e) 更新: ", "\(e)更新: "]
+        }
+        if let idx = lines.firstIndex(where: { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            return updateEmojis.contains(where: { t.hasPrefix($0) })
+                && t.contains("更新")
+        }) {
+            let line = lines[idx].trimmingCharacters(in: .whitespaces)
+            for prefix in updatePrefixes {
+                if line.hasPrefix(prefix) {
+                    extractedTime = String(line.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+                    break
+                }
+            }
+            lines.remove(at: idx)
+        }
+
+        lines.removeAll {
+            let t = $0.trimmingCharacters(in: .whitespaces)
+            return t == "\u{200B}" || t == "\u{FEFF}"
+        }
+
+        let cutEmojis = ["📌", "🔧", "⚙", "💫", "🔮", "❤️"]
+        if let cutIdx = lines.firstIndex(where: {
+            let t = $0.trimmingCharacters(in: .whitespaces)
+            return cutEmojis.contains(where: { t.hasPrefix($0) })
+        }) {
+            lines = Array(lines[..<cutIdx])
+        }
+
+        let introPrefixes = ["📜 简介：", "📜简介：", "📖 简介：", "📖简介：",
+                             "📜 简介:", "📖 简介:",
+                             "📝 简介：", "📝简介：", "📝 简介:", "📝简介:"]
+        lines = lines.map { line in
+            var s = line
+            for prefix in introPrefixes {
+                if s.hasPrefix(prefix) { s = String(s.dropFirst(prefix.count)); break }
+            }
+            return s
+        }
+
+        let joined = lines.joined(separator: "\n")
+            .replacingOccurrences(of: "<br>", with: "")
+            .replacingOccurrences(of: "<br/>", with: "")
+            .replacingOccurrences(of: "<br />", with: "")
+        return CleanedIntro(
+            text: joined.trimmingCharacters(in: .whitespacesAndNewlines),
+            updateTime: extractedTime
+        )
+    }
+    private var displayedKindTags: [String] {
         let fromInfo = vm.info?.kind?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !fromInfo.isEmpty { return fromInfo }
-        return book.kind ?? ""
+        let raw = !fromInfo.isEmpty ? fromInfo : (book.kind ?? "")
+        return raw
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
     private var displayedCover: String? {
         if let c = vm.info?.coverUrl, !c.isEmpty { return c }
@@ -71,11 +150,26 @@ struct BookDetailView: View {
     }
     private var displayedUpdateTime: String? {
         if let u = vm.info?.updateTime, !u.isEmpty { return u }
-        return book.updateTime
+        if let u = book.updateTime, !u.isEmpty { return u }
+        return introEmbeddedUpdateTime
     }
     private var displayedWordCount: String? {
-        if let w = vm.info?.wordCount, !w.isEmpty { return w }
-        return book.wordCount
+        let raw: String?
+        if let w = vm.info?.wordCount, !w.isEmpty { raw = w }
+        else { raw = book.wordCount }
+        guard let r = raw, !r.isEmpty else { return nil }
+        return Self.formatWordCount(r)
+    }
+
+    /// 将纯数字字数格式化为可读形式 (e.g. "5769700" → "576.97万字")
+    private static func formatWordCount(_ raw: String) -> String {
+        if raw.contains("万") || raw.contains("字") { return raw }
+        guard let num = Double(raw.trimmingCharacters(in: .whitespaces)), num > 0 else { return raw }
+        if num >= 10000 {
+            let wan = num / 10000
+            return String(format: "%.2f万字", wan)
+        }
+        return "\(Int(num))字"
     }
 
     var body: some View {
@@ -107,18 +201,19 @@ struct BookDetailView: View {
             }
         }
         .task {
-            // 万象书屋 (P0 fix · D-25):
-            //   1) 刷新加架状态 (本来就有)
-            //   2) 异步拉 fetchInfo 补齐 intro/kind/lastChapter/wordCount,
-            //      避免详情页只能展示 SearchBook 的"摘要级"字段.
-            //   3) 拉 toc 拿到章节总数 + 最新章, 给"开始阅读"和书架进度条用.
             await vm.refreshShelfStatus(bookUrl: currentBook.bookUrl)
-            // 万象书屋 (UX): 书城 stub 模式 (source=nil + origin 空) — 先后台找真源,
-            // 找到后用 onSourceSwitched 走完整 loadDetails 路径.
             if currentSource == nil && currentBook.origin.isEmpty {
                 await resolveSourceIfNeeded()
             } else {
                 await vm.loadDetails(book: currentBook, source: currentSource)
+            }
+            // 异步查找起点封面作为 fallback (不阻塞主流程)
+            if qidianFallbackCover == nil {
+                if let qid = QidianBook.extractQidianId(from: currentBook.kind), !qid.isEmpty {
+                    qidianFallbackCover = "https://bookcover.yuewen.com/qdbimg/349573/\(qid)/300"
+                } else {
+                    qidianFallbackCover = await QidianBook.lookupQidianCover(name: currentBook.name)
+                }
             }
             // 万象书屋 (debug arg `--AutoChangeSource`): 进详情页后立即弹换源 sheet,
             // 给外部 GUI 自动化做演示用.
@@ -211,7 +306,8 @@ struct BookDetailView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
-            BookCover(url: displayedCover, width: 100, height: 140, bookTitle: currentBook.name)
+            BookCover(url: displayedCover, width: 100, height: 140, bookTitle: currentBook.name,
+                      fallbackUrl: qidianFallbackCover)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(currentBook.name)
@@ -220,14 +316,11 @@ struct BookDetailView: View {
                 Text(currentBook.author)
                     .font(.subheadline)
                     .foregroundStyle(WanxiangColors.textSecondary)
-                if !displayedKind.isEmpty {
-                    Text(displayedKind)
+                if !displayedKindTags.isEmpty {
+                    Text(displayedKindTags.prefix(4).joined(separator: " · "))
                         .font(.caption)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(WanxiangColors.primary.opacity(0.15))
-                        .foregroundStyle(WanxiangColors.primary)
-                        .clipShape(Capsule())
+                        .foregroundStyle(WanxiangColors.textSecondary)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 4)
                 // 万象书屋 (M2.5.5.1): 来源行做成可点的胶囊, 显示当前源 + 合并源数,

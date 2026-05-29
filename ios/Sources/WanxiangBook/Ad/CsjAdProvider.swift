@@ -98,6 +98,7 @@ public actor CsjAdProvider: AdProvider {
         guard let cont = pendingSplash else { return }
         pendingSplash = nil
         adLog("[CsjSplash] timeout 30s, force resume false")
+        CsjFullscreenDelegateBridge.shared.cancelIfPending()
         cont.resume(returning: false)
     }
 
@@ -162,12 +163,20 @@ final class CsjSplashDelegateBridge: NSObject {
     var onResult: ((Bool) -> Void)?
     var posId: String = ""
     private var splashAd: BUSplashAd?
-    private var dispatched = false
+    private(set) var dispatched = false
 
     private func dispatch(_ result: Bool) {
         guard !dispatched else { return }
         dispatched = true
+        CsjFullscreenDelegateBridge.shared.cancelIfPending()
         onResult?(result)
+        onResult = nil
+    }
+
+    func forceFinish() {
+        guard !dispatched else { return }
+        dispatched = true
+        splashAd = nil
         onResult = nil
     }
 
@@ -271,8 +280,21 @@ final class CsjFullscreenDelegateBridge: NSObject, BUNativeExpressFullscreenVide
 
     private var dismissTimer: DispatchWorkItem?
 
+    func cancelIfPending() {
+        dismissTimer?.cancel()
+        dismissTimer = nil
+        adRef = nil
+        onResult = nil
+    }
+
     nonisolated func nativeExpressFullscreenVideoAdDidLoad(_ fullscreenVideoAd: BUNativeExpressFullscreenVideoAd) {
         DispatchQueue.main.async {
+            if CsjSplashDelegateBridge.shared.dispatched {
+                adLog("[CsjFullscreen] splash already dispatched, skip show")
+                self.adRef = nil
+                self.onResult = nil
+                return
+            }
             adLog("[CsjFullscreen] loaded, showing…")
             guard let root = self.topViewController() else {
                 adLog("[CsjFullscreen] no rootVC → false")

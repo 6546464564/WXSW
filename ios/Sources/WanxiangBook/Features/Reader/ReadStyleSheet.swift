@@ -20,8 +20,7 @@ struct ReadStyleSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                // 1. 主题
+            List {
                 Section("主题") {
                     HStack(spacing: 12) {
                         ForEach(ReaderThemeKind.allCases, id: \.rawValue) { t in
@@ -31,7 +30,6 @@ struct ReadStyleSheet: View {
                     .padding(.vertical, 6)
                 }
 
-                // 2. 排版
                 Section("排版") {
                     HStack {
                         Text("字号").frame(width: 36, alignment: .leading)
@@ -44,8 +42,9 @@ struct ReadStyleSheet: View {
                                 .frame(width: 48, height: 34)
                                 .background(Color(.systemGray5))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.plain)
 
                         Text("\(Int(config.textSize))")
                             .font(.system(size: 18, weight: .semibold, design: .monospaced))
@@ -59,8 +58,9 @@ struct ReadStyleSheet: View {
                                 .frame(width: 48, height: 34)
                                 .background(Color(.systemGray5))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.plain)
                     }
 
                     Picker("字体", selection: $config.fontFamily) {
@@ -70,7 +70,6 @@ struct ReadStyleSheet: View {
                     }
                 }
 
-                // 4. 翻页
                 Section("翻页方式") {
                     Picker("", selection: $config.pageAnim) {
                         ForEach(PageAnim.allCases, id: \.rawValue) { p in
@@ -80,6 +79,7 @@ struct ReadStyleSheet: View {
                     .pickerStyle(.segmented)
                 }
             }
+            .listStyle(.insetGrouped)
             .navigationTitle("阅读样式")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -89,6 +89,7 @@ struct ReadStyleSheet: View {
                 }
             }
         }
+        .interactiveDismissDisabled(false)
     }
 
     // MARK: - 子组件
@@ -114,8 +115,9 @@ struct ReadStyleSheet: View {
                     .font(.caption2)
                     .foregroundStyle(WanxiangColors.textSecondary)
             }
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
     }
 
     private func sliderRow<V: BinaryFloatingPoint>(

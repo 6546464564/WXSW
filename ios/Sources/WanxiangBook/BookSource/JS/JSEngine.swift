@@ -88,17 +88,21 @@ public actor JSEngine {
         // 老 prepareScript 用启发式加 return, 对 if/else 块后跟表达式的情况判断不准.
         // 新策略: 把整段当 string 注入, IIFE 里 eval — eval 自动返回最后求值的 expression 值,
         // 跟 Android Rhino + legado 行为一致. (direct eval 在 IIFE 内是 sloppy mode, let/const 隔离)
-        let prepared = prepareScriptForEval(script)
+        // Rhino compat: Java String/Array .length() → JS .length property
+        let rhinoCompat = script.contains(".length()") ? script.replacingOccurrences(of: ".length()", with: ".length") : script
+        let prepared = prepareScriptForEval(rhinoCompat)
         if ProcessInfo.processInfo.environment["WX_DEBUG_JS"] != nil {
             print("[JS.prepared]\n\(prepared)\n[/JS.prepared]")
         }
         // 用 base64 注入避免任何 \ ` ${} 的 escape 灾难
+        // atob 按 W3C 规范返回 Latin-1 binary string, 这里用
+        // decodeURIComponent(escape(...)) 把 Latin-1 字节序列正确还原为 UTF-8,
+        // 否则脚本中的中文/emoji 字符串字面量会乱码.
         let b64 = Data(prepared.utf8).base64EncodedString()
         let wrapped = """
         (function() {
             try {
-                var __wx_src = atob("\(b64)");
-                // direct eval — let/const 局限在内, 自动返回最后 expression 值
+                var __wx_src = decodeURIComponent(escape(atob("\(b64)")));
                 return eval(__wx_src);
             } catch (e) {
                 if (typeof e === 'object' && e && e.message) return '__WX_JS_ERR__:' + e.message;
@@ -436,7 +440,26 @@ public actor JSEngine {
         ctx.setObject(resultRaw, forKeyedSubscript: "result" as NSString)
         ctx.setObject(scope.baseUrl ?? "", forKeyedSubscript: "baseUrl" as NSString)
         ctx.setObject(scope.src ?? "", forKeyedSubscript: "src" as NSString)
-        ctx.setObject(scope.book ?? NSNull(), forKeyedSubscript: "book" as NSString)
+        if let bookDict = scope.book {
+            let bookObj = JSValue(newObjectIn: ctx)!
+            for (k, v) in bookDict {
+                bookObj.setObject(v, forKeyedSubscript: k as NSString)
+            }
+            let getVar: @convention(block) (String) -> Any = { key in
+                return bookDict[key] ?? NSNull()
+            }
+            let putVar: @convention(block) (String, Any) -> Void = { _, _ in }
+            bookObj.setObject(getVar, forKeyedSubscript: "getVariable" as NSString)
+            bookObj.setObject(putVar, forKeyedSubscript: "putVariable" as NSString)
+            ctx.setObject(bookObj, forKeyedSubscript: "book" as NSString)
+        } else {
+            let bookStub = JSValue(newObjectIn: ctx)!
+            let getVar: @convention(block) (String) -> Any = { _ in NSNull() }
+            let putVar: @convention(block) (String, Any) -> Void = { _, _ in }
+            bookStub.setObject(getVar, forKeyedSubscript: "getVariable" as NSString)
+            bookStub.setObject(putVar, forKeyedSubscript: "putVariable" as NSString)
+            ctx.setObject(bookStub, forKeyedSubscript: "book" as NSString)
+        }
         ctx.setObject(scope.chapter ?? NSNull(), forKeyedSubscript: "chapter" as NSString)
         ctx.setObject(scope.nextChapterUrl ?? "", forKeyedSubscript: "nextChapterUrl" as NSString)
         ctx.setObject(scope.key ?? "", forKeyedSubscript: "key" as NSString)
@@ -579,6 +602,11 @@ public actor JSEngine {
         // JSON.stringify 整段省略键 ⇒ 企鹅/微信系 API「incorrect referrer」.
         sourceObj.setObject(sourceUrl, forKeyedSubscript: "bookSourceUrl" as NSString)
         sourceObj.setObject(source.bookSourceName, forKeyedSubscript: "bookSourceName" as NSString)
+        var comment = source.bookSourceComment ?? ""
+        if comment.contains(".length()") {
+            comment = comment.replacingOccurrences(of: ".length()", with: ".length")
+        }
+        sourceObj.setObject(comment, forKeyedSubscript: "bookSourceComment" as NSString)
 
         ctx.setObject(sourceObj, forKeyedSubscript: "source" as NSString)
 
@@ -708,11 +736,12 @@ public actor JSEngine {
         // 万象书屋: JavaScriptCore 默认没有 browser globals atob/btoa, 补一下 (legado JS 经常用)
         let atob: @convention(block) (String) -> String = { s in
             guard let d = Data(base64Encoded: s) else { return "" }
-            return String(data: d, encoding: .utf8) ?? String(data: d, encoding: .isoLatin1) ?? ""
+            return String(data: d, encoding: .isoLatin1) ?? ""
         }
         ctx.setObject(atob, forKeyedSubscript: "atob" as NSString)
         let btoa: @convention(block) (String) -> String = { s in
-            return Data(s.utf8).base64EncodedString()
+            guard let data = s.data(using: .isoLatin1) else { return Data(s.utf8).base64EncodedString() }
+            return data.base64EncodedString()
         }
         ctx.setObject(btoa, forKeyedSubscript: "btoa" as NSString)
 
@@ -726,12 +755,11 @@ public actor JSEngine {
             self?.ctx.setObject(val, forKeyedSubscript: ("__wx_kv_\(key)") as NSString)
             return val
         }
-        let get: @convention(block) (String) -> Any? = { [weak self] key in
+        let kvGet: @convention(block) (String) -> Any? = { [weak self] key in
             self?.ctx.objectForKeyedSubscript(("__wx_kv_\(key)") as NSString)
         }
         java.setObject(put, forKeyedSubscript: "put" as NSString)
-        java.setObject(get, forKeyedSubscript: "get" as NSString)
-        java.setObject(put, forKeyedSubscript: "cache" as NSString)   // 简化: cache=put
+        java.setObject(put, forKeyedSubscript: "cache" as NSString)
 
         // java.log
         let log: @convention(block) (String) -> Void = { msg in
@@ -740,23 +768,30 @@ public actor JSEngine {
         java.setObject(log, forKeyedSubscript: "log" as NSString)
 
         // java.ajax(url) — 用 condition variable 同步 fetch (跟 Android Rhino 同步 ajax 行为对齐)
-        // 万象书屋: 这是 iOS JavaScriptCore 没法绕的坑, 只能阻塞当前 actor 等 URLSession 完成
         let ajax: @convention(block) (String) -> String = { url in
-            // Android AnalyzeRule.ajax: 失败时 `getOrElse { it.stackTraceStr }`，不静默返空
             SyncHTTP.get(url: url, headers: [:]).body
         }
         java.setObject(ajax, forKeyedSubscript: "ajax" as NSString)
 
-        // 万象书屋: java.get(url, headers) → Response 对象 (有 .body() .header(name) .code() .headers())
-        // 必须返回带"方法"的对象, 因为 legado 源 JS 用 `resp.header("location")` 而非 `resp.headers["location"]`.
-        // 用 native closure capture self.ctx 给返回的 JSValue 对象动态附加方法.
-        let weakCtx = ctx   // capture
+        let weakCtx = ctx
         let getHttp: @convention(block) (String, Any?) -> JSValue = { [weakCtx] url, headersAny in
             let headers = (headersAny as? [String: Any])?.compactMapValues { String(describing: $0) } ?? [:]
             let r = SyncHTTP.get(url: url, headers: headers)
             return Self.makeResponseValue(r, in: weakCtx)
         }
-        java.setObject(getHttp, forKeyedSubscript: "get" as NSString)
+        // java.get: 1 arg + non-URL → KV get; URL or 2 args → HTTP GET
+        // Android Legado overloads java.get(key) for KV and java.get(url, headers) for HTTP
+        let combinedGet: @convention(block) (String, Any?) -> Any = { [weak self, weakCtx] urlOrKey, headersAny in
+            let hasHeaders = headersAny != nil && !(headersAny is NSNull) && !((headersAny as? JSValue)?.isUndefined ?? false)
+            let isUrl = urlOrKey.hasPrefix("http://") || urlOrKey.hasPrefix("https://") || urlOrKey.hasPrefix("//")
+            if hasHeaders || isUrl {
+                let headers = (headersAny as? [String: Any])?.compactMapValues { String(describing: $0) } ?? [:]
+                let r = SyncHTTP.get(url: urlOrKey, headers: headers)
+                return Self.makeResponseValue(r, in: weakCtx)
+            }
+            return self?.ctx.objectForKeyedSubscript(("__wx_kv_\(urlOrKey)") as NSString) ?? NSNull()
+        }
+        java.setObject(combinedGet, forKeyedSubscript: "get" as NSString)
         java.setObject(getHttp, forKeyedSubscript: "head" as NSString)
         java.setObject(getHttp, forKeyedSubscript: "connect" as NSString)
 
@@ -941,7 +976,8 @@ public actor JSEngine {
 
         // 万象书屋 (M2.8 fix bug): digest hex (hutool DigestUtil) — 6+ 源 java.digestHex 调用
         let digestHexBlk: @convention(block) (String, String) -> String = { data, algo in
-            switch algo.uppercased() {
+            let a = algo.uppercased().replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")
+            switch a {
             case "MD5": return md5Hex(data)
             case "SHA1": return sha1Hex(data)
             case "SHA256": return sha256Hex(data)
@@ -1219,13 +1255,29 @@ public actor JSEngine {
             // === Arrays (java.util.Arrays) ===
             globalThis.Arrays = {
                 copyOfRange: function(arr, from, to) {
-                    if (arr instanceof Uint8Array) return arr.slice(from, to);
-                    return Array.prototype.slice.call(arr, from, to);
+                    var slice;
+                    if (arr instanceof Uint8Array) {
+                        slice = arr.slice(from, to);
+                    } else {
+                        slice = new Uint8Array(Array.prototype.slice.call(arr, from, to));
+                    }
+                    slice.toString = function() { return bytesToUtf8(slice); };
+                    return slice;
                 },
                 toString: function(arr) {
                     return '[' + Array.prototype.join.call(arr, ', ') + ']';
                 },
                 asList: function(arr) { return Array.prototype.slice.call(arr); }
+            };
+
+            // === Integer (java.lang.Integer) ===
+            globalThis.Integer = {
+                parseInt: function(s, radix) { return parseInt(s, radix || 10); },
+                valueOf: function(s) { return parseInt(s, 10); },
+                toHexString: function(n) { return (n >>> 0).toString(16); },
+                toBinaryString: function(n) { return (n >>> 0).toString(2); },
+                MAX_VALUE: 2147483647,
+                MIN_VALUE: -2147483648
             };
 
             // === SecretKeySpec / IvParameterSpec (javax.crypto.spec) ===
@@ -1275,12 +1327,12 @@ public actor JSEngine {
                 return {
                     importPackage: function() {},
                     importClass: function() {},
-                    // 让 with(javaImport) {...} 找 Base64/Arrays/Cipher 等也能命中
                     Base64: globalThis.Base64,
                     Arrays: globalThis.Arrays,
                     Cipher: globalThis.Cipher,
                     SecretKeySpec: globalThis.SecretKeySpec,
-                    IvParameterSpec: globalThis.IvParameterSpec
+                    IvParameterSpec: globalThis.IvParameterSpec,
+                    Integer: globalThis.Integer
                 };
             };
             // 2. Packages.* — 任意嵌套都返 callable noop Proxy.
@@ -1315,11 +1367,11 @@ public actor JSEngine {
         }
         java.setObject(toString, forKeyedSubscript: "toString" as NSString)
 
-        // 时间格式化
+        // 时间格式化 — 1-2 参数, 跟 Android java.timeFormat(ts, fmt?) 对齐
         let timeFormat: @convention(block) (Double, String) -> String = { ts, fmt in
             let date = Date(timeIntervalSince1970: ts > 1e12 ? ts / 1000 : ts)
             let f = DateFormatter()
-            f.dateFormat = fmt
+            f.dateFormat = fmt.isEmpty ? "yyyy/MM/dd HH:mm" : fmt
             return f.string(from: date)
         }
         java.setObject(timeFormat, forKeyedSubscript: "timeFormat" as NSString)
@@ -1635,8 +1687,33 @@ public actor JSEngine {
                 var arr = java.getElements(rule);
                 return arr.length > 0 ? arr[0] : null;
             };
-            // java.getString(rule) → element.text() (跟 Android AnalyzeRule.getString 对齐)
+            // java.getString(rule) → AnalyzeRule.getString 对齐
+            // Android 会自动识别 JSONPath / CSS / XPath 并在当前 src 上求值.
+            // 当 rule 以 $ 开头且 src 是 JSON 时, 用 JSONPath; 否则走 CSS.
             java.getString = function(rule) {
+                if (typeof rule !== 'string' || !rule) return '';
+                var r = rule.trim();
+                if (r.charAt(0) === '$') {
+                    var s = (typeof src !== 'undefined' && src) ? String(src) : '';
+                    if (!s) return '';
+                    try {
+                        var obj = (typeof s === 'string') ? JSON.parse(s) : s;
+                        var parts = r.replace(/^\\$\\.?/, '').split('.');
+                        var cur = obj;
+                        for (var pi = 0; pi < parts.length; pi++) {
+                            if (cur == null) return '';
+                            var p = parts[pi];
+                            var bracket = p.match(/^(.+?)\\[(\\d+)\\]$/);
+                            if (bracket) {
+                                cur = cur[bracket[1]];
+                                if (Array.isArray(cur)) cur = cur[parseInt(bracket[2])];
+                            } else {
+                                cur = cur[p];
+                            }
+                        }
+                        return (cur == null) ? '' : String(cur);
+                    } catch(e) {}
+                }
                 var el = java.getElement(rule);
                 return el ? el.text() : '';
             };

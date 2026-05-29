@@ -437,7 +437,7 @@ public final class BookSourceEngine: @unchecked Sendable {
     }
 
     /// 解析源的发现频道 (无网络)
-    public nonisolated func exploreKinds(of source: BookSource) async -> [ExploreParser.Kind] {
+    public func exploreKinds(of source: BookSource) async -> [ExploreParser.Kind] {
         await exploreParser.parseExploreKinds(of: source)
     }
 

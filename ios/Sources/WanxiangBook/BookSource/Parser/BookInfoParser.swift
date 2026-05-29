@@ -55,7 +55,7 @@ public final class BookInfoParser: @unchecked Sendable {
         //   - 正则 capture 后 $1/$2... 在后续规则里可用
         // 简化做法: 跑出来后把结果 JSON 序列化成新 html 字符串, 让后续 JsonPath 规则取键
         if let initRule = rule.`init`, !initRule.isEmpty {
-            let preprocessed = await runBookInfoInit(initRule, html: html, baseUrl: baseUrl, source: source)
+            let preprocessed = await runBookInfoInit(initRule, html: html, baseUrl: baseUrl, source: source, book: book)
             if let p = preprocessed, !p.isEmpty {
                 html = p
                 scope.src = html
@@ -86,15 +86,15 @@ public final class BookInfoParser: @unchecked Sendable {
             fallbackBookUrl: book.bookUrl
         )
 
+        let resolvedCover = absolutize(await coverTask, baseUrl: baseUrl) ?? book.coverUrl
+
         return BookInfo(
             bookUrl: book.bookUrl,
             name: name,
             author: (await authorTask)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? book.author,
-            // 万象书屋 (2026-05-11): 详情页 intro 也走 stripHTML, 避免 "<font color=..>" 之类 HTML 标签
-            // 流入 BookDetailView / 搜索行 enrichment.
             intro: (await introTask).map { SearchParser.stripHTML($0) },
             kind: resolvedKind,
-            coverUrl: absolutize(await coverTask, baseUrl: baseUrl) ?? book.coverUrl,
+            coverUrl: resolvedCover,
             tocUrl: resolvedToc,
             lastChapter: await lastTask,
             updateTime: await updTask,
@@ -131,7 +131,7 @@ public final class BookInfoParser: @unchecked Sendable {
     /// - 以 `:` 开头  → AllInOne 正则模式: 提取 capture groups, 拼成 JSON 数组返回
     /// - 含 `<js>...</js>` 或以 `@js:` 开头  → 跑 JS, 期望返回 object/string, 序列化成 JSON 返回
     /// - 其他情况  → 当成普通规则 (CSS/XPath/JsonPath) 跑, 返回单值字符串
-    private func runBookInfoInit(_ rule: String, html: String, baseUrl: String, source: BookSource) async -> String? {
+    private func runBookInfoInit(_ rule: String, html: String, baseUrl: String, source: BookSource, book: SearchBook) async -> String? {
         let trimmed = rule.trimmingCharacters(in: .whitespaces)
         // AllInOne 正则
         if trimmed.hasPrefix(":") {
@@ -156,9 +156,14 @@ public final class BookInfoParser: @unchecked Sendable {
             }
             return nil
         }
-        // JS / 其他
-        let v = try? await dispatcher.selectString(rule: trimmed, source: html, baseUrl: baseUrl)
-        return v
+        // JS / 其他 — 必须传 jsContext 注入 bookSource, 否则 source.* API 不可用
+        let scope = JSContextScope()
+        scope.baseUrl = baseUrl
+        scope.src = html
+        scope.bookSource = source
+        scope.result = html
+        scope.book = Self.bookFieldsForScope(book)
+        return try? await dispatcher.selectString(rule: trimmed, source: html, baseUrl: baseUrl, jsContext: scope)
     }
 
     nonisolated func absolutize(_ url: String?, baseUrl: String?) -> String? {
