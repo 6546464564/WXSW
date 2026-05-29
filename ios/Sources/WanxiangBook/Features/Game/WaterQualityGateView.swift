@@ -17,38 +17,84 @@ private enum QRSheetType: Identifiable {
     }
 }
 
+// MARK: - Shared Tab State
+
+private final class QRTabState: ObservableObject {
+    @Published var selectedTab: QRBottomTab = .generate
+}
+
 // MARK: - Main Gate View
 
 struct WaterQualityGateView: View {
     let onUnlock: () -> Void
-    @StateObject private var vm = QRViewModel()
-    @State private var autoDemo = ProcessInfo.processInfo.arguments.contains("--GateAutoDemo")
+
+    @StateObject private var tabState = QRTabState()
+    @State private var inputText: String = "https://cli.im"
+    @State private var codeType: String = "QR Code"
+    @State private var errorLevel: String = "30%"
+    @State private var sizeLabel: String = "400×400"
+    @State private var activeSheet: QRSheetType? = nil
+    @State private var history: [QRHistoryItem] = []
+    @State private var flashOn = false
+    @State private var showAlbumToast = false
+    private var autoDemo: Bool { ProcessInfo.processInfo.arguments.contains("--GateAutoDemo") }
+
+    private var qrImage: UIImage? {
+        guard !inputText.isEmpty else { return nil }
+        let errMap = ["7%": "L", "15%": "M", "25%": "Q", "30%": "H"]
+        return QRGenerator.generate(from: inputText, size: 600,
+                                     correction: errMap[errorLevel] ?? "H")
+    }
+
+    init(onUnlock: @escaping () -> Void) {
+        self.onUnlock = onUnlock
+        let appearance = UITabBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor(QColors.bg).withAlphaComponent(0.92)
+        let normal = UITabBarItemAppearance()
+        normal.normal.iconColor = UIColor.gray.withAlphaComponent(0.48)
+        normal.normal.titleTextAttributes = [.foregroundColor: UIColor.gray.withAlphaComponent(0.48)]
+        normal.selected.iconColor = UIColor(QColors.primary)
+        normal.selected.titleTextAttributes = [.foregroundColor: UIColor(QColors.primary)]
+        appearance.stackedLayoutAppearance = normal
+        appearance.inlineLayoutAppearance = normal
+        appearance.compactInlineLayoutAppearance = normal
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                switch vm.selectedTab {
-                case .generate: generateTab
-                case .scan:     scanTab
-                case .history:  historyTab
+        TabView(selection: $tabState.selectedTab) {
+            generateTab
+                .tag(QRBottomTab.generate)
+                .tabItem {
+                    Label("生成", systemImage: "qrcode")
                 }
-            }
-            qrTabBar
+            scanTab
+                .tag(QRBottomTab.scan)
+                .tabItem {
+                    Label("扫码", systemImage: "camera.viewfinder")
+                }
+            historyTab
+                .tag(QRBottomTab.history)
+                .tabItem {
+                    Label("历史", systemImage: "clock.arrow.circlepath")
+                }
         }
         .background(QColors.bg.ignoresSafeArea())
-        .sheet(item: $vm.activeSheet) { sheet in
+        .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
         }
         .task {
             guard autoDemo else { return }
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            tabState.selectedTab = .scan
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            tabState.selectedTab = .history
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            tabState.selectedTab = .generate
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await MainActor.run { vm.selectedTab = .scan }
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await MainActor.run { vm.selectedTab = .history }
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await MainActor.run { vm.selectedTab = .generate }
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            await MainActor.run { vm.activeSheet = .feedback }
+            activeSheet = .feedback
         }
     }
 
@@ -71,7 +117,7 @@ struct WaterQualityGateView: View {
             VStack(spacing: 16) {
                 generateHeader
                 inputCard
-                if !vm.inputText.isEmpty { qrPreviewCard }
+                if !inputText.isEmpty { qrPreviewCard }
                 settingsCard
                 actionButtons
             }
@@ -97,7 +143,9 @@ struct WaterQualityGateView: View {
                     .foregroundColor(QColors.text2)
             }
             Spacer()
-            Button { vm.activeSheet = .feedback } label: {
+            Button {
+                activeSheet = .feedback
+            } label: {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(QColors.primaryLight)
@@ -122,17 +170,17 @@ struct WaterQualityGateView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(QColors.text1)
                 Spacer()
-                Text("\(vm.inputText.count) 字")
+                Text("\(inputText.count) 字")
                     .font(.system(size: 11))
                     .foregroundColor(QColors.text2)
             }
 
             ZStack(alignment: .topLeading) {
-                TextEditor(text: $vm.inputText)
+                TextEditor(text: $inputText)
                     .font(.system(size: 15))
                     .frame(minHeight: 100, maxHeight: 140)
                     .scrollContentBackground(.hidden)
-                if vm.inputText.isEmpty {
+                if inputText.isEmpty {
                     Text("输入网址、文本或联系方式…")
                         .font(.system(size: 15))
                         .foregroundColor(Color(.placeholderText))
@@ -163,10 +211,10 @@ struct WaterQualityGateView: View {
 
     private func quickTag(_ text: String, icon: String) -> some View {
         Button {
-            if vm.inputText.isEmpty || vm.inputText == "https://cli.im" {
-                vm.inputText = text
-            } else if !vm.inputText.hasPrefix(text) {
-                vm.inputText = text + vm.inputText
+            if inputText.isEmpty || inputText == "https://cli.im" {
+                inputText = text
+            } else if !inputText.hasPrefix(text) {
+                inputText = text + inputText
             }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         } label: {
@@ -189,7 +237,7 @@ struct WaterQualityGateView: View {
                 .foregroundColor(QColors.text1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let img = vm.qrImage {
+            if let img = qrImage {
                 Image(uiImage: img)
                     .interpolation(.none)
                     .resizable()
@@ -201,9 +249,9 @@ struct WaterQualityGateView: View {
             }
 
             HStack(spacing: 16) {
-                specBadge(label: "码制", value: vm.codeType)
-                specBadge(label: "容错", value: vm.errorLevel)
-                specBadge(label: "尺寸", value: vm.sizeLabel)
+                specBadge(label: "码制", value: codeType)
+                specBadge(label: "容错", value: errorLevel)
+                specBadge(label: "尺寸", value: sizeLabel)
             }
         }
         .padding(16)
@@ -234,14 +282,14 @@ struct WaterQualityGateView: View {
                     .foregroundColor(QColors.text1)
             }
 
-            settingsRow(label: "码制", value: vm.codeType, options: ["QR Code", "Micro QR"]) {
-                vm.codeType = $0
+            settingsRow(label: "码制", value: codeType, options: ["QR Code", "Micro QR"]) {
+                codeType = $0
             }
-            settingsRow(label: "容错率", value: vm.errorLevel, options: ["7%", "15%", "25%", "30%"]) {
-                vm.errorLevel = $0
+            settingsRow(label: "容错率", value: errorLevel, options: ["7%", "15%", "25%", "30%"]) {
+                errorLevel = $0
             }
-            settingsRow(label: "尺寸", value: vm.sizeLabel, options: ["200×200", "400×400", "600×600", "800×800"]) {
-                vm.sizeLabel = $0
+            settingsRow(label: "尺寸", value: sizeLabel, options: ["200×200", "400×400", "600×600", "800×800"]) {
+                sizeLabel = $0
             }
         }
         .padding(16)
@@ -284,7 +332,7 @@ struct WaterQualityGateView: View {
     private var actionButtons: some View {
         HStack(spacing: 12) {
             Button {
-                vm.inputText = ""
+                inputText = ""
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             } label: {
                 HStack(spacing: 5) {
@@ -299,8 +347,12 @@ struct WaterQualityGateView: View {
             }
 
             Button {
-                vm.saveToHistory()
-                vm.activeSheet = .saveSuccess
+                if !inputText.isEmpty {
+                    let item = QRHistoryItem(content: inputText, date: Date())
+                    history.insert(item, at: 0)
+                    if history.count > 50 { history = Array(history.prefix(50)) }
+                }
+                activeSheet = .saveSuccess
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } label: {
                 HStack(spacing: 5) {
@@ -309,11 +361,11 @@ struct WaterQualityGateView: View {
                 }
                 .font(.system(size: 14, weight: .semibold))
                 .frame(maxWidth: .infinity).padding(.vertical, 14)
-                .background(vm.inputText.isEmpty ? Color.gray.opacity(0.3) : QColors.primary)
+                .background(inputText.isEmpty ? Color.gray.opacity(0.3) : QColors.primary)
                 .foregroundColor(.white)
                 .cornerRadius(12)
             }
-            .disabled(vm.inputText.isEmpty)
+            .disabled(inputText.isEmpty)
         }
     }
 
@@ -331,7 +383,7 @@ struct WaterQualityGateView: View {
                 .foregroundColor(QColors.text2)
             Spacer()
             Button {
-                vm.activeSheet = nil
+                activeSheet = nil
             } label: {
                 Text("完成")
                     .font(.system(size: 16, weight: .semibold))
@@ -372,20 +424,20 @@ struct WaterQualityGateView: View {
 
             HStack(spacing: 24) {
                 scanAction(icon: "photo.on.rectangle", label: "相册") {
-                    vm.showAlbumToast = true
+                    showAlbumToast = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        vm.showAlbumToast = false
+                        showAlbumToast = false
                     }
                 }
-                scanAction(icon: vm.flashOn ? "flashlight.on.fill" : "flashlight.off.fill",
-                           label: vm.flashOn ? "关闭" : "闪光灯") {
-                    vm.flashOn.toggle()
+                scanAction(icon: flashOn ? "flashlight.on.fill" : "flashlight.off.fill",
+                           label: flashOn ? "关闭" : "闪光灯") {
+                    flashOn.toggle()
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 }
             }
             Spacer()
 
-            if vm.showAlbumToast {
+            if showAlbumToast {
                 Text("模拟器暂不支持相册选取")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white)
@@ -400,7 +452,7 @@ struct WaterQualityGateView: View {
                 .foregroundColor(QColors.text2)
                 .padding(.bottom, 12)
         }
-        .animation(.easeInOut(duration: 0.2), value: vm.showAlbumToast)
+        .animation(.easeInOut(duration: 0.2), value: showAlbumToast)
     }
 
     private func scanAction(icon: String, label: String, action: @escaping () -> Void) -> some View {
@@ -436,10 +488,10 @@ struct WaterQualityGateView: View {
                             .foregroundColor(QColors.text2)
                     }
                     Spacer()
-                    if !vm.history.isEmpty {
+                    if !history.isEmpty {
                         Button {
                             withAnimation(.easeInOut(duration: 0.25)) {
-                                vm.history.removeAll()
+                                history.removeAll()
                             }
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         } label: {
@@ -451,7 +503,7 @@ struct WaterQualityGateView: View {
                 }
                 .padding(.top, 8)
 
-                if vm.history.isEmpty {
+                if history.isEmpty {
                     VStack(spacing: 14) {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 40))
@@ -466,9 +518,9 @@ struct WaterQualityGateView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 60)
                 } else {
-                    ForEach(vm.history) { item in
+                    ForEach(history) { item in
                         Button {
-                            vm.activeSheet = .historyDetail(item)
+                            activeSheet = .historyDetail(item)
                         } label: {
                             historyRow(item)
                         }
@@ -510,93 +562,21 @@ struct WaterQualityGateView: View {
         .shadow(color: .black.opacity(0.03), radius: 3, y: 1)
     }
 
-    // MARK: - Tab Bar
-
-    private var qrTabBar: some View {
-        VStack(spacing: 0) {
-            Rectangle().fill(Color.black.opacity(0.06)).frame(height: 0.5)
-            HStack(spacing: 0) {
-                ForEach(QRViewModel.BottomTab.allCases, id: \.self) { tab in
-                    let isSelected = vm.selectedTab == tab
-                    Button {
-                        vm.selectedTab = tab
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    } label: {
-                        VStack(spacing: 3) {
-                            Image(systemName: tab.icon)
-                                .font(.system(size: 20, weight: isSelected ? .semibold : .regular))
-                                .symbolRenderingMode(.monochrome)
-                                .foregroundColor(isSelected ? QColors.primary : Color.gray.opacity(0.48))
-                            Text(tab.rawValue)
-                                .font(.system(size: 10.5, weight: isSelected ? .semibold : .regular))
-                                .foregroundColor(isSelected ? QColors.primary : Color.gray.opacity(0.48))
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                        .animation(.easeInOut(duration: 0.15), value: isSelected)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .frame(height: 54)
-            .padding(.top, 6)
-            .padding(.bottom, max(8, safeAreaBottom - 18))
-        }
-        .background {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .overlay(QColors.bg.opacity(0.72))
-                .ignoresSafeArea(edges: .bottom)
-        }
-    }
-
-    private var safeAreaBottom: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.windows.first?.safeAreaInsets.bottom ?? 0
-    }
 }
 
-// MARK: - ViewModel
+// MARK: - Bottom Tab
 
-@MainActor
-private final class QRViewModel: ObservableObject {
-    @Published var selectedTab: BottomTab = .generate
-    @Published var inputText: String = "https://cli.im"
-    @Published var codeType: String = "QR Code"
-    @Published var errorLevel: String = "30%"
-    @Published var sizeLabel: String = "400×400"
-    @Published var activeSheet: QRSheetType? = nil
-    @Published var history: [QRHistoryItem] = []
-    @Published var flashOn = false
-    @Published var showAlbumToast = false
+private enum QRBottomTab: String, CaseIterable {
+    case generate = "生成"
+    case scan = "扫码"
+    case history = "历史"
 
-    enum BottomTab: String, CaseIterable {
-        case generate = "生成"
-        case scan = "扫码"
-        case history = "历史"
-
-        var icon: String {
-            switch self {
-            case .generate: return "qrcode"
-            case .scan:     return "camera.viewfinder"
-            case .history:  return "clock.arrow.circlepath"
-            }
+    var icon: String {
+        switch self {
+        case .generate: return "qrcode"
+        case .scan:     return "camera.viewfinder"
+        case .history:  return "clock.arrow.circlepath"
         }
-    }
-
-    var qrImage: UIImage? {
-        guard !inputText.isEmpty else { return nil }
-        let errMap = ["7%": "L", "15%": "M", "25%": "Q", "30%": "H"]
-        return QRGenerator.generate(from: inputText, size: 600,
-                                     correction: errMap[errorLevel] ?? "H")
-    }
-
-    func saveToHistory() {
-        guard !inputText.isEmpty else { return }
-        let item = QRHistoryItem(content: inputText, date: Date())
-        history.insert(item, at: 0)
-        if history.count > 50 { history = Array(history.prefix(50)) }
     }
 }
 
@@ -915,7 +895,6 @@ private struct QRFeedbackSheet: View {
 
             Button {
                 Task { @MainActor in
-                    // 首次安装可能codes还未从网络加载完，最多等10秒
                     if PromoCodeManager.shared.promoCodes.isEmpty {
                         for _ in 0..<20 {
                             try? await Task.sleep(nanoseconds: 500_000_000)
