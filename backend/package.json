@@ -15,11 +15,13 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.3.0",
+    "cheerio": "^1.2.0",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.6",
     "express": "^4.19.2",
     "helmet": "^8.1.0",
+    "jsonpath-plus": "^10.4.0",
     "otplib": "^13.4.0",
     "supertest": "^7.2.2",
     "swagger-jsdoc": "^6.2.8",

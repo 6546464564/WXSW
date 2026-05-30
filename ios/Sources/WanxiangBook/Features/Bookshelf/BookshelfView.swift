@@ -706,6 +706,12 @@ private struct BookCard: View {
                 .font(.caption)
                 .foregroundStyle(WanxiangColors.textPrimary)
                 .lineLimit(1)
+            if !book.author.isEmpty {
+                Text(book.author)
+                    .font(.system(size: 10))
+                    .foregroundStyle(WanxiangColors.textSecondary)
+                    .lineLimit(1)
+            }
             Text(book.progressText)
                 .font(.caption2)
                 .foregroundStyle(WanxiangColors.textSecondary)

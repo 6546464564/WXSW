@@ -25,6 +25,7 @@ const adminAuth = require('./middleware/adminAuth');
 const { scheduleDailyBackup } = require('./jobs/backup');
 const { scheduleMirrorJob, getNextRunAt } = require('./jobs/mirrorScheduler');
 const qidianMirror = require('./jobs/qidianMirror');
+const bookDownloader = require('./jobs/bookDownloader');
 
 // 初始化有状态中间件
 deviceAuth.setup(db);
@@ -118,7 +119,6 @@ app.use('/api/', cors({ origin: false, credentials: false }));
 // body parser (路径级分流)
 const largeBodyRoutes = new Set([
   'POST /api/admin/sources',
-  'POST /api/content-cache',
 ]);
 app.use((req, res, next) => {
   const key = req.method + ' ' + req.path;
@@ -300,49 +300,6 @@ app.post('/api/source-error', rateLimitSourceError, blockBlacklistedDevice, veri
   } catch (e) {
     res.status(400).json({ ok: false, msg: e.message || 'invalid source error' });
   }
-});
-
-// --- 书籍正文内容缓存 ---
-app.get('/api/content-cache', rateLimitSources, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
-  const title = (req.query.title || '').trim();
-  const author = (req.query.author || '').trim();
-  const chapterIndex = parseInt(req.query.chapterIndex, 10);
-  if (!title) return res.status(400).json({ ok: false, msg: 'title required' });
-  if (!Number.isFinite(chapterIndex) || chapterIndex < 0) return res.status(400).json({ ok: false, msg: 'valid chapterIndex required' });
-  const row = db.getContentCache(title, author, chapterIndex);
-  if (!row) return res.json({ ok: true, hit: false });
-  res.set('Cache-Control', 'public, max-age=3600');
-  res.json({ ok: true, hit: true, chapter_title: row.chapter_title, content: row.content });
-});
-app.post('/api/content-cache', rateLimitSourceError, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
-  const chapters = req.body && req.body.chapters;
-  if (!Array.isArray(chapters) || chapters.length === 0) return res.status(400).json({ ok: false, msg: 'chapters array required' });
-  const capped = chapters.slice(0, 20);
-  const upserted = db.bulkUpsertContentCache(capped);
-  // 同步元数据到 book_metadata 表
-  const meta = req.body.metadata;
-  if (meta && meta.title) {
-    try { db.upsertMetadata(meta); } catch {}
-  }
-  res.json({ ok: true, upserted });
-});
-
-// --- 书籍元数据缓存 (Cache-on-Search) ---
-app.get('/api/search-cache', rateLimitSources, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
-  const keyword = (req.query.keyword || '').trim();
-  if (!keyword || keyword.length < 1) return res.status(400).json({ ok: false, msg: 'keyword required' });
-  if (keyword.length > 100) return res.status(400).json({ ok: false, msg: 'keyword too long' });
-  const limit = Math.max(1, Math.min(50, parseInt(req.query.limit, 10) || 20));
-  const results = db.searchMetadataCache(keyword, limit);
-  res.set('Cache-Control', 'public, max-age=300');
-  res.json({ ok: true, count: results.length, results });
-});
-app.post('/api/search-cache', rateLimitSourceError, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
-  const books = req.body && req.body.books;
-  if (!Array.isArray(books) || books.length === 0) return res.status(400).json({ ok: false, msg: 'books array required' });
-  const capped = books.slice(0, 50);
-  const upserted = db.bulkUpsertMetadata(capped);
-  res.json({ ok: true, upserted });
 });
 
 // --- 书城 mirror ---
@@ -892,42 +849,6 @@ app.post('/api/admin/backup/now', requireAdmin, requireRole(['super']), async (r
 });
 
 
-// --- admin 缓存统计 ---
-app.get('/api/admin/metadata/stats', requireAdmin, (req, res) => {
-  const total = db.metadataCount();
-  const hot = db.topHotMetadata(10);
-  res.json({ ok: true, total, topHot: hot });
-});
-app.get('/api/admin/content-cache/stats', requireAdmin, (req, res) => {
-  const s = db.contentCacheStats();
-  res.json({ ok: true, ...s });
-});
-app.get('/api/admin/content-cache/books', requireAdmin, (req, res) => {
-  const limit = Math.max(10, Math.min(500, parseInt(req.query.limit, 10) || 100));
-  const books = db.contentCacheListBooks(limit);
-  const enriched = books.map(b => {
-    const metas = db.searchMetadataCache(b.book_title, 1);
-    const meta = metas.find(m => m.author === (b.book_author || ''));
-    return {
-      ...b,
-      cover_url: meta?.cover_url || null,
-      intro: meta?.intro || null,
-      category: meta?.category || null,
-      word_count: meta?.word_count || null,
-    };
-  });
-  res.json({ ok: true, books: enriched });
-});
-app.get('/api/admin/content-cache/chapters', requireAdmin, (req, res) => {
-  const title = (req.query.title || '').trim();
-  const author = (req.query.author || '').trim();
-  if (!title) return res.status(400).json({ ok: false, msg: 'title required' });
-  const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50));
-  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
-  const chapters = db.contentCacheGetChapterContent(title, author, limit, offset);
-  res.json({ ok: true, chapters });
-});
-
 // --- admin 反馈 ---
 app.get('/api/admin/feedback', requireAdmin, (req, res) => {
   const status = req.query.status || null;
@@ -974,6 +895,88 @@ app.delete('/api/admin/promo/codes/:code', requireAdmin, requireRole(['super', '
 app.get('/api/admin/promo/stats', requireAdmin, (req, res) => res.json({ ok: true, ...db.promoOverview() }));
 app.get('/api/admin/promo/stats/:code', requireAdmin, (req, res) => res.json({ ok: true, ...db.promoCodeStats(req.params.code) }));
 app.get('/api/admin/promo/fraud', requireAdmin, (req, res) => res.json({ ok: true, alerts: db.promoFraudDetection() }));
+
+// ═══════════════════ 书籍缓存 API ═══════════════════
+
+// --- 公开: App 获取缓存书籍列表 ---
+app.get('/api/cache/books', rateLimitSources, (req, res) => {
+  const status = req.query.status || 'done';
+  const list = db.listCachedBooks(status).map(b => ({
+    id: b.id, qidianId: b.qidian_id, title: b.title, author: b.author,
+    category: b.category, coverUrl: b.cover_url, sourceUrl: b.source_url,
+    totalChapters: b.total_chapters, cachedChapters: b.cached_chapters,
+    status: b.status,
+  }));
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json({ ok: true, count: list.length, books: list });
+});
+
+// --- 公开: App 获取某本书的章节列表 ---
+app.get('/api/cache/books/:id/chapters', rateLimitSources, (req, res) => {
+  const bookId = parseInt(req.params.id, 10);
+  if (!bookId) return res.status(400).json({ ok: false, msg: 'invalid id' });
+  const book = db.getCachedBook(bookId);
+  if (!book) return res.status(404).json({ ok: false, msg: 'book not found' });
+  const chapters = db.listCachedChapters(bookId).map(ch => ({
+    idx: ch.chapter_idx, title: ch.title, wordCount: ch.word_count, status: ch.status,
+  }));
+  res.json({ ok: true, bookId, title: book.title, chapters });
+});
+
+// --- 公开: App 获取章节内容 ---
+app.get('/api/cache/books/:id/chapters/:idx', rateLimitSources, (req, res) => {
+  const bookId = parseInt(req.params.id, 10);
+  const idx = parseInt(req.params.idx, 10);
+  if (!Number.isFinite(bookId) || !Number.isFinite(idx)) {
+    return res.status(400).json({ ok: false, msg: 'invalid params' });
+  }
+  const ch = db.getCachedChapter(bookId, idx);
+  if (!ch) return res.status(404).json({ ok: false, msg: 'chapter not found' });
+  if (ch.status !== 'done' || !ch.content) {
+    return res.status(404).json({ ok: false, msg: 'chapter not cached yet' });
+  }
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.json({ ok: true, bookId, idx, title: ch.title, wordCount: ch.word_count, content: ch.content });
+});
+
+// --- Admin: 缓存统计 ---
+app.get('/api/admin/cache/stats', requireAdmin, (req, res) => {
+  const stats = db.getCacheStats();
+  res.json({ ok: true, stats });
+});
+
+// --- Admin: 列出所有缓存书籍 ---
+app.get('/api/admin/cache/books', requireAdmin, (req, res) => {
+  const status = req.query.status || null;
+  const list = db.listCachedBooks(status);
+  res.json({ ok: true, count: list.length, books: list });
+});
+
+// --- Admin: 触发下载任务 ---
+let _downloadRunning = false;
+app.post('/api/admin/cache/download', requireAdmin, requireRole(['super', 'operator']), async (req, res) => {
+  if (_downloadRunning) return res.status(409).json({ ok: false, msg: 'download already running' });
+  const count = parseInt(req.body?.count, 10) || 1;
+  _downloadRunning = true;
+  res.json({ ok: true, msg: `download started for ${count} book(s)` });
+  try {
+    await bookDownloader.processLoop(db, count);
+  } catch (e) {
+    logger.error('cache download failed', { msg: e.message });
+  } finally {
+    _downloadRunning = false;
+  }
+});
+
+// --- Admin: 重置某本书状态 ---
+app.post('/api/admin/cache/books/:id/reset', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
+  const bookId = parseInt(req.params.id, 10);
+  if (!bookId) return res.status(400).json({ ok: false, msg: 'invalid id' });
+  const book = db.getCachedBook(bookId);
+  if (!book) return res.status(404).json({ ok: false, msg: 'book not found' });
+  db.updateCachedBookStatus(bookId, 'pending');
+  res.json({ ok: true, msg: `book ${bookId} reset to pending` });
+});
 
 // ═══════════════════ 静态文件 + 兜底 ═══════════════════
 

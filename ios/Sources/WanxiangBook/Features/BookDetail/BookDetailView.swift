@@ -207,7 +207,6 @@ struct BookDetailView: View {
             } else {
                 await vm.loadDetails(book: currentBook, source: currentSource)
             }
-            WanxiangAPI.shared.reportSearchResults([currentBook])
             // 异步查找起点封面作为 fallback (不阻塞主流程)
             if qidianFallbackCover == nil {
                 if let qid = QidianBook.extractQidianId(from: currentBook.kind), !qid.isEmpty {
@@ -1136,13 +1135,6 @@ final class BookDetailViewModel: ObservableObject {
         // 万象书屋: 加书后在后台自动筛最优源（按成功率+速度）并更新书架记录.
         // fire-and-forget，不阻塞加书动作.
         SourceHealthChecker.shared.autoSelectBestSource(for: shelf, keyword: book.name)
-        var enriched = book
-        if let c = info?.coverUrl, !c.isEmpty { enriched.coverUrl = c }
-        if let i = info?.intro, !i.isEmpty { enriched.intro = i }
-        if let k = info?.kind, !k.isEmpty { enriched.kind = k }
-        if let w = info?.wordCount, !w.isEmpty { enriched.wordCount = w }
-        if let l = info?.lastChapter, !l.isEmpty { enriched.lastChapter = l }
-        WanxiangAPI.shared.reportSearchResults([enriched])
     }
 
     func remove(bookUrl: String) async {

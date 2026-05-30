@@ -395,16 +395,7 @@ public final class ReaderEngine: ObservableObject {
                         return result.content
                     }
                 }
-                // 2. 服务端内容缓存
-                if let cached = await WanxiangAPI.shared.fetchContentCache(
-                    bookTitle: book.name, bookAuthor: book.author, chapterIndex: index
-                ), !cached.isEmpty {
-                    try? await ChapterRepository.shared.saveContent(
-                        bookUrl: book.bookUrl, chapterIndex: index, content: cached
-                    )
-                    return cached
-                }
-                // 3. 远端 — 没源/没章就报真错, 不返伪正文 (P1 fix)
+                // 2. 远端 — 没源/没章就报真错, 不返伪正文 (P1 fix)
                 guard let s = source else {
                     throw NSError(domain: "Reader", code: 11,
                         userInfo: [NSLocalizedDescriptionKey: "找不到书源 \(book.origin), 请在搜索/书城重新加入此书"])
@@ -421,25 +412,12 @@ public final class ReaderEngine: ObservableObject {
                 let cont = try await BookSourceEngine.shared.fetchContent(
                     of: chapter, in: s, book: info, nextChapterUrl: nextChapterUrl
                 )
-                // 4. 写回本地缓存
+                // 3. 写回缓存
                 try? await ChapterRepository.shared.saveContent(
                     bookUrl: book.bookUrl,
                     chapterIndex: index,
                     content: cont.content
                 )
-                // 5. 上报服务端内容缓存（附带书籍元数据）
-                if !cont.content.isEmpty {
-                    let bk = book
-                    let chTitle = chapter.title
-                    let chContent = cont.content
-                    let chIndex = index
-                    WanxiangAPI.shared.reportContentCache(
-                        bookTitle: bk.name, bookAuthor: bk.author,
-                        chapters: [(index: chIndex, title: chTitle, content: chContent)],
-                        coverUrl: bk.coverUrl, intro: bk.intro,
-                        kind: bk.kind
-                    )
-                }
                 return cont.content
             }
             inflight[index] = task

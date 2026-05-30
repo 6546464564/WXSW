@@ -791,9 +791,6 @@ final class SearchViewModel: ObservableObject {
         // 1. 入历史
         addToHistory(key)
 
-        // 1.5 先查服务端元数据缓存 (Cache-on-Search), 秒出预览结果
-        await prefillFromServerCache(key: key, generation: generation, precisionSearch: precisionSearch)
-
         // 2. 拉本地缓存的源 + 熔断过滤.
         //    万象书屋 (M2.4 perf): deeplink 跳过 splash 后, App 启动 1-2s 内
         //    BookSourceRegistry.bootstrap 还在拉源, enabledSources 此刻可能是空.
@@ -933,7 +930,6 @@ final class SearchViewModel: ObservableObject {
                 )
                 SourcePerformanceTracker.shared.persistToDisk()
                 self.scheduleResultEnrichment(generation: generation)
-                WanxiangAPI.shared.reportSearchResults(self.results)
             }
         }
     }
@@ -1128,44 +1124,6 @@ final class SearchViewModel: ObservableObject {
             r.updateTime = info.updateTime
         }
         results[idx] = r
-    }
-
-    // MARK: - 服务端缓存预填 (Cache-on-Search)
-
-    /// 搜索开始时先查服务端元数据缓存, 有则立即展示预览结果 (用户秒出), 后续书源引擎实时结果会覆盖.
-    private func prefillFromServerCache(key: String, generation: Int, precisionSearch: Bool) async {
-        let cached = await WanxiangAPI.shared.searchCache(keyword: key, limit: 20)
-        guard !cached.isEmpty, generation == self.searchGeneration else { return }
-        var batchResults = self.results
-        var batchDedupe = self.dedupeRowIndex
-        for meta in cached {
-            let name = meta.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { continue }
-            let author = meta.author.trimmingCharacters(in: .whitespacesAndNewlines)
-            let book = SearchBook(
-                origin: "__server_cache__",
-                originName: "缓存",
-                name: name,
-                author: author,
-                bookUrl: "",
-                coverUrl: meta.cover_url,
-                intro: meta.intro,
-                kind: meta.category,
-                lastChapter: meta.last_chapter,
-                wordCount: meta.word_count
-            )
-            if precisionSearch,
-               SearchLegadoOrdering.relevanceTier(book: book, key: key) >= 2 {
-                continue
-            }
-            let dk = book.dedupeKey
-            guard batchDedupe[dk] == nil else { continue }
-            batchDedupe[dk] = batchResults.count
-            batchResults.append(book)
-        }
-        self.results = batchResults
-        self.dedupeRowIndex = batchDedupe
-        self.applyLegadoStyleOrdering()
     }
 
     // MARK: - 本地源 (M0-B 后端 platform=ios 后真拉远端)
