@@ -10,6 +10,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const path = require('path');
+const multer = require('multer');
 const db = require('./db');
 const validator = require('./sourceValidator');
 const logger = require('./logger');
@@ -982,6 +983,18 @@ app.post('/api/admin/cache/download', requireAdmin, requireRole(['super', 'opera
   }
 });
 
+// --- Admin: 删除某本书 ---
+app.delete('/api/admin/cache/books/:id', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
+  const bookId = parseInt(req.params.id, 10);
+  if (!bookId) return res.status(400).json({ ok: false, msg: 'invalid id' });
+  const book = db.getCachedBook(bookId);
+  if (!book) return res.status(404).json({ ok: false, msg: 'book not found' });
+  db.__db.prepare('DELETE FROM cached_chapters WHERE book_id = ?').run(bookId);
+  db.__db.prepare('DELETE FROM cached_books WHERE id = ?').run(bookId);
+  logger.info('library book deleted', { bookId, title: book.title });
+  res.json({ ok: true, msg: `《${book.title}》已删除` });
+});
+
 // --- Admin: 重置某本书状态 ---
 app.post('/api/admin/cache/books/:id/reset', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const bookId = parseInt(req.params.id, 10);
@@ -990,6 +1003,88 @@ app.post('/api/admin/cache/books/:id/reset', requireAdmin, requireRole(['super',
   if (!book) return res.status(404).json({ ok: false, msg: 'book not found' });
   db.updateCachedBookStatus(bookId, 'pending');
   res.json({ ok: true, msg: `book ${bookId} reset to pending` });
+});
+
+// --- Admin: 上传 TXT 书籍到书库 ---
+const uploadTxt = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+function splitChapters(text) {
+  const PATTERNS = [
+    /^第[零一二三四五六七八九十百千万\d]+[章节回卷].*/,
+    /^\d{1,4}[、.:：\s].+/,
+    /^[序终]章.*/,
+  ];
+
+  const lines = text.split(/\r?\n/);
+  const chapters = [];
+  let current = null;
+  let headerEnd = 0;
+  for (let i = 0; i < Math.min(3, lines.length); i++) {
+    if (/^书名[：:]/.test(lines[i]) || /^作者[：:]/.test(lines[i]) || lines[i].trim() === '') headerEnd = i + 1;
+  }
+
+  for (let i = headerEnd; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const isTitle = trimmed.length > 0 && trimmed.length < 60 && PATTERNS.some(p => p.test(trimmed));
+    if (isTitle) {
+      if (current) chapters.push(current);
+      current = { title: trimmed, content: '' };
+    } else if (current) {
+      current.content += line + '\n';
+    }
+  }
+  if (current) chapters.push(current);
+  for (const ch of chapters) ch.content = ch.content.trim();
+  return chapters;
+}
+
+app.post('/api/admin/library/upload', requireAdmin, requireRole(['super', 'operator']),
+  uploadTxt.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, msg: 'missing file' });
+
+  const title = (req.body.title || '').trim();
+  const author = (req.body.author || '').trim();
+  const category = (req.body.category || '').trim();
+  if (!title) return res.status(400).json({ ok: false, msg: 'missing title' });
+
+  let text = req.file.buffer.toString('utf-8');
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+  const chapters = splitChapters(text);
+  if (!chapters.length) return res.status(400).json({ ok: false, msg: '无法识别章节，请确认 TXT 格式' });
+
+  const now = Date.now();
+  const insertBook = db.__db.prepare(`
+    INSERT INTO cached_books (title, author, category, total_chapters, cached_chapters, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'done', ?, ?)
+  `);
+  const insertChapter = db.__db.prepare(`
+    INSERT INTO cached_chapters (book_id, chapter_idx, title, content, word_count, status, created_at)
+    VALUES (?, ?, ?, ?, ?, 'done', ?)
+  `);
+
+  const tx = db.__db.transaction(() => {
+    const r = insertBook.run(title, author, category, chapters.length, chapters.length, now, now);
+    const bookId = r.lastInsertRowid;
+    for (let i = 0; i < chapters.length; i++) {
+      const wc = chapters[i].content.replace(/\s/g, '').length;
+      insertChapter.run(bookId, i, chapters[i].title, chapters[i].content, wc, now);
+    }
+    return { bookId: Number(bookId), chapters: chapters.length };
+  });
+
+  try {
+    const result = tx();
+    logger.info('library upload', { title, author, ...result });
+    res.json({ ok: true, msg: `《${title}》已入库`, ...result });
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) {
+      return res.status(409).json({ ok: false, msg: '同名书籍已存在' });
+    }
+    logger.error('library upload failed', { msg: e.message });
+    res.status(500).json({ ok: false, msg: e.message });
+  }
 });
 
 // ═══════════════════ 本地书库 API (Legado 书源兼容) ═══════════════════

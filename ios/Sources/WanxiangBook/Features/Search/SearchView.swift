@@ -824,9 +824,8 @@ final class SearchViewModel: ObservableObject {
         SourceHealthChecker.shared.cancelHealthCheck()
         let rawSources = await waitForSources(timeoutSec: 3)
         // 万象书屋 (M2.8): 按历史成功率 + 平均响应时间排序源, 让稳定快的源先返结果.
-        // 84 源里很多反爬/死站, 没排序时用户得等所有源 timeout. 排序后头几条结果
-        // 通常是历史好源, 用户感知速度显著提升.
         var sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
+            .filter { $0.bookSourceUrl != "https://www.wxsw.app" }
         sources = Array(sources.prefix(BookSourceEngine.maxSearchSourceCount))
         activeSources = sources
 
@@ -837,6 +836,15 @@ final class SearchViewModel: ObservableObject {
             return
         }
 
+        // 搜索超时保护: 6 秒后若仍无结果，结束加载状态让 UI 显示"无结果"
+        let timeoutGen = generation
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if self.searchGeneration == timeoutGen && self.isSearching && self.results.isEmpty {
+                self.isSearching = false
+            }
+        }
+
         currentTask = Task {
             DebugSessionLog.logDevice(
                 location: "SearchVM.searchTask",
@@ -844,7 +852,7 @@ final class SearchViewModel: ObservableObject {
                 hypothesisId: "CRASH-A",
                 data: ["key": key, "sourceCount": sources.count]
             )
-            let stream = await BookSourceEngine.shared.searchAll(in: sources, key: key)
+            let stream = await BookSourceEngine.shared.searchAll(in: sources, key: key, perSourceTimeoutSec: 10)
             var hitSourceCount = 0
             for await (source, result) in stream {
                 if Task.isCancelled || generation != self.searchGeneration { break }

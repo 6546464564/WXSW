@@ -495,8 +495,11 @@
 
             <section>
                 <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-lg font-bold text-stone-700">内容缓存 <span id="ccBadge" class="text-sm text-stone-500"></span></h2>
-                    <button onclick="loadContentCache()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-1.5 rounded">刷新</button>
+                    <h2 class="text-lg font-bold text-stone-700">书库管理 <span id="ccBadge" class="text-sm text-stone-500"></span></h2>
+                    <div class="flex gap-2">
+                        <button onclick="uploadTxtBook()" class="text-sm bg-amber-700 hover:bg-amber-800 text-white px-3 py-1.5 rounded">上传 TXT</button>
+                        <button onclick="loadContentCache()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-1.5 rounded">刷新</button>
+                    </div>
                 </div>
                 <div id="ccStats" class="grid grid-cols-3 gap-3 mb-3">
                     <div class="bg-white rounded-xl shadow p-4 text-center">
@@ -512,24 +515,56 @@
                         <div class="text-xs text-stone-500">总大小</div>
                     </div>
                 </div>
+                <!-- 分类标签 -->
+                <div class="flex gap-2 mb-3" id="ccTabs">
+                    <button onclick="setCcTab('all')" class="cc-tab text-sm px-3 py-1.5 rounded-full border" data-tab="all">全部</button>
+                    <button onclick="setCcTab('完本')" class="cc-tab text-sm px-3 py-1.5 rounded-full border" data-tab="完本">完本</button>
+                    <button onclick="setCcTab('连载')" class="cc-tab text-sm px-3 py-1.5 rounded-full border" data-tab="连载">连载</button>
+                    <button onclick="setCcTab('pending')" class="cc-tab text-sm px-3 py-1.5 rounded-full border" data-tab="pending">待下载</button>
+                </div>
+                <!-- 搜索/排序/分页 -->
+                <div class="flex items-center gap-3 mb-3">
+                    <input id="ccSearch" type="text" placeholder="搜索书名/作者…"
+                        class="flex-1 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/40"
+                        oninput="filterLibrary()">
+                    <select id="ccSort" class="px-3 py-2 border border-stone-300 rounded-lg text-sm" onchange="filterLibrary()">
+                        <option value="id-desc">最新入库</option>
+                        <option value="id-asc">最早入库</option>
+                        <option value="title-asc">书名 A→Z</option>
+                        <option value="title-desc">书名 Z→A</option>
+                        <option value="chapters-desc">章节最多</option>
+                        <option value="chapters-asc">章节最少</option>
+                    </select>
+                    <span id="ccPageInfo" class="text-xs text-stone-500 whitespace-nowrap"></span>
+                </div>
                 <div class="bg-white rounded-xl shadow overflow-hidden">
-                    <div class="max-h-[500px] overflow-y-auto scrollbar-thin">
+                    <div class="max-h-[600px] overflow-y-auto scrollbar-thin">
                         <table class="w-full text-sm">
                             <thead class="bg-stone-100 text-stone-600 text-xs sticky top-0">
                                 <tr>
-                                    <th class="px-4 py-3 text-left w-12"></th>
-                                    <th class="px-4 py-3 text-left">书名 / 作者</th>
-                                    <th class="px-4 py-3 text-right">章节</th>
-                                    <th class="px-4 py-3 text-right">大小</th>
-                                    <th class="px-4 py-3 text-right">命中</th>
-                                    <th class="px-4 py-3 text-left">更新</th>
-                                    <th class="px-4 py-3 text-left">操作</th>
+                                    <th class="px-3 py-3 text-left w-8"><input type="checkbox" id="ccCheckAll" onclick="toggleAllLibrary(this)"></th>
+                                    <th class="px-3 py-3 text-left">书名 / 作者</th>
+                                    <th class="px-3 py-3 text-right">章节</th>
+                                    <th class="px-3 py-3 text-right">状态</th>
+                                    <th class="px-3 py-3 text-left">入库时间</th>
+                                    <th class="px-3 py-3 text-left">操作</th>
                                 </tr>
                             </thead>
                             <tbody id="ccBody">
-                                <tr><td colspan="7" class="px-4 py-8 text-center text-stone-400">暂无缓存数据</td></tr>
+                                <tr><td colspan="6" class="px-4 py-8 text-center text-stone-400">暂无缓存数据</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+                <!-- 分页 + 批量操作 -->
+                <div class="flex items-center justify-between mt-3">
+                    <div class="flex gap-2">
+                        <button onclick="batchDeleteLibrary()" class="text-sm bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded hidden" id="ccBatchDel">批量删除</button>
+                    </div>
+                    <div class="flex gap-2 items-center">
+                        <button onclick="ccPagePrev()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-1.5 rounded" id="ccPrev">上一页</button>
+                        <span id="ccPageNum" class="text-sm text-stone-600"></span>
+                        <button onclick="ccPageNext()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-1.5 rounded" id="ccNext">下一页</button>
                     </div>
                 </div>
             </section>
@@ -683,6 +718,7 @@
             loadFeedback();
             loadPromoCodes();
             loadContentCache();
+            setCcTab('all');
             // 自动刷新统计
             setInterval(loadStats, 30 * 1000);
         }
@@ -1822,50 +1858,191 @@
             return d.toLocaleDateString('zh-CN') + ' ' + d.toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'});
         }
 
+        let ccAllBooks = [];
+        let ccPage = 1;
+        const ccPerPage = 50;
+        let ccActiveTab = 'all';
+
+        function setCcTab(tab) {
+            ccActiveTab = tab;
+            ccPage = 1;
+            document.querySelectorAll('.cc-tab').forEach(el => {
+                const active = el.dataset.tab === tab;
+                el.className = `cc-tab text-sm px-3 py-1.5 rounded-full border ${active ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`;
+            });
+            filterLibrary();
+        }
+
         async function loadContentCache() {
             try {
                 const [statsR, booksR] = await Promise.all([
-                    apiGet('/api/admin/content-cache/stats'),
-                    apiGet('/api/admin/content-cache/books?limit=200')
+                    apiGet('/api/admin/cache/stats'),
+                    apiGet('/api/admin/cache/books')
                 ]);
-                if (statsR.ok) {
-                    document.getElementById('cc-books').textContent = statsR.books || 0;
-                    document.getElementById('cc-chapters').textContent = statsR.chapters || 0;
-                    document.getElementById('cc-size').textContent = formatBytes(statsR.total_bytes || 0);
-                    document.getElementById('ccBadge').textContent = `(${statsR.books || 0} 本 / ${statsR.chapters || 0} 章)`;
+                if (statsR.ok && statsR.stats) {
+                    const s = statsR.stats;
+                    document.getElementById('cc-books').textContent = s.total_books || 0;
+                    document.getElementById('cc-chapters').textContent = s.total_cached_chapters || 0;
+                    const words = s.total_words || 0;
+                    document.getElementById('cc-size').textContent = words > 10000 ? (words / 10000).toFixed(0) + '万字' : words + '字';
+                    document.getElementById('ccBadge').textContent = `(${s.done_books || 0} 本已完成)`;
                 }
                 if (booksR.ok && booksR.books) {
-                    const tbody = document.getElementById('ccBody');
-                    if (booksR.books.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-stone-400">暂无缓存数据</td></tr>';
-                        return;
-                    }
-                    tbody.innerHTML = booksR.books.map(b => {
-                        const cover = b.cover_url ? `<img src="${esc(b.cover_url)}" class="w-10 h-14 object-cover rounded" onerror="this.style.display='none'">` : `<div class="w-10 h-14 bg-stone-200 rounded flex items-center justify-center text-stone-400 text-xs">无</div>`;
-                        const introSnip = b.intro ? `<div class="text-xs text-stone-400 mt-0.5 truncate max-w-[200px]">${esc(b.intro.slice(0,60))}</div>` : '';
-                        const catBadge = b.category ? `<span class="text-xs bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded ml-1">${esc(b.category)}</span>` : '';
-                        const wcBadge = b.word_count ? `<span class="text-xs text-stone-400 ml-1">${esc(b.word_count)}</span>` : '';
-                        return `<tr class="border-t border-stone-100 hover:bg-stone-50">
-                        <td class="px-3 py-2">${cover}</td>
-                        <td class="px-3 py-2">
-                            <div class="font-medium">${esc(b.book_title)}${catBadge}${wcBadge}</div>
-                            <div class="text-xs text-stone-500">${esc(b.book_author || '未知')}</div>
-                            ${introSnip}
-                        </td>
-                        <td class="px-3 py-2 text-right">${b.chapter_count}</td>
-                        <td class="px-3 py-2 text-right">${formatBytes(b.total_bytes)}</td>
-                        <td class="px-3 py-2 text-right">${b.total_hits || 0}</td>
-                        <td class="px-3 py-2 text-stone-500 text-xs">${fmtTime(b.last_updated)}</td>
-                        <td class="px-3 py-2">
-                            <button onclick="viewBookChapters('${esc(b.book_title).replace(/'/g,"\\'")}','${esc(b.book_author||'').replace(/'/g,"\\'")}')"
-                                class="text-xs text-amber-700 hover:text-amber-900 underline">查看</button>
-                        </td>
-                    </tr>`;
-                    }).join('');
+                    ccAllBooks = booksR.books;
+                    ccPage = 1;
+                    filterLibrary();
                 }
             } catch (e) {
                 console.error('loadContentCache', e);
             }
+        }
+
+        function filterLibrary() {
+            const q = (document.getElementById('ccSearch').value || '').trim().toLowerCase();
+            const sortVal = document.getElementById('ccSort').value;
+            let list = ccAllBooks;
+            if (ccActiveTab === '完本') list = list.filter(b => b.category === '完本');
+            else if (ccActiveTab === '连载') list = list.filter(b => b.category === '连载' || (b.category !== '完本' && b.status === 'done'));
+            else if (ccActiveTab === 'pending') list = list.filter(b => b.status === 'pending' || b.status === 'downloading');
+            if (q) list = list.filter(b => (b.title || '').toLowerCase().includes(q) || (b.author || '').toLowerCase().includes(q));
+            list = [...list];
+            switch (sortVal) {
+                case 'id-desc': list.sort((a, b) => b.id - a.id); break;
+                case 'id-asc': list.sort((a, b) => a.id - b.id); break;
+                case 'title-asc': list.sort((a, b) => (a.title || '').localeCompare(b.title || '')); break;
+                case 'title-desc': list.sort((a, b) => (b.title || '').localeCompare(a.title || '')); break;
+                case 'chapters-desc': list.sort((a, b) => (b.cached_chapters || 0) - (a.cached_chapters || 0)); break;
+                case 'chapters-asc': list.sort((a, b) => (a.cached_chapters || 0) - (b.cached_chapters || 0)); break;
+            }
+            const total = list.length;
+            const pages = Math.max(1, Math.ceil(total / ccPerPage));
+            if (ccPage > pages) ccPage = pages;
+            const start = (ccPage - 1) * ccPerPage;
+            const slice = list.slice(start, start + ccPerPage);
+            document.getElementById('ccPageNum').textContent = `${ccPage} / ${pages}`;
+            document.getElementById('ccPageInfo').textContent = `共 ${total} 本`;
+            document.getElementById('ccPrev').disabled = ccPage <= 1;
+            document.getElementById('ccNext').disabled = ccPage >= pages;
+            renderLibraryTable(slice);
+        }
+
+        function renderLibraryTable(books) {
+            const tbody = document.getElementById('ccBody');
+            if (!books.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-stone-400">无匹配结果</td></tr>';
+                return;
+            }
+            tbody.innerHTML = books.map(b => {
+                const statusBadge = b.status === 'done' ? '<span class="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">完成</span>' :
+                    b.status === 'pending' ? '<span class="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">待下载</span>' :
+                    `<span class="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">${esc(b.status)}</span>`;
+                return `<tr class="border-t border-stone-100 hover:bg-stone-50">
+                    <td class="px-3 py-2"><input type="checkbox" class="cc-check" data-id="${b.id}" onchange="updateBatchBtn()"></td>
+                    <td class="px-3 py-2">
+                        <div class="font-medium text-sm">${esc(b.title)}</div>
+                        <div class="text-xs text-stone-500">${esc(b.author || '未知')}</div>
+                    </td>
+                    <td class="px-3 py-2 text-right text-sm">${b.cached_chapters}</td>
+                    <td class="px-3 py-2 text-right">${statusBadge}</td>
+                    <td class="px-3 py-2 text-stone-500 text-xs">${fmtTime(b.created_at)}</td>
+                    <td class="px-3 py-2">
+                        <button onclick="viewLibraryBook(${b.id},'${esc(b.title).replace(/'/g,"\\'")}')"
+                            class="text-xs text-amber-700 hover:text-amber-900 underline">查看</button>
+                        <button onclick="deleteLibraryBook(${b.id},'${esc(b.title).replace(/'/g,"\\'")}')"
+                            class="text-xs text-red-600 hover:text-red-800 underline ml-2">删除</button>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function ccPagePrev() { if (ccPage > 1) { ccPage--; filterLibrary(); } }
+        function ccPageNext() { ccPage++; filterLibrary(); }
+
+        function toggleAllLibrary(el) {
+            document.querySelectorAll('.cc-check').forEach(c => c.checked = el.checked);
+            updateBatchBtn();
+        }
+        function updateBatchBtn() {
+            const checked = document.querySelectorAll('.cc-check:checked').length;
+            const btn = document.getElementById('ccBatchDel');
+            btn.classList.toggle('hidden', checked === 0);
+            btn.textContent = `批量删除 (${checked})`;
+        }
+        async function batchDeleteLibrary() {
+            const ids = [...document.querySelectorAll('.cc-check:checked')].map(c => parseInt(c.dataset.id));
+            if (!ids.length) return;
+            if (!confirm(`确定删除选中的 ${ids.length} 本书？此操作不可恢复。`)) return;
+            let ok = 0, fail = 0;
+            for (const id of ids) {
+                try {
+                    const r = await fetch(`/api/admin/cache/books/${id}`, { method: 'DELETE', credentials: 'include' });
+                    const j = await r.json();
+                    if (j.ok) ok++; else fail++;
+                } catch { fail++; }
+            }
+            alert(`删除完成: 成功 ${ok}, 失败 ${fail}`);
+            loadContentCache();
+        }
+
+        async function uploadTxtBook() {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.txt';
+            fileInput.multiple = true;
+            fileInput.onchange = async () => {
+                const files = fileInput.files;
+                if (!files.length) return;
+                let ok = 0, fail = 0;
+                for (const file of files) {
+                    const name = file.name.replace('.txt', '');
+                    const parts = name.split(' - ');
+                    const title = files.length === 1 ? prompt('书名:', parts[0] || '') : parts[0] || name;
+                    if (!title) continue;
+                    const author = files.length === 1 ? prompt('作者:', parts[1] || '') : (parts[1] || '');
+                    const fd = new FormData();
+                    fd.append('file', file);
+                    fd.append('title', title);
+                    fd.append('author', author || '');
+                    fd.append('category', '完本');
+                    try {
+                        const r = await fetch('/api/admin/library/upload', { method: 'POST', body: fd, credentials: 'include' });
+                        const j = await r.json();
+                        if (j.ok) ok++; else fail++;
+                    } catch { fail++; }
+                }
+                alert(files.length === 1 ? (ok ? '上传成功' : '上传失败') : `完成: 成功 ${ok}, 失败 ${fail}`);
+                if (ok) loadContentCache();
+            };
+            fileInput.click();
+        }
+
+        async function viewLibraryBook(bookId, title) {
+            document.getElementById('chapterDetailTitle').textContent = title;
+            document.getElementById('chapterDetailBody').innerHTML = '<div class="text-stone-400">加载中…</div>';
+            document.getElementById('modalChapterDetail').classList.remove('hidden');
+            try {
+                const r = await apiGet(`/api/cache/books/${bookId}/chapters`);
+                if (!r.ok || !r.chapters || r.chapters.length === 0) {
+                    document.getElementById('chapterDetailBody').innerHTML = '<div class="text-stone-400">暂无章节</div>';
+                    return;
+                }
+                document.getElementById('chapterDetailBody').innerHTML = r.chapters.map(ch => `
+                    <div class="py-1.5 px-2 border-b border-stone-100 text-sm flex justify-between">
+                        <span>${esc(ch.title)}</span>
+                        <span class="text-stone-400 text-xs">${ch.wordCount || 0}字</span>
+                    </div>
+                `).join('');
+            } catch(e) { document.getElementById('chapterDetailBody').innerHTML = '<div class="text-red-500">加载失败</div>'; }
+        }
+
+        async function deleteLibraryBook(bookId, title) {
+            if (!confirm(`确定删除《${title}》？此操作不可恢复。`)) return;
+            try {
+                const r = await fetch(`/api/admin/cache/books/${bookId}`, { method: 'DELETE', credentials: 'include' });
+                const j = await r.json();
+                alert(j.ok ? '已删除' : ('失败: ' + j.msg));
+                if (j.ok) loadContentCache();
+            } catch (e) { alert('删除失败: ' + e.message); }
         }
 
         async function viewBookChapters(title, author) {
