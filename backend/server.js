@@ -898,6 +898,20 @@ app.get('/api/admin/promo/fraud', requireAdmin, (req, res) => res.json({ ok: tru
 
 // ═══════════════════ 书籍缓存 API ═══════════════════
 
+// --- 公开: App 搜索书库 ---
+app.get('/api/cache/search', rateLimitSources, (req, res) => {
+  const keyword = (req.query.keyword || req.query.key || '').trim();
+  if (!keyword) return res.status(400).json({ ok: false, msg: 'keyword required' });
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+  const results = db.searchCachedBooks(keyword, limit).map(b => ({
+    id: b.id, qidianId: b.qidian_id, title: b.title, author: b.author,
+    category: b.category, coverUrl: b.cover_url, intro: b.intro,
+    totalChapters: b.total_chapters, cachedChapters: b.cached_chapters,
+  }));
+  res.set('Cache-Control', 'public, max-age=60');
+  res.json({ ok: true, count: results.length, books: results });
+});
+
 // --- 公开: App 获取缓存书籍列表 ---
 app.get('/api/cache/books', rateLimitSources, (req, res) => {
   const status = req.query.status || 'done';
@@ -978,6 +992,51 @@ app.post('/api/admin/cache/books/:id/reset', requireAdmin, requireRole(['super',
   res.json({ ok: true, msg: `book ${bookId} reset to pending` });
 });
 
+// ═══════════════════ 本地书库 API (Legado 书源兼容) ═══════════════════
+
+app.get('/api/library/search', rateLimitSources, (req, res) => {
+  const keyword = (req.query.keyword || '').trim();
+  if (!keyword) return res.json({ books: [] });
+  const rows = db.searchCachedBooks(keyword);
+  const books = rows.map(b => ({
+    id: b.id,
+    title: b.title,
+    author: b.author,
+    category: b.category,
+    coverUrl: b.cover_url || '',
+    intro: (b.intro || '').slice(0, 200),
+    totalChapters: b.total_chapters,
+    bookUrl: `/api/library/toc/${b.id}`,
+  }));
+  res.json({ books });
+});
+
+app.get('/api/library/toc/:id', rateLimitSources, (req, res) => {
+  const bookId = parseInt(req.params.id, 10);
+  if (!bookId) return res.status(400).json({ chapters: [] });
+  const book = db.getCachedBook(bookId);
+  if (!book) return res.status(404).json({ chapters: [] });
+  const chapters = db.listCachedChapters(bookId)
+    .filter(ch => ch.status === 'done')
+    .map(ch => ({
+      title: ch.title,
+      url: `/api/library/content/${bookId}/${ch.chapter_idx}`,
+    }));
+  res.json({ title: book.title, author: book.author, coverUrl: book.cover_url, chapters });
+});
+
+app.get('/api/library/content/:bookId/:idx', rateLimitSources, (req, res) => {
+  const bookId = parseInt(req.params.bookId, 10);
+  const idx = parseInt(req.params.idx, 10);
+  if (!Number.isFinite(bookId) || !Number.isFinite(idx)) {
+    return res.status(400).json({ content: '' });
+  }
+  const row = db.getCachedChapterContent(bookId, idx);
+  if (!row || !row.content) return res.status(404).json({ content: '' });
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.json({ content: row.content });
+});
+
 // ═══════════════════ 静态文件 + 兜底 ═══════════════════
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -995,7 +1054,45 @@ app.use((err, req, res, next) => {
 // ═══════════════════ 启动 ═══════════════════
 
 let server = null;
+
+function ensureLibrarySource() {
+  const LIBRARY_SOURCE_URL = process.env.PUBLIC_URL || 'https://www.wxsw.app';
+  const sourceJson = {
+    bookSourceUrl: LIBRARY_SOURCE_URL,
+    bookSourceName: '万象书库',
+    bookSourceGroup: '本地',
+    bookSourceType: 0,
+    bookSourceComment: '服务端本地书库，收录已缓存的完整书籍，加载速度最快',
+    enabled: true,
+    enabledExplore: false,
+    searchUrl: '/api/library/search?keyword={{key}}',
+    ruleSearch: {
+      bookList: '$.books',
+      name: '$.title',
+      author: '$.author',
+      coverUrl: '$.coverUrl',
+      intro: '$.intro',
+      kind: '$.category',
+      bookUrl: '$.bookUrl',
+    },
+    ruleToc: {
+      chapterList: '$.chapters',
+      chapterName: '$.title',
+      chapterUrl: '$.url',
+    },
+    ruleContent: {
+      content: '$.content',
+    },
+    weight: 100,
+  };
+  if (!db.getSource(LIBRARY_SOURCE_URL)) {
+    db.upsertSource(sourceJson);
+    logger.info('library source registered', { url: LIBRARY_SOURCE_URL });
+  }
+}
+
 function start() {
+  ensureLibrarySource();
   server = app.listen(PORT, () => {
     logger.info('backend listening', { port: PORT, admin: `http://0.0.0.0:${PORT}/admin` });
   });

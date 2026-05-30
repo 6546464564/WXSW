@@ -395,6 +395,19 @@ public final class ReaderEngine: ObservableObject {
                         return result.content
                     }
                 }
+                // 1.5 书库模式 — 从后端缓存 API 读取
+                if let chapterUrl = chapters[safe: index]?.chapterUrl,
+                   chapterUrl.hasPrefix("wanxiang://library/book/") {
+                    let parts = chapterUrl.components(separatedBy: "/")
+                    if let bookIdStr = parts[safe: 4], let bookId = Int(bookIdStr),
+                       let idxStr = parts[safe: 6], let chIdx = Int(idxStr) {
+                        let resp = try await WanxiangAPI.shared.fetchLibraryContent(bookId: bookId, chapterIdx: chIdx)
+                        try? await ChapterRepository.shared.saveContent(
+                            bookUrl: book.bookUrl, chapterIndex: index, content: resp.content
+                        )
+                        return resp.content
+                    }
+                }
                 // 2. 远端 — 没源/没章就报真错, 不返伪正文 (P1 fix)
                 guard let s = source else {
                     throw NSError(domain: "Reader", code: 11,

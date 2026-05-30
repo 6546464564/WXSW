@@ -934,6 +934,29 @@ final class BookDetailViewModel: ObservableObject {
             self.infoError = nil
             self.tocError = nil
 
+            // 书库模式: 从后端缓存 API 加载目录
+            if book.origin == "wanxiang://library",
+               let idStr = book.bookUrl.components(separatedBy: "/").last,
+               let bookId = Int(idStr) {
+                self.isLoadingDetail = false
+                do {
+                    let libChapters = try await WanxiangAPI.shared.fetchLibraryChapters(bookId: bookId)
+                    if Task.isCancelled { return }
+                    self.chapters = libChapters.compactMap { ch in
+                        guard ch.status == "done" else { return nil }
+                        return BookChapter(
+                            chapterIndex: ch.idx,
+                            chapterUrl: "wanxiang://library/book/\(bookId)/chapter/\(ch.idx)",
+                            title: ch.title
+                        )
+                    }
+                } catch {
+                    self.tocError = "书库目录加载失败"
+                }
+                self.isLoadingToc = false
+                return
+            }
+
             // Step A: SQLite toc cache 优先 — 已加架 / 之前打开过的书 0.05s 命中
             if let cached = try? await ChapterRepository.shared.loadToc(bookUrl: book.bookUrl),
                !cached.isEmpty {

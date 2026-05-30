@@ -409,6 +409,43 @@ actor WanxiangAPI {
         return nil
         #endif
     }
+
+    // MARK: - 书库 (本地缓存源)
+
+    struct LibraryBook: Decodable, Sendable {
+        let id: Int
+        let qidianId: String?
+        let title: String
+        let author: String
+        let category: String?
+        let coverUrl: String?
+        let intro: String?
+        let totalChapters: Int
+        let cachedChapters: Int
+    }
+
+    struct LibrarySearchResponse: Decodable { let ok: Bool; let count: Int; let books: [LibraryBook] }
+    struct LibraryChapter: Decodable, Sendable { let idx: Int; let title: String; let wordCount: Int; let status: String }
+    struct LibraryChaptersResponse: Decodable { let ok: Bool; let bookId: Int; let title: String; let chapters: [LibraryChapter] }
+    struct LibraryContentResponse: Decodable { let ok: Bool; let bookId: Int; let idx: Int; let title: String; let wordCount: Int; let content: String }
+
+    func searchLibrary(keyword: String) async throws -> [LibraryBook] {
+        let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        let r = request(path: "/api/cache/search?keyword=\(encoded)")
+        let resp = try await send(r, as: LibrarySearchResponse.self)
+        return resp.books
+    }
+
+    func fetchLibraryChapters(bookId: Int) async throws -> [LibraryChapter] {
+        let r = request(path: "/api/cache/books/\(bookId)/chapters")
+        let resp = try await send(r, as: LibraryChaptersResponse.self)
+        return resp.chapters
+    }
+
+    func fetchLibraryContent(bookId: Int, chapterIdx: Int) async throws -> LibraryContentResponse {
+        let r = request(path: "/api/cache/books/\(bookId)/chapters/\(chapterIdx)")
+        return try await send(r, as: LibraryContentResponse.self)
+    }
 }
 
 // MARK: - 错误类型

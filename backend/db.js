@@ -371,11 +371,13 @@ module.exports = {
   upsertAnnouncement: appVersionModel.upsertAnnouncement,
   deleteAnnouncement: appVersionModel.deleteAnnouncement,
   // book cache
+  searchCachedBooks: bookCacheModel.searchBooks,
   insertCachedBook: bookCacheModel.insertBook,
   bulkInsertCachedBooks: bookCacheModel.bulkInsertBooks,
   getCachedBook: bookCacheModel.getBook,
   getCachedBookByQidianId: bookCacheModel.getBookByQidianId,
   getCachedBookByTitle: bookCacheModel.getBookByTitle,
+  searchCachedBooks: bookCacheModel.searchBooks,
   listCachedBooks: bookCacheModel.listBooks,
   nextPendingBook: bookCacheModel.nextPendingBook,
   updateCachedBookSource: bookCacheModel.updateBookSource,

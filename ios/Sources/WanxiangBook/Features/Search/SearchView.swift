@@ -791,15 +791,36 @@ final class SearchViewModel: ObservableObject {
         // 1. 入历史
         addToHistory(key)
 
-        // 2. 拉本地缓存的源 + 熔断过滤.
-        //    万象书屋 (M2.4 perf): deeplink 跳过 splash 后, App 启动 1-2s 内
-        //    BookSourceRegistry.bootstrap 还在拉源, enabledSources 此刻可能是空.
-        //    死等 sources ready 最多 3s (bootstrap 通常 1s 内完成), 避免 search 立刻
-        //    return 0 条把 UI 打到 empty state.
+        // 2. 优先搜索后端书库
         results = []
         errors = []
         dedupeRowIndex.removeAll()
         isSearching = true
+
+        if let libraryResults = try? await WanxiangAPI.shared.searchLibrary(keyword: key), !libraryResults.isEmpty {
+            var batchResults = self.results
+            var batchDedupe = self.dedupeRowIndex
+            for lb in libraryResults {
+                let book = SearchBook(
+                    origin: "wanxiang://library",
+                    originName: "书库",
+                    name: lb.title,
+                    author: lb.author,
+                    bookUrl: "wanxiang://library/book/\(lb.id)",
+                    coverUrl: lb.coverUrl,
+                    intro: lb.intro,
+                    kind: lb.category,
+                    wordCount: lb.totalChapters > 0 ? "\(lb.totalChapters)章" : nil
+                )
+                let dk = book.dedupeKey
+                batchDedupe[dk] = batchResults.count
+                batchResults.append(book)
+            }
+            self.results = batchResults
+            self.dedupeRowIndex = batchDedupe
+        }
+
+        // 3. 拉本地缓存的源 + 熔断过滤.
         SourceHealthChecker.shared.cancelHealthCheck()
         let rawSources = await waitForSources(timeoutSec: 3)
         // 万象书屋 (M2.8): 按历史成功率 + 平均响应时间排序源, 让稳定快的源先返结果.
