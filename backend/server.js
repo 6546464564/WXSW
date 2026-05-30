@@ -118,6 +118,7 @@ app.use('/api/', cors({ origin: false, credentials: false }));
 // body parser (路径级分流)
 const largeBodyRoutes = new Set([
   'POST /api/admin/sources',
+  'POST /api/content-cache',
 ]);
 app.use((req, res, next) => {
   const key = req.method + ' ' + req.path;
@@ -299,6 +300,49 @@ app.post('/api/source-error', rateLimitSourceError, blockBlacklistedDevice, veri
   } catch (e) {
     res.status(400).json({ ok: false, msg: e.message || 'invalid source error' });
   }
+});
+
+// --- 书籍正文内容缓存 ---
+app.get('/api/content-cache', rateLimitSources, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
+  const title = (req.query.title || '').trim();
+  const author = (req.query.author || '').trim();
+  const chapterIndex = parseInt(req.query.chapterIndex, 10);
+  if (!title) return res.status(400).json({ ok: false, msg: 'title required' });
+  if (!Number.isFinite(chapterIndex) || chapterIndex < 0) return res.status(400).json({ ok: false, msg: 'valid chapterIndex required' });
+  const row = db.getContentCache(title, author, chapterIndex);
+  if (!row) return res.json({ ok: true, hit: false });
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.json({ ok: true, hit: true, chapter_title: row.chapter_title, content: row.content });
+});
+app.post('/api/content-cache', rateLimitSourceError, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
+  const chapters = req.body && req.body.chapters;
+  if (!Array.isArray(chapters) || chapters.length === 0) return res.status(400).json({ ok: false, msg: 'chapters array required' });
+  const capped = chapters.slice(0, 20);
+  const upserted = db.bulkUpsertContentCache(capped);
+  // 同步元数据到 book_metadata 表
+  const meta = req.body.metadata;
+  if (meta && meta.title) {
+    try { db.upsertMetadata(meta); } catch {}
+  }
+  res.json({ ok: true, upserted });
+});
+
+// --- 书籍元数据缓存 (Cache-on-Search) ---
+app.get('/api/search-cache', rateLimitSources, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
+  const keyword = (req.query.keyword || '').trim();
+  if (!keyword || keyword.length < 1) return res.status(400).json({ ok: false, msg: 'keyword required' });
+  if (keyword.length > 100) return res.status(400).json({ ok: false, msg: 'keyword too long' });
+  const limit = Math.max(1, Math.min(50, parseInt(req.query.limit, 10) || 20));
+  const results = db.searchMetadataCache(keyword, limit);
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json({ ok: true, count: results.length, results });
+});
+app.post('/api/search-cache', rateLimitSourceError, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
+  const books = req.body && req.body.books;
+  if (!Array.isArray(books) || books.length === 0) return res.status(400).json({ ok: false, msg: 'books array required' });
+  const capped = books.slice(0, 50);
+  const upserted = db.bulkUpsertMetadata(capped);
+  res.json({ ok: true, upserted });
 });
 
 // --- 书城 mirror ---
@@ -847,6 +891,42 @@ app.post('/api/admin/backup/now', requireAdmin, requireRole(['super']), async (r
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+
+// --- admin 缓存统计 ---
+app.get('/api/admin/metadata/stats', requireAdmin, (req, res) => {
+  const total = db.metadataCount();
+  const hot = db.topHotMetadata(10);
+  res.json({ ok: true, total, topHot: hot });
+});
+app.get('/api/admin/content-cache/stats', requireAdmin, (req, res) => {
+  const s = db.contentCacheStats();
+  res.json({ ok: true, ...s });
+});
+app.get('/api/admin/content-cache/books', requireAdmin, (req, res) => {
+  const limit = Math.max(10, Math.min(500, parseInt(req.query.limit, 10) || 100));
+  const books = db.contentCacheListBooks(limit);
+  const enriched = books.map(b => {
+    const metas = db.searchMetadataCache(b.book_title, 1);
+    const meta = metas.find(m => m.author === (b.book_author || ''));
+    return {
+      ...b,
+      cover_url: meta?.cover_url || null,
+      intro: meta?.intro || null,
+      category: meta?.category || null,
+      word_count: meta?.word_count || null,
+    };
+  });
+  res.json({ ok: true, books: enriched });
+});
+app.get('/api/admin/content-cache/chapters', requireAdmin, (req, res) => {
+  const title = (req.query.title || '').trim();
+  const author = (req.query.author || '').trim();
+  if (!title) return res.status(400).json({ ok: false, msg: 'title required' });
+  const limit = Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 50));
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const chapters = db.contentCacheGetChapterContent(title, author, limit, offset);
+  res.json({ ok: true, chapters });
+});
 
 // --- admin 反馈 ---
 app.get('/api/admin/feedback', requireAdmin, (req, res) => {

@@ -385,6 +385,88 @@ actor WanxiangAPI {
         return dict?["ok"] as? Bool ?? false
     }
 
+    // MARK: - 搜索缓存 (Cache-on-Search)
+
+    struct CachedBookMeta: Decodable {
+        let title: String
+        let author: String
+        let cover_url: String?
+        let intro: String?
+        let category: String?
+        let word_count: String?
+        let last_chapter: String?
+        let search_count: Int?
+    }
+
+    func searchCache(keyword: String, limit: Int = 20) async -> [CachedBookMeta] {
+        let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        let r = request(path: "/api/search-cache?keyword=\(encoded)&limit=\(limit)")
+        do {
+            struct Resp: Decodable { let ok: Bool; let results: [CachedBookMeta] }
+            let resp = try await send(r, as: Resp.self)
+            return resp.ok ? resp.results : []
+        } catch {
+            return []
+        }
+    }
+
+    nonisolated func reportSearchResults(_ books: [SearchBook]) {
+        guard !books.isEmpty else { return }
+        var r = request(path: "/api/search-cache", method: "POST")
+        let payload: [[String: Any]] = books.prefix(30).map { b in
+            var d: [String: Any] = ["title": b.name, "author": b.author]
+            if let c = b.coverUrl, !c.isEmpty { d["cover_url"] = c }
+            if let i = b.intro, !i.isEmpty { d["intro"] = String(i.prefix(500)) }
+            if let w = b.wordCount, !w.isEmpty { d["word_count"] = w }
+            if let l = b.lastChapter, !l.isEmpty { d["last_chapter"] = l }
+            if let k = b.kind, !k.isEmpty { d["category"] = k }
+            return d
+        }
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["books": payload])
+        sendIgnoreResult(r)
+    }
+
+    // MARK: - 正文内容缓存
+
+    func fetchContentCache(bookTitle: String, bookAuthor: String, chapterIndex: Int) async -> String? {
+        let t = bookTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? bookTitle
+        let a = bookAuthor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? bookAuthor
+        let r = request(path: "/api/content-cache?title=\(t)&author=\(a)&chapterIndex=\(chapterIndex)")
+        do {
+            struct Resp: Decodable { let ok: Bool; let hit: Bool; let content: String? }
+            let resp = try await send(r, as: Resp.self)
+            return (resp.ok && resp.hit) ? resp.content : nil
+        } catch {
+            return nil
+        }
+    }
+
+    nonisolated func reportContentCache(bookTitle: String, bookAuthor: String,
+                                        chapters: [(index: Int, title: String, content: String)],
+                                        coverUrl: String? = nil, intro: String? = nil,
+                                        kind: String? = nil, wordCount: String? = nil) {
+        guard !chapters.isEmpty else { return }
+        var r = request(path: "/api/content-cache", method: "POST")
+        let chPayload: [[String: Any]] = chapters.prefix(10).map { ch in
+            [
+                "book_title": bookTitle,
+                "book_author": bookAuthor,
+                "chapter_index": ch.index,
+                "chapter_title": ch.title,
+                "content": ch.content
+            ]
+        }
+        var body: [String: Any] = ["chapters": chPayload]
+        var meta: [String: Any] = ["title": bookTitle, "author": bookAuthor]
+        if let c = coverUrl, !c.isEmpty { meta["cover_url"] = c }
+        if let i = intro, !i.isEmpty { meta["intro"] = String(i.prefix(500)) }
+        if let k = kind, !k.isEmpty { meta["category"] = k }
+        if let w = wordCount, !w.isEmpty { meta["word_count"] = w }
+        body["metadata"] = meta
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        sendIgnoreResult(r)
+    }
+
     // MARK: - Helpers
 
     private nonisolated static var userAgent: String {

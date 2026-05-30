@@ -246,6 +246,8 @@ const iapModel           = require('./models/iap');
 const promoModel         = require('./models/promo');
 const alertsModel        = require('./models/alerts');
 const appVersionModel    = require('./models/appVersion');
+const bookMetadataModel  = require('./models/bookMetadata');
+const bookContentCacheModel = require('./models/bookContentCache');
 
 sourcesModel.init(db);
 sourceHealthModel.init(db, sourcesModel);
@@ -259,6 +261,8 @@ iapModel.init(db);
 promoModel.init(db);
 alertsModel.init(db);
 appVersionModel.init(db);
+bookMetadataModel.init(db);
+bookContentCacheModel.init(db);
 
 // ─── 重导出（保持 require('./db') 接口完全兼容）──────────────
 
@@ -368,6 +372,21 @@ module.exports = {
   listAllAnnouncements: appVersionModel.listAllAnnouncements,
   upsertAnnouncement: appVersionModel.upsertAnnouncement,
   deleteAnnouncement: appVersionModel.deleteAnnouncement,
+  // book content cache
+  getContentCache: bookContentCacheModel.getContent,
+  getBookChaptersCache: bookContentCacheModel.getBookChapters,
+  upsertContentCache: bookContentCacheModel.upsertContent,
+  bulkUpsertContentCache: bookContentCacheModel.bulkUpsertContent,
+  contentCacheStats: bookContentCacheModel.stats,
+  contentCacheListBooks: bookContentCacheModel.listBooks,
+  contentCacheGetChapterContent: bookContentCacheModel.getChapterContent,
+  cleanupContentCache: bookContentCacheModel.cleanup,
+  // book metadata cache
+  searchMetadataCache: bookMetadataModel.searchCache,
+  upsertMetadata: bookMetadataModel.upsertMetadata,
+  bulkUpsertMetadata: bookMetadataModel.bulkUpsertMetadata,
+  topHotMetadata: bookMetadataModel.topHot,
+  metadataCount: bookMetadataModel.totalCount,
   // cleanup
   cleanupOldData,
   // raw db instance
