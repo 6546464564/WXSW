@@ -80,6 +80,28 @@ class SearchModel(private val scope: CoroutineScope, private val callBack: CallB
         val precision = appCtx.getPrefBoolean(PreferKey.precisionSearch)
         var hasMore = false
         searchJob = scope.launch(searchPool!!) {
+            // 优先搜索后端书库
+            runCatching {
+                val libraryResults = io.legado.app.help.WanxiangBackend.searchLibrary(searchKey)
+                if (libraryResults.isNotEmpty()) {
+                    val libBooks = libraryResults.map { lb ->
+                        SearchBook(
+                            bookUrl = "wanxiang://library/book/${lb.id}",
+                            origin = "wanxiang://library",
+                            originName = "书库",
+                            name = lb.title,
+                            author = lb.author,
+                            kind = lb.category,
+                            coverUrl = lb.coverUrl,
+                            intro = lb.intro,
+                            wordCount = if (lb.totalChapters > 0) "${lb.totalChapters}章" else null,
+                            tocUrl = "wanxiang://library/book/${lb.id}"
+                        )
+                    }
+                    mergeItems(libBooks, precision)
+                    callBack.onSearchSuccess(searchBooks)
+                }
+            }
             flow {
                 for (bs in bookSourceParts) {
                     bs.getBookSource()?.let {

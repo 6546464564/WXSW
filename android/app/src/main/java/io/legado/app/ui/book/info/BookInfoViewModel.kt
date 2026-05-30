@@ -240,6 +240,9 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
             val name = intent.getStringExtra("name") ?: ""
             val author = intent.getStringExtra("author") ?: ""
             val bookUrl = intent.getStringExtra("bookUrl") ?: ""
+            val coverUrl = intent.getStringExtra("coverUrl") ?: ""
+            val intro = intent.getStringExtra("intro") ?: ""
+            val kind = intent.getStringExtra("kind") ?: ""
             appDb.bookDao.getBook(name, author)?.let {
                 inBookshelf = !it.isNotShelf
                 upBook(it)
@@ -249,6 +252,23 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
                 appDb.bookDao.getBook(bookUrl)?.let {
                     inBookshelf = !it.isNotShelf
                     upBook(it)
+                    return@execute
+                }
+                // 书库模式: 直接构建 Book 对象
+                if (io.legado.app.help.WanxiangBackend.isLibraryBook(bookUrl)) {
+                    val book = Book(
+                        bookUrl = bookUrl,
+                        name = name,
+                        author = author,
+                        origin = "wanxiang://library",
+                        originName = "书库",
+                        coverUrl = coverUrl.ifBlank { null },
+                        intro = intro.ifBlank { null },
+                        kind = kind.ifBlank { null },
+                        tocUrl = bookUrl,
+                    )
+                    appDb.bookDao.insert(book)
+                    upBook(book)
                     return@execute
                 }
                 appDb.searchBookDao.getSearchBook(bookUrl)?.toBook()?.let {
@@ -378,6 +398,31 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
         runPreUpdateJs: Boolean = true,
         scope: CoroutineScope = viewModelScope
     ) {
+        // 书库模式: 从后端缓存 API 加载目录
+        if (io.legado.app.help.WanxiangBackend.isLibraryBook(book.bookUrl)) {
+            execute(scope) {
+                val bookId = io.legado.app.help.WanxiangBackend.extractLibraryBookId(book.bookUrl) ?: return@execute
+                val libChapters = io.legado.app.help.WanxiangBackend.fetchLibraryChapters(bookId)
+                val chapters = libChapters.filter { it.status == "done" }.map { ch ->
+                    BookChapter(
+                        url = "wanxiang://library/book/$bookId/chapter/${ch.idx}",
+                        title = ch.title,
+                        bookUrl = book.bookUrl,
+                        index = ch.idx,
+                    )
+                }
+                book.totalChapterNum = chapters.size
+                appDb.bookDao.update(book)
+                appDb.bookChapterDao.delByBook(book.bookUrl)
+                appDb.bookChapterDao.insert(*chapters.toTypedArray())
+                bookData.postValue(book)
+                chapterListData.postValue(chapters)
+            }.onError {
+                chapterListData.postValue(emptyList())
+                context.toastOnUi("书库目录加载失败: ${it.localizedMessage}")
+            }
+            return
+        }
         if (book.isLocal) {
             execute(scope) {
                 LocalBook.getChapterList(book).let {

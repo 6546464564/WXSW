@@ -592,6 +592,21 @@ object ReadBook : CoroutineScope by MainScope() {
         success: (() -> Unit)? = null
     ) {
         val book = book ?: return removeLoading(chapter.index)
+        // 书库模式: 从后端缓存 API 读取
+        if (io.legado.app.help.WanxiangBackend.isLibraryBook(book.bookUrl)) {
+            Coroutine.async(scope) {
+                val bookId = io.legado.app.help.WanxiangBackend.extractLibraryBookId(book.bookUrl)
+                val content = if (bookId != null) {
+                    io.legado.app.help.WanxiangBackend.fetchLibraryContent(bookId, chapter.index)
+                } else null
+                contentLoadFinish(
+                    book, chapter,
+                    content ?: "加载正文失败\n书库章节加载异常",
+                    resetPageOffset = resetPageOffset, success = success
+                )
+            }
+            return
+        }
         val bookSource = bookSource
         if (bookSource != null) {
             CacheBook.getOrCreate(bookSource, book).download(scope, chapter, semaphore)
@@ -609,6 +624,15 @@ object ReadBook : CoroutineScope by MainScope() {
 
     private suspend fun downloadAwait(chapter: BookChapter): String {
         val book = book!!
+        // 书库模式: 从后端缓存 API 读取
+        if (io.legado.app.help.WanxiangBackend.isLibraryBook(book.bookUrl)) {
+            val bookId = io.legado.app.help.WanxiangBackend.extractLibraryBookId(book.bookUrl)
+            if (bookId != null) {
+                val content = io.legado.app.help.WanxiangBackend.fetchLibraryContent(bookId, chapter.index)
+                if (!content.isNullOrBlank()) return content
+            }
+            return "加载正文失败\n书库章节加载异常"
+        }
         val bookSource = bookSource
         if (bookSource != null) {
             return CacheBook.getOrCreate(bookSource, book).downloadAwait(chapter)

@@ -545,6 +545,113 @@ object WanxiangBackend {
         }.getOrElse { false }
     }
 
+    // === 万象书屋: 书库 (后端缓存) API ===
+
+    data class LibraryBook(
+        val id: Int,
+        val title: String,
+        val author: String,
+        val category: String? = null,
+        val coverUrl: String? = null,
+        val intro: String? = null,
+        val totalChapters: Int = 0,
+        val cachedChapters: Int = 0,
+    )
+
+    data class LibraryChapter(
+        val idx: Int,
+        val title: String,
+        val wordCount: Int = 0,
+        val status: String = "",
+    )
+
+    suspend fun searchLibrary(keyword: String): List<LibraryBook> = withContext(Dispatchers.IO) {
+        val url = baseUrl ?: return@withContext emptyList()
+        val encoded = java.net.URLEncoder.encode(keyword, "UTF-8")
+        val resp = runCatching {
+            okHttpClient.newCallStrResponse(retry = 1) {
+                url("$url/api/cache/search?keyword=$encoded")
+                header("X-Platform", PLATFORM)
+                header("X-Device-Id", deviceId)
+                deviceToken?.let { header("X-Device-Token", it) }
+            }
+        }.getOrNull() ?: return@withContext emptyList()
+        if (resp.raw.code != 200) return@withContext emptyList()
+        val body = resp.body ?: return@withContext emptyList()
+        runCatching {
+            val json = JsonParser.parseString(body).asJsonObject
+            if (json.get("ok")?.asBoolean != true) return@runCatching emptyList()
+            val books = json.getAsJsonArray("books") ?: return@runCatching emptyList()
+            books.map { it.asJsonObject }.map { obj ->
+                LibraryBook(
+                    id = obj.get("id").asInt,
+                    title = obj.get("title")?.asString ?: "",
+                    author = obj.get("author")?.asString ?: "",
+                    category = obj.get("category")?.takeIf { !it.isJsonNull }?.asString,
+                    coverUrl = obj.get("coverUrl")?.takeIf { !it.isJsonNull }?.asString,
+                    intro = obj.get("intro")?.takeIf { !it.isJsonNull }?.asString,
+                    totalChapters = obj.get("totalChapters")?.asInt ?: 0,
+                    cachedChapters = obj.get("cachedChapters")?.asInt ?: 0,
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    suspend fun fetchLibraryChapters(bookId: Int): List<LibraryChapter> = withContext(Dispatchers.IO) {
+        val url = baseUrl ?: return@withContext emptyList()
+        val resp = runCatching {
+            okHttpClient.newCallStrResponse(retry = 1) {
+                url("$url/api/cache/books/$bookId/chapters")
+                header("X-Platform", PLATFORM)
+                header("X-Device-Id", deviceId)
+                deviceToken?.let { header("X-Device-Token", it) }
+            }
+        }.getOrNull() ?: return@withContext emptyList()
+        if (resp.raw.code != 200) return@withContext emptyList()
+        val body = resp.body ?: return@withContext emptyList()
+        runCatching {
+            val json = JsonParser.parseString(body).asJsonObject
+            if (json.get("ok")?.asBoolean != true) return@runCatching emptyList()
+            val chapters = json.getAsJsonArray("chapters") ?: return@runCatching emptyList()
+            chapters.map { it.asJsonObject }.map { obj ->
+                LibraryChapter(
+                    idx = obj.get("idx").asInt,
+                    title = obj.get("title")?.asString ?: "",
+                    wordCount = obj.get("wordCount")?.asInt ?: 0,
+                    status = obj.get("status")?.asString ?: "",
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    suspend fun fetchLibraryContent(bookId: Int, chapterIdx: Int): String? = withContext(Dispatchers.IO) {
+        val url = baseUrl ?: return@withContext null
+        val resp = runCatching {
+            okHttpClient.newCallStrResponse(retry = 1) {
+                url("$url/api/cache/books/$bookId/chapters/$chapterIdx")
+                header("X-Platform", PLATFORM)
+                header("X-Device-Id", deviceId)
+                deviceToken?.let { header("X-Device-Token", it) }
+            }
+        }.getOrNull() ?: return@withContext null
+        if (resp.raw.code != 200) return@withContext null
+        val body = resp.body ?: return@withContext null
+        runCatching {
+            val json = JsonParser.parseString(body).asJsonObject
+            if (json.get("ok")?.asBoolean != true) return@runCatching null
+            json.get("content")?.asString
+        }.getOrNull()
+    }
+
+    /** 判断 bookUrl 是否为书库 URL */
+    fun isLibraryBook(bookUrl: String): Boolean = bookUrl.startsWith("wanxiang://library/book/")
+
+    /** 从书库 bookUrl 中提取 bookId */
+    fun extractLibraryBookId(bookUrl: String): Int? {
+        if (!isLibraryBook(bookUrl)) return null
+        return bookUrl.removePrefix("wanxiang://library/book/").split("/").firstOrNull()?.toIntOrNull()
+    }
+
     private fun jsonStr(s: String): String {
         val sb = StringBuilder(s.length + 2)
         sb.append('"')
