@@ -1166,6 +1166,22 @@ public actor JSEngine {
         }
         ctx.setObject(aesRawB64, forKeyedSubscript: "__wx_aes_raw_b64" as NSString)
 
+        let hmacSha256: @convention(block) (String, String) -> String = { keyB64, dataB64 in
+            guard let keyData = Data(base64Encoded: keyB64),
+                  let msgData = Data(base64Encoded: dataB64) else { return "" }
+            var hmac = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+            keyData.withUnsafeBytes { keyPtr in
+                msgData.withUnsafeBytes { msgPtr in
+                    CCHmac(CCHmacAlgorithm(kCCHmacAlgSHA256),
+                           keyPtr.baseAddress, keyData.count,
+                           msgPtr.baseAddress, msgData.count,
+                           &hmac)
+                }
+            }
+            return Data(hmac).base64EncodedString()
+        }
+        ctx.setObject(hmacSha256, forKeyedSubscript: "__wx_hmac_sha256" as NSString)
+
         // 万象书屋 (M2.8 fix bug): Rhino Java packages polyfill —
         // Android legado JS 跑在 Mozilla Rhino 上, 直接桥到 java.lang / javax.crypto.spec /
         // javax.crypto / java.util. 七猫小说的 content rule 里有:
@@ -1333,6 +1349,51 @@ public actor JSEngine {
                 }
             };
 
+            // === java.lang / java.util namespaces (H5Book etc.) ===
+            if (!java.lang) java.lang = {};
+            java.lang.System = { currentTimeMillis: function() { return Date.now(); } };
+            java.lang.String = function(s) {
+                var str = (s instanceof Uint8Array) ? bytesToUtf8(s) : String(s || '');
+                str = new String(str);
+                str.getBytes = String.prototype.getBytes;
+                return str;
+            };
+
+            if (!java.util) java.util = {};
+            java.util.UUID = {
+                randomUUID: function() {
+                    var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                        var r = Math.random() * 16 | 0;
+                        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                    });
+                    return { toString: function() { return uuid; }, replace: function(a,b) { return uuid.replace(a,b); } };
+                }
+            };
+
+            // === javax.crypto.Mac (HMAC) ===
+            if (!globalThis.javax) globalThis.javax = {};
+            if (!globalThis.javax.crypto) globalThis.javax.crypto = {};
+            globalThis.javax.crypto.Mac = {
+                getInstance: function(algo) {
+                    return {
+                        __key: null,
+                        init: function(keySpec) { this.__key = keySpec.__key || keySpec; },
+                        doFinal: function(dataBytes) {
+                            var u8 = (dataBytes instanceof Uint8Array) ? dataBytes : new Uint8Array(dataBytes || []);
+                            var keyU8 = (this.__key instanceof Uint8Array) ? this.__key : new Uint8Array(this.__key || []);
+                            var resB64 = __wx_hmac_sha256(bytesToB64(keyU8), bytesToB64(u8));
+                            var out = b64ToBytes(resB64 || '');
+                            out.toString = function() { return bytesToUtf8(out); };
+                            return out;
+                        },
+                        update: function() {}
+                    };
+                }
+            };
+            globalThis.javax.crypto.spec = {
+                SecretKeySpec: globalThis.SecretKeySpec
+            };
+
             // === JavaImporter / Packages ===
             // 1. JavaImporter() — Rhino API, importPackage 是 noop, importClass 也 noop
             globalThis.JavaImporter = function() {
@@ -1344,7 +1405,8 @@ public actor JSEngine {
                     Cipher: globalThis.Cipher,
                     SecretKeySpec: globalThis.SecretKeySpec,
                     IvParameterSpec: globalThis.IvParameterSpec,
-                    Integer: globalThis.Integer
+                    Integer: globalThis.Integer,
+                    Mac: globalThis.javax.crypto.Mac
                 };
             };
             // 2. Packages.* — 任意嵌套都返 callable noop Proxy.
@@ -1360,12 +1422,14 @@ public actor JSEngine {
                 };
                 return new Proxy(f, {
                     get: function(target, prop) {
-                        // 路由到 polyfill 的实类
                         if (prop === 'Cipher') return globalThis.Cipher;
                         if (prop === 'SecretKeySpec') return globalThis.SecretKeySpec;
                         if (prop === 'IvParameterSpec') return globalThis.IvParameterSpec;
                         if (prop === 'Base64') return globalThis.Base64;
                         if (prop === 'Arrays') return globalThis.Arrays;
+                        if (prop === 'Mac') return globalThis.javax.crypto.Mac;
+                        if (prop === 'System') return java.lang.System;
+                        if (prop === 'UUID') return java.util.UUID;
                         return makeCallableNoop();
                     }
                 });
