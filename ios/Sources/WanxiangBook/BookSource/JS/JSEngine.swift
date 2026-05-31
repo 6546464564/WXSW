@@ -1330,10 +1330,14 @@ public actor JSEngine {
                             c.__iv = iv && iv.__iv;
                         },
                         doFinal: function(bytes) {
-                            // bytes 应是 Uint8Array; 也可能是 plain array
-                            var u8 = (bytes instanceof Uint8Array) ? bytes : new Uint8Array(bytes);
-                            var keyB64 = bytesToB64(c.__key instanceof Uint8Array ? c.__key : new Uint8Array(c.__key));
-                            var ivB64 = c.__iv ? bytesToB64(c.__iv instanceof Uint8Array ? c.__iv : new Uint8Array(c.__iv)) : '';
+                            function toU8(a) {
+                                if (a instanceof Uint8Array) return a;
+                                if (a instanceof Int8Array) { var r = new Uint8Array(a.length); for(var j=0;j<a.length;j++) r[j]=a[j]<0?a[j]+256:a[j]; return r; }
+                                return new Uint8Array(a || []);
+                            }
+                            var u8 = toU8(bytes);
+                            var keyB64 = bytesToB64(toU8(c.__key));
+                            var ivB64 = c.__iv ? bytesToB64(toU8(c.__iv)) : '';
                             var dataB64 = bytesToB64(u8);
                             var op = (c.__mode === 2) ? 'decrypt' : 'encrypt';
                             var resB64 = __wx_aes_raw_b64(op, dataB64, keyB64, ivB64, c.__t);
@@ -1351,12 +1355,28 @@ public actor JSEngine {
 
             // === java.lang / java.util namespaces (H5Book etc.) ===
             if (!java.lang) java.lang = {};
-            java.lang.System = { currentTimeMillis: function() { return Date.now(); } };
+            java.lang.System = {
+                currentTimeMillis: function() { return Date.now(); },
+                arraycopy: function(src, srcPos, dest, destPos, len) {
+                    for (var i = 0; i < len; i++) dest[destPos + i] = src[srcPos + i];
+                }
+            };
             java.lang.String = function(s) {
-                var str = (s instanceof Uint8Array) ? bytesToUtf8(s) : String(s || '');
+                var str;
+                if (s instanceof Uint8Array || s instanceof Int8Array) str = bytesToUtf8(new Uint8Array(s));
+                else if (s instanceof Array) str = bytesToUtf8(new Uint8Array(s.map(function(b){return b<0?b+256:b;})));
+                else str = String(s || '');
                 str = new String(str);
                 str.getBytes = String.prototype.getBytes;
                 return str;
+            };
+            java.lang.Integer = globalThis.Integer;
+            java.lang.Byte = { TYPE: 'byte' };
+            if (!java.lang.reflect) java.lang.reflect = {};
+            java.lang.reflect.Array = {
+                newInstance: function(type, len) {
+                    return new Int8Array(len);
+                }
             };
 
             if (!java.util) java.util = {};
@@ -1379,8 +1399,14 @@ public actor JSEngine {
                         __key: null,
                         init: function(keySpec) { this.__key = keySpec.__key || keySpec; },
                         doFinal: function(dataBytes) {
-                            var u8 = (dataBytes instanceof Uint8Array) ? dataBytes : new Uint8Array(dataBytes || []);
-                            var keyU8 = (this.__key instanceof Uint8Array) ? this.__key : new Uint8Array(this.__key || []);
+                            function toU8(a) {
+                                if (a instanceof Uint8Array) return a;
+                                if (a instanceof Int8Array) { var r = new Uint8Array(a.length); for(var j=0;j<a.length;j++) r[j]=a[j]<0?a[j]+256:a[j]; return r; }
+                                if (typeof a === 'string') return new Uint8Array(a.split('').map(function(c){return c.charCodeAt(0);}));
+                                return new Uint8Array(a || []);
+                            }
+                            var u8 = toU8(dataBytes);
+                            var keyU8 = toU8(this.__key);
                             var resB64 = __wx_hmac_sha256(bytesToB64(keyU8), bytesToB64(u8));
                             var out = b64ToBytes(resB64 || '');
                             out.toString = function() { return bytesToUtf8(out); };
