@@ -391,11 +391,12 @@ struct SearchView: View {
                     }
                     // 万象书屋: 显示"反爬源"统计 给用户提示
                     if vm.errors.count > 0 {
-                        Text("\(vm.errors.count) 源被阻止")
+                        Text("\(vm.errors.count) 源失败: \(vm.errors.map { $0.0.bookSourceName }.joined(separator: ", "))")
                             .font(.caption2)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Capsule().fill(Color.orange.opacity(0.18)))
                             .foregroundStyle(.orange)
+                            .lineLimit(2)
                     }
                 }
                 .font(.caption)
