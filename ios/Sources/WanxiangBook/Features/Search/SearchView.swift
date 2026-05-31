@@ -752,29 +752,9 @@ final class SearchViewModel: ObservableObject {
         isSearching = false
     }
 
-    /// 检查源是否被拉黑 (M2.4.7)
-    private func isBlocked(_ url: String) -> Bool {
-        guard let entry = sourceFailures[url], let until = entry.1 else { return false }
-        if Date() > until {
-            sourceFailures[url] = (0, nil)
-            return false
-        }
-        return true
-    }
-
-    private func recordFailure(_ url: String) {
-        let entry = sourceFailures[url] ?? (0, nil)
-        let count = entry.0 + 1
-        if count >= Self.blockThreshold {
-            sourceFailures[url] = (count, Date().addingTimeInterval(Self.blockDuration))
-        } else {
-            sourceFailures[url] = (count, nil)
-        }
-    }
-
-    private func recordSuccess(_ url: String) {
-        sourceFailures[url] = (0, nil)
-    }
+    private func isBlocked(_ url: String) -> Bool { false }
+    private func recordFailure(_ url: String) {}
+    private func recordSuccess(_ url: String) {}
 
     func search(key: String, precisionSearch: Bool = false) async {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
