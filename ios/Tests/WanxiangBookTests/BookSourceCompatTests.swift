@@ -155,4 +155,24 @@ final class BookSourceCompatTests: XCTestCase {
         }
         XCTAssertGreaterThan(results.count, 0, "速读谷 should return search results for 青山")
     }
+
+    func test_all_remote_sources_search() async throws {
+        let url = URL(string: "https://www.wxsw.app/api/sources")!
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let decoded = try JSONDecoder().decode([BookSource].self, from: data)
+        let searchable = decoded.filter { $0.searchUrl != nil && !($0.searchUrl?.isEmpty ?? true) && $0.bookSourceUrl != "https://www.wxsw.app" }
+        NSLog("[all-sources] loaded %d searchable sources from API", searchable.count)
+
+        for source in searchable {
+            do {
+                let results = try await BookSourceEngine.shared.search(in: source, key: "青山")
+                NSLog("[all-sources] %@ → %d results", source.bookSourceName, results.count)
+                if results.isEmpty {
+                    NSLog("[all-sources] WARNING: %@ returned 0 results!", source.bookSourceName)
+                }
+            } catch {
+                NSLog("[all-sources] %@ → ERROR: %@", source.bookSourceName, String(describing: error).prefix(120) as CVarArg)
+            }
+        }
+    }
 }

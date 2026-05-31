@@ -366,19 +366,24 @@ struct SearchView: View {
                 // 避免某些源 (例: QQ浏览器柳树) bookUrl 因解析 bug 全相同时, SwiftUI
                 // 把不同书识别成同一行, 用户体感"19 本书全是同一本".
                 ForEach(books, id: \.listRowId) { book in
-                    // 万象书屋 (UX bug fix · push 重构): SearchView 既可能被外部 stack push
-                    // 进来 (embedded), 也可能自包 NavigationStack (sheet/deepLink). 两种
-                    // 模式下都要能 push 到详情 → 用 closure-form NavigationLink (destination
-                    // 闭包绑定 NavigationLink 自身) 不依赖 `.navigationDestination(for:)` 全局
-                    // 注册, 避免嵌套场景 SwiftUI 丢失注册的 known issue.
                     NavigationLink {
-                        // 万象书屋 (2026-05-11 best-source pick): 把"第一个回来"的源换成
-                        // "数据质量评分最高"的源进 detail. pickBestSource 看 lastChapter / intro /
-                        // wordCount / cover / 历史响应分综合挑. fallback: row.origin 找不到时 nil.
                         let pick = vm.pickBestSource(for: book)
                         BookDetailView(book: pick?.book ?? book, source: pick?.source)
                     } label: {
                         SearchResultRow(book: book)
+                    }
+                    .contextMenu {
+                        let allSources = vm.allSourceVariants(for: book)
+                        if allSources.count > 1 {
+                            ForEach(allSources, id: \.origin) { variant in
+                                NavigationLink {
+                                    let src = BookSourceRegistry.shared.find(origin: variant.origin)
+                                    BookDetailView(book: variant, source: src)
+                                } label: {
+                                    Label(variant.originName, systemImage: "book")
+                                }
+                            }
+                        }
                     }
                 }
             } header: {
@@ -827,6 +832,7 @@ final class SearchViewModel: ObservableObject {
         }
 
         currentTask = Task {
+            NSLog("[SearchVM] starting search key=%@ sources=%d: %@", key, sources.count, sources.map(\.bookSourceName).joined(separator: ", "))
             DebugSessionLog.logDevice(
                 location: "SearchVM.searchTask",
                 message: "stream start",
@@ -942,6 +948,7 @@ final class SearchViewModel: ObservableObject {
             if generation == self.searchGeneration {
                 self.applyLegadoStyleOrdering()
                 self.isSearching = false
+                NSLog("[SearchVM] done results=%d errors=%d: %@", self.results.count, self.errors.count, self.errors.map { "\($0.0.bookSourceName):\(String(describing: $0.1).prefix(60))" }.joined(separator: " | "))
                 DebugSessionLog.logDevice(
                     location: "SearchVM.searchTask",
                     message: "stream done",
@@ -1066,6 +1073,20 @@ final class SearchViewModel: ObservableObject {
     ///   −100 source not blocked but search failed history
     ///
     /// row 来自磁盘 cache / 历史 (没参与本次 search) 时 rowVariants 空 → fallback 到原逻辑.
+    func allSourceVariants(for row: SearchBook) -> [SearchBook] {
+        let dk = row.dedupeKey
+        let variants = rowVariants[dk] ?? []
+        if variants.isEmpty { return [row] }
+        var seen = Set<String>()
+        var result: [SearchBook] = []
+        for v in variants {
+            if seen.insert(v.origin).inserted {
+                result.append(v)
+            }
+        }
+        return result
+    }
+
     func pickBestSource(for row: SearchBook) -> (book: SearchBook, source: BookSource)? {
         let dk = row.dedupeKey
         let variants = rowVariants[dk] ?? []
