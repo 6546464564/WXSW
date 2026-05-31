@@ -220,7 +220,8 @@ public final class BookSourceEngine: @unchecked Sendable {
     ///   的源 (8-15s 抓页面) 被误杀.
     public func searchAll(in sources: [BookSource], key: String,
                           maxConcurrency: Int = BookSourceEngine.defaultSearchConcurrency,
-                          perSourceTimeoutSec: TimeInterval = 30) -> AsyncStream<(BookSource, Result<[SearchBook], Error>)> {
+                          perSourceTimeoutSec: TimeInterval = 30,
+                          skipGlobalGate: Bool = false) -> AsyncStream<(BookSource, Result<[SearchBook], Error>)> {
         AsyncStream { continuation in
             let innerTask = Task {
                 // #region agent log
@@ -238,7 +239,8 @@ public final class BookSourceEngine: @unchecked Sendable {
                             guard let self else { return (s, .success([])) }
                             return await Self.searchWithTimeout(
                                 engine: self, source: s, key: key,
-                                timeoutSec: perSourceTimeoutSec
+                                timeoutSec: perSourceTimeoutSec,
+                                skipGlobalGate: skipGlobalGate
                             )
                         }
                         return true
@@ -270,11 +272,13 @@ public final class BookSourceEngine: @unchecked Sendable {
 
     /// 单源搜索 + 硬超时. 超时 = 失败 (上报 health timeout), 不阻塞其他源.
     private static func searchWithTimeout(
-        engine: BookSourceEngine, source: BookSource, key: String, timeoutSec: TimeInterval
+        engine: BookSourceEngine, source: BookSource, key: String, timeoutSec: TimeInterval,
+        skipGlobalGate: Bool = false
     ) async -> (BookSource, Result<[SearchBook], Error>) {
-        // 全局门控: 确保跨多个 searchAll 调用，同时阻塞线程的源数不超过安全值
-        await globalSearchGate.wait()
-        defer { globalSearchGate.signal() }
+        if !skipGlobalGate {
+            await globalSearchGate.wait()
+        }
+        defer { if !skipGlobalGate { globalSearchGate.signal() } }
 
         guard !Task.isCancelled else {
             return (source, .failure(CancellationError()))

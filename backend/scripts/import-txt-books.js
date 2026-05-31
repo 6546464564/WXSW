@@ -16,17 +16,30 @@ if (!folder || !fs.existsSync(folder)) {
 }
 
 const CHAPTER_PATTERNS = [
-  /^第[一二三四五六七八九十百千万\d]+[章回节卷][\s：:]+.+/,
-  /^\d{1,4}[、，.．]\s*.+/,
-  /^\d{1,4}[：:]\s*.+/,
-  /^\d{3}\s+\S.+/,
-  /^【\d+】\s*.+/,
+  /^第[零一二三四五六七八九十百千万〇\d]+[章节回卷]/,
+  /^[序终]章/,
+  /^楔子/,
+  /^番外/,
+  /^\d{1,4}[、，.．：:]\s*.+/,
+  /^\d{1,4}\s{2,}\S.+/,
+  /^【\d+】/,
   /^Chapter\s+\d+/i,
 ];
 
+function detectEncoding(buffer) {
+  if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) return 'utf-8';
+  if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) return 'utf-16le';
+  if (buffer.length >= 2 && buffer[0] === 0xFE && buffer[1] === 0xFF) return 'utf-16be';
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    return 'utf-8';
+  } catch {
+    return 'gbk';
+  }
+}
+
 function splitChapters(text) {
-  const lines = text.split('\n');
-  // skip header lines (书名/作者)
+  const lines = text.split(/\r?\n/);
   let startIdx = 0;
   for (let i = 0; i < Math.min(5, lines.length); i++) {
     if (lines[i].startsWith('书名：') || lines[i].startsWith('作者：') || lines[i].trim() === '') {
@@ -34,41 +47,45 @@ function splitChapters(text) {
     } else break;
   }
 
-  // detect which pattern this file uses (scan up to 2000 lines)
-  let matchPattern = null;
-  let matchCount = 0;
-  for (const re of CHAPTER_PATTERNS) {
-    let cnt = 0;
-    for (let i = startIdx; i < Math.min(startIdx + 2000, lines.length); i++) {
-      if (re.test(lines[i].trim())) cnt++;
-      if (cnt >= 5) break;
-    }
-    if (cnt > matchCount) { matchCount = cnt; matchPattern = re; }
-  }
-  if (!matchPattern || matchCount < 3) return [];
-
   const chapters = [];
   let currentTitle = null;
   let currentLines = [];
+  let preface = '';
 
   for (let i = startIdx; i < lines.length; i++) {
     const line = lines[i];
-    if (matchPattern.test(line.trim())) {
+    const trimmed = line.trim();
+    const isTitle = trimmed.length > 0 && CHAPTER_PATTERNS.some(p => p.test(trimmed));
+    if (isTitle) {
       if (currentTitle) {
-        const content = currentLines.join('\n').trim();
-        if (content.length > 50) chapters.push({ title: currentTitle, content });
+        chapters.push({ title: currentTitle, content: currentLines.join('\n').trim() });
       }
-      currentTitle = line.trim();
+      currentTitle = trimmed;
       currentLines = [];
-    } else {
+    } else if (currentTitle) {
       currentLines.push(line);
+    } else {
+      preface += line + '\n';
     }
   }
   if (currentTitle) {
-    const content = currentLines.join('\n').trim();
-    if (content.length > 50) chapters.push({ title: currentTitle, content });
+    chapters.push({ title: currentTitle, content: currentLines.join('\n').trim() });
   }
-  return chapters;
+  if (preface.trim().length > 10) {
+    chapters.unshift({ title: '前言', content: preface.trim() });
+  }
+
+  const merged = [];
+  for (let i = 0; i < chapters.length; i++) {
+    if (chapters[i].content === '' && i + 1 < chapters.length) {
+      const longer = chapters[i].title.length >= chapters[i + 1].title.length
+        ? chapters[i].title : chapters[i + 1].title;
+      chapters[i + 1].title = longer;
+    } else {
+      merged.push(chapters[i]);
+    }
+  }
+  return merged;
 }
 
 const files = fs.readdirSync(folder).filter(f => f.endsWith('.txt')).sort();
@@ -98,13 +115,14 @@ const importAll = db.__db.transaction(() => {
     }
     const [, title, author] = match;
     const filePath = path.join(folder, file);
-    const text = fs.readFileSync(filePath, 'utf-8');
+    const raw = fs.readFileSync(filePath);
+    const enc = detectEncoding(raw);
+    let text = new TextDecoder(enc).decode(raw);
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     const chapters = splitChapters(text);
 
-    if (chapters.length < 5) {
-      console.log(`  跳过 (章节太少 ${chapters.length}): ${file}`);
-      skipped++;
-      continue;
+    if (chapters.length === 0) {
+      chapters = [{ title: '全文', content: text.trim() }];
     }
 
     const existing = findBook.get(title, author);

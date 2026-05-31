@@ -28,13 +28,13 @@ function init(database) {
   stmts.listBooks = db.prepare(`
     SELECT id, qidian_id, title, author, category, cover_url, source_url,
            total_chapters, cached_chapters, status, error_msg, priority, created_at, updated_at
-    FROM cached_books ORDER BY priority DESC, id ASC
+    FROM cached_books ORDER BY cached_chapters DESC, id ASC
   `);
 
   stmts.listBooksByStatus = db.prepare(`
     SELECT id, qidian_id, title, author, category, cover_url, source_url,
            total_chapters, cached_chapters, status, error_msg, priority, created_at, updated_at
-    FROM cached_books WHERE status = ? ORDER BY priority DESC, id ASC
+    FROM cached_books WHERE status = ? ORDER BY cached_chapters DESC, id ASC
   `);
 
   stmts.nextPendingBook = db.prepare(`

@@ -852,7 +852,17 @@ final class SearchViewModel: ObservableObject {
                 hypothesisId: "CRASH-A",
                 data: ["key": key, "sourceCount": sources.count]
             )
-            let stream = await BookSourceEngine.shared.searchAll(in: sources, key: key, perSourceTimeoutSec: 10)
+            let fewSources = sources.count <= 5
+            let lowRAM = ProcessInfo.processInfo.physicalMemory <= 4_000_000_000
+            let searchConcurrency = fewSources
+                ? max(BookSourceEngine.defaultSearchConcurrency, min(sources.count, lowRAM ? 2 : 3))
+                : BookSourceEngine.defaultSearchConcurrency
+            let stream = await BookSourceEngine.shared.searchAll(
+                in: sources, key: key,
+                maxConcurrency: searchConcurrency,
+                perSourceTimeoutSec: fewSources ? 8 : 10,
+                skipGlobalGate: fewSources && !lowRAM
+            )
             var hitSourceCount = 0
             for await (source, result) in stream {
                 if Task.isCancelled || generation != self.searchGeneration { break }

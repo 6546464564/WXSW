@@ -27,6 +27,7 @@ const { scheduleDailyBackup } = require('./jobs/backup');
 const { scheduleMirrorJob, getNextRunAt } = require('./jobs/mirrorScheduler');
 const qidianMirror = require('./jobs/qidianMirror');
 const bookDownloader = require('./jobs/bookDownloader');
+const qimaoUpdater = require('./jobs/qimaoUpdater');
 
 // 初始化有状态中间件
 deviceAuth.setup(db);
@@ -983,6 +984,42 @@ app.post('/api/admin/cache/download', requireAdmin, requireRole(['super', 'opera
   }
 });
 
+// --- Admin: 七猫章节更新 ---
+let _qimaoUpdateRunning = false;
+let _qimaoUpdateProgress = null;
+
+app.post('/api/admin/cache/qimao-update', requireAdmin, requireRole(['super', 'operator']), async (req, res) => {
+  if (_qimaoUpdateRunning) return res.status(409).json({ ok: false, msg: '更新任务正在运行中', progress: _qimaoUpdateProgress });
+  _qimaoUpdateRunning = true;
+  _qimaoUpdateProgress = { done: 0, total: 0, updated: 0, upToDate: 0, newChapters: 0, status: 'running' };
+  res.json({ ok: true, msg: '七猫章节更新已启动' });
+  try {
+    const summary = await qimaoUpdater.updateAll(db, logger, p => { _qimaoUpdateProgress = { ...p, status: 'running' }; });
+    _qimaoUpdateProgress = { ...summary, status: 'done' };
+    logger.info('qimao update complete', summary);
+  } catch (e) {
+    _qimaoUpdateProgress = { ..._qimaoUpdateProgress, status: 'error', error: e.message };
+    logger.error('qimao update failed', { msg: e.message });
+  } finally {
+    _qimaoUpdateRunning = false;
+  }
+});
+
+app.get('/api/admin/cache/qimao-update/status', requireAdmin, (req, res) => {
+  res.json({ ok: true, running: _qimaoUpdateRunning, progress: _qimaoUpdateProgress });
+});
+
+app.post('/api/admin/cache/qimao-import', requireAdmin, requireRole(['super', 'operator']), async (req, res) => {
+  const { qimaoId, category } = req.body || {};
+  if (!qimaoId) return res.status(400).json({ ok: false, msg: 'qimaoId required' });
+  try {
+    const result = await qimaoUpdater.importBook(db, String(qimaoId), category, logger);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, msg: e.message });
+  }
+});
+
 // --- Admin: 删除某本书 ---
 app.delete('/api/admin/cache/books/:id', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const bookId = parseInt(req.params.id, 10);
@@ -1010,33 +1047,78 @@ const uploadTxt = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
 
 function splitChapters(text) {
   const PATTERNS = [
-    /^第[零一二三四五六七八九十百千万\d]+[章节回卷].*/,
-    /^\d{1,4}[、.:：\s].+/,
-    /^[序终]章.*/,
+    /^第[零一二三四五六七八九十百千万〇\d]+[章节回卷]/,
+    /^[序终]章/,
+    /^楔子/,
+    /^番外/,
+    /^\d{1,4}[、.:：]\s*.+/,
+    /^\d{1,4}\s{2,}\S.+/,
+    /^【\d+】/,
+    /^Chapter\s+\d+/i,
   ];
 
   const lines = text.split(/\r?\n/);
+  let headerEnd = 0;
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    if (/^书名[：:]/.test(lines[i]) || /^作者[：:]/.test(lines[i]) || lines[i].trim() === '') headerEnd = i + 1;
+    else break;
+  }
+
   const chapters = [];
   let current = null;
-  let headerEnd = 0;
-  for (let i = 0; i < Math.min(3, lines.length); i++) {
-    if (/^书名[：:]/.test(lines[i]) || /^作者[：:]/.test(lines[i]) || lines[i].trim() === '') headerEnd = i + 1;
-  }
 
   for (let i = headerEnd; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
-    const isTitle = trimmed.length > 0 && trimmed.length < 60 && PATTERNS.some(p => p.test(trimmed));
+    const isTitle = trimmed.length > 0 && PATTERNS.some(p => p.test(trimmed));
     if (isTitle) {
       if (current) chapters.push(current);
       current = { title: trimmed, content: '' };
     } else if (current) {
       current.content += line + '\n';
+    } else {
+      // 第一章之前的内容暂存，后面作为"前言"
+      if (!chapters._preface) chapters._preface = '';
+      chapters._preface += line + '\n';
     }
   }
   if (current) chapters.push(current);
+
+  // 第一章前有实质内容时，作为"前言"章节插入开头
+  if (chapters._preface) {
+    const pre = chapters._preface.trim();
+    if (pre.length > 10) {
+      chapters.unshift({ title: '前言', content: pre });
+    }
+  }
+  delete chapters._preface;
+
   for (const ch of chapters) ch.content = ch.content.trim();
-  return chapters;
+
+  // 合并连续空内容章节（七猫格式：标题出现两次，第一次带副标题但无内容）
+  const merged = [];
+  for (let i = 0; i < chapters.length; i++) {
+    if (chapters[i].content === '' && i + 1 < chapters.length) {
+      const longer = chapters[i].title.length >= chapters[i + 1].title.length
+        ? chapters[i].title : chapters[i + 1].title;
+      chapters[i + 1].title = longer;
+    } else {
+      merged.push(chapters[i]);
+    }
+  }
+  return merged;
+}
+
+function detectEncoding(buffer) {
+  if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) return 'utf-8';
+  if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) return 'utf-16le';
+  if (buffer.length >= 2 && buffer[0] === 0xFE && buffer[1] === 0xFF) return 'utf-16be';
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    return 'utf-8';
+  } catch {
+    return 'gbk';
+  }
 }
 
 app.post('/api/admin/library/upload', requireAdmin, requireRole(['super', 'operator']),
@@ -1048,11 +1130,14 @@ app.post('/api/admin/library/upload', requireAdmin, requireRole(['super', 'opera
   const category = (req.body.category || '').trim();
   if (!title) return res.status(400).json({ ok: false, msg: 'missing title' });
 
-  let text = req.file.buffer.toString('utf-8');
+  const enc = detectEncoding(req.file.buffer);
+  let text = new TextDecoder(enc).decode(req.file.buffer);
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
 
-  const chapters = splitChapters(text);
-  if (!chapters.length) return res.status(400).json({ ok: false, msg: '无法识别章节，请确认 TXT 格式' });
+  let chapters = splitChapters(text);
+  if (!chapters.length) {
+    chapters = [{ title: '全文', content: text.trim() }];
+  }
 
   const now = Date.now();
   const insertBook = db.__db.prepare(`

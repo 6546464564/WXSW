@@ -497,6 +497,7 @@
                 <div class="flex items-center justify-between mb-3">
                     <h2 class="text-lg font-bold text-stone-700">书库管理 <span id="ccBadge" class="text-sm text-stone-500"></span></h2>
                     <div class="flex gap-2">
+                        <button id="btnQimaoUpdate" onclick="triggerQimaoUpdate()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded">七猫更新</button>
                         <button onclick="uploadTxtBook()" class="text-sm bg-amber-700 hover:bg-amber-800 text-white px-3 py-1.5 rounded">上传 TXT</button>
                         <button onclick="loadContentCache()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-1.5 rounded">刷新</button>
                     </div>
@@ -1982,6 +1983,44 @@
             }
             alert(`删除完成: 成功 ${ok}, 失败 ${fail}`);
             loadContentCache();
+        }
+
+        let _qimaoPolling = null;
+        async function triggerQimaoUpdate() {
+            const btn = document.getElementById('btnQimaoUpdate');
+            if (btn.disabled) return;
+            if (!confirm('开始检查所有七猫书籍的新章节？')) return;
+            btn.disabled = true;
+            btn.textContent = '更新中...';
+            try {
+                const r = await apiPost('/api/admin/cache/qimao-update');
+                if (!r.ok) { alert(r.msg || '启动失败'); btn.disabled = false; btn.textContent = '七猫更新'; return; }
+                _qimaoPolling = setInterval(pollQimaoStatus, 3000);
+            } catch (e) { alert('错误: ' + e.message); btn.disabled = false; btn.textContent = '七猫更新'; }
+        }
+        async function pollQimaoStatus() {
+            try {
+                const r = await apiGet('/api/admin/cache/qimao-update/status');
+                const btn = document.getElementById('btnQimaoUpdate');
+                if (r.ok && r.progress) {
+                    const p = r.progress;
+                    if (p.status === 'running') {
+                        btn.textContent = `更新中 ${p.done || 0}/${p.total || '?'}`;
+                    } else {
+                        clearInterval(_qimaoPolling);
+                        _qimaoPolling = null;
+                        btn.disabled = false;
+                        if (p.status === 'done') {
+                            btn.textContent = '七猫更新';
+                            alert(`更新完成！\n新增章节: ${p.newChapters}\n已更新: ${p.updated} 本\n无变化: ${p.upToDate} 本\n失败: ${p.failed} 本`);
+                            loadContentCache();
+                        } else {
+                            btn.textContent = '七猫更新';
+                            alert('更新出错: ' + (p.error || '未知'));
+                        }
+                    }
+                }
+            } catch { /* ignore polling errors */ }
         }
 
         async function uploadTxtBook() {
