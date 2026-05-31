@@ -85,6 +85,8 @@ struct SearchView: View {
     @State private var debounceTask: Task<Void, Never>? = nil
     @FocusState private var inputFocused: Bool
 
+    @State private var sourcePickerBook: SearchBook? = nil
+
     /// 万象书屋: 对齐 Android `PreferKey.precisionSearch` — 只保留书名或作者含关键词的结果.
     @AppStorage("wanxiang.search.precision") private var precisionSearch: Bool = false
 
@@ -370,20 +372,9 @@ struct SearchView: View {
                         let pick = vm.pickBestSource(for: book)
                         BookDetailView(book: pick?.book ?? book, source: pick?.source)
                     } label: {
-                        SearchResultRow(book: book)
-                    }
-                    .contextMenu {
-                        let allSources = vm.allSourceVariants(for: book)
-                        if allSources.count > 1 {
-                            ForEach(allSources, id: \.origin) { variant in
-                                NavigationLink {
-                                    let src = BookSourceRegistry.shared.find(origin: variant.origin)
-                                    BookDetailView(book: variant, source: src)
-                                } label: {
-                                    Label(variant.originName, systemImage: "book")
-                                }
-                            }
-                        }
+                        SearchResultRow(book: book, onSourceBadgeTap: book.distinctOriginCount > 1 ? {
+                            sourcePickerBook = book
+                        } : nil)
                     }
                 }
             } header: {
@@ -411,6 +402,44 @@ struct SearchView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(WanxiangColors.background)
+        .sheet(item: $sourcePickerBook) { book in
+            sourcePickerSheet(for: book)
+        }
+    }
+
+    @ViewBuilder
+    private func sourcePickerSheet(for book: SearchBook) -> some View {
+        NavigationStack {
+            let variants = vm.allSourceVariants(for: book)
+            List(variants, id: \.origin) { variant in
+                NavigationLink {
+                    let src = BookSourceRegistry.shared.find(origin: variant.origin)
+                    BookDetailView(book: variant, source: src)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(variant.originName)
+                                .font(.body)
+                            if let last = variant.lastChapter, !last.isEmpty {
+                                Text("最新：\(last)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                    }
+                }
+            }
+            .navigationTitle("选择书源 - \(book.name)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { sourcePickerBook = nil }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     /// 万象书屋 (P0 修复): 渲染层不再做"按标题前 N 字"的全局去重.
@@ -445,6 +474,7 @@ struct SearchView: View {
 
 private struct SearchResultRow: View {
     let book: SearchBook
+    var onSourceBadgeTap: (() -> Void)? = nil
 
     /// 对齐 Android `BaseBook.getKindList`: 先字数, 再 kind 按分隔符拆开.
     private var kindTags: [String] {
@@ -506,15 +536,32 @@ private struct SearchResultRow: View {
                         .lineLimit(1)
                         .foregroundStyle(WanxiangColors.textPrimary)
                     Spacer(minLength: 4)
-                    // 万象书屋: 多源徽章始终显示, 跟 Android `BadgeView.setBadgeCount(origins.size)`
-                    // 行为完全一致 — 数字就是同名同作者跨多少个书源被收录到. 1 也照常显示.
-                    Text("\(book.distinctOriginCount)")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .padding(.horizontal, 5)
-                        .background(Capsule().fill(WanxiangColors.primary.opacity(0.82)))
-                        .accessibilityLabel("\(book.distinctOriginCount) 个书源收录")
+                    if let tap = onSourceBadgeTap {
+                        Button {
+                            tap()
+                        } label: {
+                            HStack(spacing: 2) {
+                                Text("\(book.distinctOriginCount)")
+                                    .font(.caption2.weight(.semibold))
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 8, weight: .bold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(WanxiangColors.primary.opacity(0.82)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(book.distinctOriginCount) 个书源，点击选择")
+                    } else {
+                        Text("\(book.distinctOriginCount)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .padding(.horizontal, 5)
+                            .background(Capsule().fill(WanxiangColors.primary.opacity(0.82)))
+                            .accessibilityLabel("\(book.distinctOriginCount) 个书源收录")
+                    }
                 }
 
                 Text(Self.authorLine(book.author))

@@ -10,7 +10,8 @@ import Foundation
 
 /// 搜索结果中的一条书 (从源解析出来, 还没入书架)
 /// 对齐 Android `SearchBook.origins` + `addOrigin`: 同名同作者多源合并为一行, `mergedSourceURLs` 叠其余源 URL.
-public struct SearchBook: Codable, Hashable, Sendable {
+public struct SearchBook: Codable, Hashable, Sendable, Identifiable {
+    public var id: String { listRowId }
     public var origin: String
     public var originName: String
     public var name: String
