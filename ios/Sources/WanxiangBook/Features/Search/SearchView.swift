@@ -857,8 +857,15 @@ final class SearchViewModel: ObservableObject {
         SourceHealthChecker.shared.cancelHealthCheck()
         let rawSources = await waitForSources(timeoutSec: 3)
         // 万象书屋 (M2.8): 按历史成功率 + 平均响应时间排序源, 让稳定快的源先返结果.
-        var sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
+        let tracker = SourcePerformanceTracker.shared
+        var sources = tracker.sortByScore(rawSources)
             .filter { $0.bookSourceUrl != "https://www.wxsw.app" }
+            .filter { src in
+                let stats = tracker.stats(for: src.bookSourceUrl)
+                let rate = stats?.successRate ?? 0.5
+                let sampleCount = stats?.samples.count ?? 0
+                return sampleCount < 5 || rate >= 0.15
+            }
         sources = Array(sources.prefix(BookSourceEngine.maxSearchSourceCount))
         activeSources = sources
 
@@ -894,7 +901,7 @@ final class SearchViewModel: ObservableObject {
             let stream = await BookSourceEngine.shared.searchAll(
                 in: sources, key: key,
                 maxConcurrency: searchConcurrency,
-                perSourceTimeoutSec: fewSources ? 8 : 10,
+                perSourceTimeoutSec: fewSources ? 6 : 8,
                 skipGlobalGate: fewSources && !lowRAM
             )
             var hitSourceCount = 0

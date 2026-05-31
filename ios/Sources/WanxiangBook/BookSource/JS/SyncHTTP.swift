@@ -57,7 +57,12 @@ final class SyncHTTPRedirectDelegate: NSObject, URLSessionTaskDelegate {
 
 public enum SyncHTTP {
 
-    private static let responseCache = NSCache<NSString, CachedHTTPResponse>()
+    private static let responseCache: NSCache<NSString, CachedHTTPResponse> = {
+        let c = NSCache<NSString, CachedHTTPResponse>()
+        c.countLimit = 50
+        c.totalCostLimit = 8 * 1024 * 1024
+        return c
+    }()
     private static let cacheTTL: TimeInterval = 30
 
     public static func clearCache() {
@@ -146,9 +151,10 @@ public enum SyncHTTP {
                     headerDict[String(describing: k).lowercased()] = String(describing: v)
                 }
             }
-            // 万象书屋: 优先 utf-8, 失败 isoLatin1 (拿到原 byte 给上层 charset detect)
             let bodyStr: String
-            if let d = data {
+            if var d = data {
+                let maxBytes = HTTPFetcher.maxSearchResponseBytes
+                if d.count > maxBytes { d = d.prefix(maxBytes) }
                 bodyStr = String(data: d, encoding: .utf8)
                     ?? String(data: d, encoding: .isoLatin1)
                     ?? ""

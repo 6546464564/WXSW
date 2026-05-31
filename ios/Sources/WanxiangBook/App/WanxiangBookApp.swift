@@ -436,7 +436,9 @@ final class WanxiangAppDelegate: NSObject, UIApplicationDelegate {
         _BrowserResultCache.shared.clear()
         SyncHTTP.clearCache()
         JSEngineCache.shared.clearAll()
-        NSLog("[WX-MEM] URLCache + BrowserCache + SyncHTTP + JSCache 缓存已清理")
+        SearchVariantsCache.shared.clearAll()
+        ChangeSourceCandidateCache.shared.clearAll()
+        NSLog("[WX-MEM] URLCache + BrowserCache + SyncHTTP + JSCache + SearchVariants + ChangeSource 缓存已清理")
         NotificationCenter.default.post(name: .wanxiangMemoryWarning, object: nil)
     }
 }

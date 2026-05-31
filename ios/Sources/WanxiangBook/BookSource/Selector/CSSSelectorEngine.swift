@@ -119,12 +119,15 @@ enum LegadoHTMLParse {
     /// workPermit 超时
     private static let workPermitTimeoutSec: Double = 8.0
 
-    static func withWorkPermit<T: Sendable>(_ body: @Sendable () throws -> T) async rethrows -> T {
+    static func withWorkPermit<T: Sendable>(_ body: @Sendable () throws -> T) async throws -> T {
         #if canImport(UIKit)
         DebugActivityTracker.shared.begin("cssparse")
         defer { DebugActivityTracker.shared.end("cssparse") }
         #endif
-        await workPermit.wait()
+        let acquired = await workPermit.waitWithTimeout(seconds: workPermitTimeoutSec)
+        guard acquired else {
+            throw SelectorError.parseFailed("workPermit timeout (\(workPermitTimeoutSec)s)")
+        }
         defer { workPermit.signal() }
         return try body()
     }

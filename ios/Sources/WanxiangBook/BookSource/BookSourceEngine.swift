@@ -69,7 +69,8 @@ public final class BookSourceEngine: @unchecked Sendable {
         let mem = ProcessInfo.processInfo.physicalMemory
         if mem <= 4_000_000_000 { return 1 }    // ≤3GB — 串行避免线程饥饿
         if mem <= 5_000_000_000 { return 3 }    // 4GB
-        return 4
+        if mem <= 7_000_000_000 { return 6 }    // 6GB
+        return 8                                // 8GB+
     }()
 
     /// 换源页专用搜索并发 (比全站搜索更保守, 避免多路 HTML/JS 解析 OOM)
@@ -93,8 +94,8 @@ public final class BookSourceEngine: @unchecked Sendable {
         let mem = ProcessInfo.processInfo.physicalMemory
         if mem <= 4_000_000_000 { return 5 }    // ≤3GB (SE)
         if mem <= 5_000_000_000 { return 10 }   // 4GB (iPhone 11, XR)
-        if mem <= 7_000_000_000 { return 15 }   // 6GB (iPhone 12 Pro, 13 Pro)
-        return 20                                // 8GB+ (iPhone 14 Pro+)
+        if mem <= 7_000_000_000 { return 20 }   // 6GB (iPhone 12 Pro, 13 Pro)
+        return 30                                // 8GB+ (iPhone 14 Pro+)
     }()
 
     /// 详情页 TOC fallback 等窄场景搜索并发
@@ -265,9 +266,10 @@ public final class BookSourceEngine: @unchecked Sendable {
     /// 防止快速连续搜索(如用户快速换关键词)导致多个旧搜索的 SyncHTTP 同时阻塞协作线程池。
     private static let globalSearchGate: AsyncSemaphore = {
         let mem = ProcessInfo.processInfo.physicalMemory
-        if mem <= 4_000_000_000 { return AsyncSemaphore(value: 1) }   // ≤3GB: 全局只允许1个源执行
+        if mem <= 4_000_000_000 { return AsyncSemaphore(value: 1) }   // ≤3GB
         if mem <= 5_000_000_000 { return AsyncSemaphore(value: 2) }   // 4GB
-        return AsyncSemaphore(value: 3)                                // 6GB+
+        if mem <= 7_000_000_000 { return AsyncSemaphore(value: 4) }   // 6GB
+        return AsyncSemaphore(value: 6)                                // 8GB+
     }()
 
     /// 单源搜索 + 硬超时. 超时 = 失败 (上报 health timeout), 不阻塞其他源.

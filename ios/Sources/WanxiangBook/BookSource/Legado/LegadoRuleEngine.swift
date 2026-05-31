@@ -314,14 +314,15 @@ public actor LegadoRuleEngine {
     }
 
     /// 处理 `&&` 串联: 每段在前一段的 result 上继续 select
+    private static let maxEvalAndListSize = 2000
+
     private func evalAnd(_ ruleStr: String, on input: Any, ctx: LegadoContext) async -> [String] {
         let andSegs = LegadoRuleParser.splitTop(ruleStr, separators: ["&&"])
         if andSegs.count == 1 {
             let sr = LegadoRuleParser.parseSingle(String(andSegs[0]))
             let r = await applyRule(sr, on: input, ctx: ctx, listMode: true)
-            return toStringList(r)
+            return Array(toStringList(r).prefix(Self.maxEvalAndListSize))
         }
-        // 多段串联: 逐段在 result 上 reduce
         var current: [String] = [stringify(input)]
         for seg in andSegs {
             let sr = LegadoRuleParser.parseSingle(String(seg))
@@ -330,6 +331,10 @@ public actor LegadoRuleEngine {
                 let r = await applyRule(sr, on: src, ctx: ctx, listMode: true)
                 let list = toStringList(r)
                 nextResults.append(contentsOf: list)
+                if nextResults.count >= Self.maxEvalAndListSize {
+                    nextResults = Array(nextResults.prefix(Self.maxEvalAndListSize))
+                    break
+                }
             }
             current = nextResults
             if current.isEmpty { break }
@@ -366,13 +371,13 @@ public actor LegadoRuleEngine {
             midResult = toStringList(r)
         case .css:
             if listMode {
-                midResult = await LegadoHTMLParse.withWorkPermit {
+                midResult = (try? await LegadoHTMLParse.withWorkPermit {
                     (try? css.selectList(rule: resolvedRule, source: srcStr, baseUrl: ctx.baseUrl)) ?? []
-                }
+                }) ?? []
             } else {
-                midResult = await LegadoHTMLParse.withWorkPermit {
+                midResult = (try? await LegadoHTMLParse.withWorkPermit {
                     [(try? css.selectString(rule: resolvedRule, source: srcStr, baseUrl: ctx.baseUrl)) ?? ""].filter { !$0.isEmpty }
-                }
+                }) ?? []
             }
             // 万象书屋: source 看起来是 JSON 时, 默认 CSS 跑空就 fallback 到 JsonPath
             // (legado bookList JS 返回数组后, 元素是 JSON 串, ruleSearch.name="n" 等是隐式 JsonPath 键)
@@ -706,9 +711,9 @@ public actor LegadoRuleEngine {
                 value = (try? xpath.selectString(rule: inner, source: stringify(input), baseUrl: ctx.baseUrl)) ?? ""
             } else if inner.hasPrefix("@") || inner.hasPrefix(".") || inner.hasPrefix("#") {
                 let src = stringify(input)
-                value = await LegadoHTMLParse.withWorkPermit {
+                value = (try? await LegadoHTMLParse.withWorkPermit {
                     (try? css.selectString(rule: inner, source: src, baseUrl: ctx.baseUrl)) ?? ""
-                }
+                }) ?? ""
             } else if inner.hasPrefix("result.") {
                 // 万象书屋 (M2.8 fix bug): legado 模板 `{{result.x.y}}` 是字段路径简写, 在
                 // input (JSON 字符串) 上走 JSONPath 取. 之前直接当 JS 跑, scope.result 是
