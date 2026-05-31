@@ -208,7 +208,7 @@ struct RootView: View {
         var book = ShelfBook(
             bookUrl: bookUrl,
             name: "测试小说·万象之旅",
-            author: "万象书屋",
+            author: S.appName,
             origin: "demo://local",
             originName: "本地测试源",
             coverUrl: nil,
@@ -258,7 +258,7 @@ struct RootView: View {
     /// UI 回归: 注入 30 条「不同源 / 相同 bookUrl」换源 cache, 复现 ForEach duplicate id 闪退.
     private static func seedDuplicateChangeSourceCache() {
         let name = "测试小说·万象之旅"
-        let author = "万象书屋"
+        let author = S.appName
         let brokenUrl = "https://broken.example/book?id="
         let cands = (0..<30).map { i in
             ChangeSourceCandidateCache.CachedCandidate(
@@ -296,9 +296,9 @@ private struct CustomTabBar: View {
     /// 默认渲染模式带自身颜色, 会覆盖 `foregroundStyle(...)` —— 这就是用户报"图标颜色没变"的根因.
     /// 解决: 1) 换成纯线性 `book.closed` `building.2` `person` 系列  2) 强制 `.symbolRenderingMode(.monochrome)`
     private let items: [(tab: RootView.Tab, iconOff: String, iconOn: String, label: String)] = [
-        (.bookshelf, "books.vertical",     "books.vertical.fill", "书架"),
-        (.bookStore, "building.2",         "building.2.fill",     "书城"),
-        (.my,        "person.crop.circle", "person.crop.circle.fill", "我的"),
+        (.bookshelf, "books.vertical",     "books.vertical.fill", S.bookshelf),
+        (.bookStore, "building.2",         "building.2.fill",     S.bookstore),
+        (.my,        "person.crop.circle", "person.crop.circle.fill", S.mine),
     ]
 
     var body: some View {

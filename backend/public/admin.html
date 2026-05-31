@@ -408,9 +408,17 @@
 
             <!-- Promo Codes -->
             <section>
+                <div id="reviewModeBanner" class="hidden mb-3 p-3 rounded-xl border-2 border-red-300 bg-red-50 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-red-600 font-bold text-sm">🔒 审核模式已开启</span>
+                        <span class="text-xs text-red-500">客户端将无法获取推广码</span>
+                    </div>
+                    <button onclick="toggleReviewMode()" class="text-sm bg-red-600 text-white hover:bg-red-700 px-3 py-1.5 rounded">关闭审核模式</button>
+                </div>
                 <div class="flex items-center justify-between mb-3">
                     <h2 class="text-lg font-bold text-stone-700">推广代理码 <span id="promoBadge" class="text-sm text-stone-500"></span></h2>
                     <div class="flex gap-2">
+                        <button onclick="toggleReviewMode()" id="reviewModeBtn" class="text-sm bg-red-100 text-red-700 border border-red-300 hover:bg-red-200 px-3 py-1.5 rounded">开启审核模式</button>
                         <button onclick="loadPromoCodes()" class="text-sm bg-white border border-stone-300 hover:bg-stone-50 px-3 py-1.5 rounded">刷新</button>
                         <button onclick="showAddPromo()" class="text-sm bg-amber-700 text-white hover:bg-amber-800 px-3 py-1.5 rounded">+ 新增推广码</button>
                     </div>
@@ -718,6 +726,7 @@
             loadAnnouncements();
             loadFeedback();
             loadPromoCodes();
+            loadReviewMode();
             loadContentCache();
             setCcTab('all');
             // 自动刷新统计
@@ -1717,6 +1726,34 @@
                 if (j.ok) loadAnnouncements();
                 else alert('失败: ' + (j.msg || ''));
             } catch (e) { alert('失败: ' + (e.message || e)); }
+        }
+
+        // ── 审核模式 ──
+        async function loadReviewMode() {
+            try {
+                const r = await apiGet('/api/admin/review-mode');
+                const banner = document.getElementById('reviewModeBanner');
+                const btn = document.getElementById('reviewModeBtn');
+                if (r.enabled) {
+                    banner.classList.remove('hidden');
+                    btn.textContent = '关闭审核模式';
+                    btn.className = 'text-sm bg-green-100 text-green-700 border border-green-300 hover:bg-green-200 px-3 py-1.5 rounded';
+                } else {
+                    banner.classList.add('hidden');
+                    btn.textContent = '开启审核模式';
+                    btn.className = 'text-sm bg-red-100 text-red-700 border border-red-300 hover:bg-red-200 px-3 py-1.5 rounded';
+                }
+            } catch {}
+        }
+        async function toggleReviewMode() {
+            try {
+                const cur = await apiGet('/api/admin/review-mode');
+                const newVal = !cur.enabled;
+                const msg = newVal ? '开启审核模式后，客户端将无法获取推广码（无法解锁B面）。确认开启？' : '关闭审核模式后，客户端可正常获取推广码。确认关闭？';
+                if (!confirm(msg)) return;
+                await apiSend('/api/admin/review-mode', 'POST', { enabled: newVal });
+                loadReviewMode();
+            } catch (e) { alert('操作失败: ' + e.message); }
         }
 
         // === 万象书屋: 审计日志 ===

@@ -237,7 +237,7 @@ private final class SelectionTextView: UITextView {
             UIAction(title: "浏览器") { [weak self] _ in self?.actBrowser() },
             UIAction(title: "分享") { [weak self] _ in self?.actShare() },
         ]
-        builder.insertSibling(UIMenu(title: "万象书屋", children: items), beforeMenu: .standardEdit)
+        builder.insertSibling(UIMenu(title: S.appName, children: items), beforeMenu: .standardEdit)
     }
 
     private var selectedString: String {

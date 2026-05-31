@@ -510,6 +510,9 @@ app.get('/api/iap/entitlements', blockBlacklistedDevice, verifyDeviceToken, (req
 
 // --- 推广代理码 (客户端) ---
 app.get('/api/promo/codes', blockBlacklistedDevice, (req, res) => {
+  if (db.kvGet('review_mode') === '1') {
+    return res.json({ ok: true, codes: [] });
+  }
   const codes = db.listPromoCodes({ enabledOnly: true }).map(c => ({
     code: c.code, agent_name: c.agent_name, max_uses: c.max_uses,
     single_device: c.single_device === 1,
@@ -897,6 +900,17 @@ app.delete('/api/admin/promo/codes/:code', requireAdmin, requireRole(['super', '
 app.get('/api/admin/promo/stats', requireAdmin, (req, res) => res.json({ ok: true, ...db.promoOverview() }));
 app.get('/api/admin/promo/stats/:code', requireAdmin, (req, res) => res.json({ ok: true, ...db.promoCodeStats(req.params.code) }));
 app.get('/api/admin/promo/fraud', requireAdmin, (req, res) => res.json({ ok: true, alerts: db.promoFraudDetection() }));
+
+// --- 审核模式 ---
+app.get('/api/admin/review-mode', requireAdmin, (req, res) => {
+  res.json({ ok: true, enabled: db.kvGet('review_mode') === '1' });
+});
+app.post('/api/admin/review-mode', requireAdmin, requireRole(['super']), (req, res) => {
+  const enabled = !!req.body.enabled;
+  db.kvSet('review_mode', enabled ? '1' : '0');
+  logger.warn({ m: 'review_mode_toggled', enabled, by: req.adminUser });
+  res.json({ ok: true, enabled });
+});
 
 // ═══════════════════ 书籍缓存 API ═══════════════════
 

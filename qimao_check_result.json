@@ -1,0 +1,5817 @@
+{
+  "summary": {
+    "total": 1000,
+    "found_in_qimao": 402,
+    "not_found_in_qimao": 598,
+    "errors": 0
+  },
+  "found": [
+    {
+      "rank": 3,
+      "title": "夜的命名术",
+      "author": "会说话的肘子",
+      "qimao_id": "1784819",
+      "qimao_author": "会说话的肘子"
+    },
+    {
+      "rank": 6,
+      "title": "万族之劫",
+      "author": "老鹰吃小鸡",
+      "qimao_id": "1784834",
+      "qimao_author": "老鹰吃小鸡"
+    },
+    {
+      "rank": 7,
+      "title": "这游戏也太真实了",
+      "author": "晨星LL",
+      "qimao_id": "9967866",
+      "qimao_author": "晨星LL"
+    },
+    {
+      "rank": 15,
+      "title": "圣墟",
+      "author": "辰东",
+      "qimao_id": "1784927",
+      "qimao_author": "辰东"
+    },
+    {
+      "rank": 18,
+      "title": "不科学御兽",
+      "author": "轻泉流响",
+      "qimao_id": "1784826",
+      "qimao_author": "轻泉流响"
+    },
+    {
+      "rank": 1,
+      "title": "牧神记",
+      "author": "宅猪",
+      "qimao_id": "1784908",
+      "qimao_author": "宅猪"
+    },
+    {
+      "rank": 2,
+      "title": "大王饶命",
+      "author": "会说话的肘子",
+      "qimao_id": "1784903",
+      "qimao_author": "会说话的肘子"
+    },
+    {
+      "rank": 3,
+      "title": "修真聊天群（聊天群的日常生活）",
+      "author": "圣骑士的传说",
+      "qimao_id": "1784959",
+      "qimao_author": "圣骑士的传说"
+    },
+    {
+      "rank": 4,
+      "title": "全球高武",
+      "author": "老鹰吃小鸡",
+      "qimao_id": "1784906",
+      "qimao_author": "老鹰吃小鸡"
+    },
+    {
+      "rank": 7,
+      "title": "我师兄实在太稳健了",
+      "author": "言归正传",
+      "qimao_id": "1784831",
+      "qimao_author": "言归正传"
+    },
+    {
+      "rank": 9,
+      "title": "超神机械师",
+      "author": "齐佩甲",
+      "qimao_id": "1784946",
+      "qimao_author": "齐佩甲"
+    },
+    {
+      "rank": 12,
+      "title": "谍影风云",
+      "author": "寻青藤",
+      "qimao_id": "1785011",
+      "qimao_author": "寻青藤"
+    },
+    {
+      "rank": 13,
+      "title": "伏天氏",
+      "author": "净无痕",
+      "qimao_id": "1784895",
+      "qimao_author": "净无痕"
+    },
+    {
+      "rank": 14,
+      "title": "天道图书馆",
+      "author": "横扫天涯",
+      "qimao_id": "1784947",
+      "qimao_author": "横扫天涯"
+    },
+    {
+      "rank": 15,
+      "title": "第一序列",
+      "author": "会说话的肘子",
+      "qimao_id": "1784904",
+      "qimao_author": "会说话的肘子"
+    },
+    {
+      "rank": 6,
+      "title": "神秘复苏",
+      "author": "佛前献花",
+      "qimao_id": "1784832",
+      "qimao_author": "佛前献花"
+    },
+    {
+      "rank": 7,
+      "title": "凡人修仙之仙界篇",
+      "author": "忘语",
+      "qimao_id": "1784945",
+      "qimao_author": "忘语"
+    },
+    {
+      "rank": 9,
+      "title": "全职艺术家",
+      "author": "我最白",
+      "qimao_id": "1784914",
+      "qimao_author": "我最白"
+    },
+    {
+      "rank": 12,
+      "title": "我有一座冒险屋",
+      "author": "我会修空调",
+      "qimao_id": "1784833",
+      "qimao_author": "我会修空调"
+    },
+    {
+      "rank": 17,
+      "title": "我真没想重生啊",
+      "author": "柳岸花又明",
+      "qimao_id": "1784898",
+      "qimao_author": "柳岸花又明"
+    },
+    {
+      "rank": 1,
+      "title": "一念永恒",
+      "author": "耳根",
+      "qimao_id": "1784902",
+      "qimao_author": "耳根"
+    },
+    {
+      "rank": 7,
+      "title": "万古神帝",
+      "author": "飞天鱼",
+      "qimao_id": "1649137",
+      "qimao_author": "神月"
+    },
+    {
+      "rank": 8,
+      "title": "我的超能力每周刷新",
+      "author": "一片雪饼",
+      "qimao_id": "9981408",
+      "qimao_author": "一片雪饼"
+    },
+    {
+      "rank": 11,
+      "title": "学霸的黑科技系统",
+      "author": "晨星LL",
+      "qimao_id": "1785024",
+      "qimao_author": "晨星LL"
+    },
+    {
+      "rank": 12,
+      "title": "我用闲书成圣人",
+      "author": "出走八万里",
+      "qimao_id": "2022613",
+      "qimao_author": "爱幻想的枫叶"
+    },
+    {
+      "rank": 14,
+      "title": "九星毒奶",
+      "author": "育",
+      "qimao_id": "1784970",
+      "qimao_author": "育"
+    },
+    {
+      "rank": 17,
+      "title": "苟在女魔头身边偷偷修炼",
+      "author": "怕辣的红椒",
+      "qimao_id": "2081561",
+      "qimao_author": "怕辣的红椒"
+    },
+    {
+      "rank": 20,
+      "title": "明朝败家子",
+      "author": "上山打老虎额",
+      "qimao_id": "1784963",
+      "qimao_author": "上山打老虎额"
+    },
+    {
+      "rank": 1,
+      "title": "东晋北府一丘八",
+      "author": "指云笑天道1",
+      "qimao_id": "10021635",
+      "qimao_author": "指云笑天道1"
+    },
+    {
+      "rank": 8,
+      "title": "魔临",
+      "author": "纯洁滴小龙",
+      "qimao_id": "1784873",
+      "qimao_author": "纯洁滴小龙"
+    },
+    {
+      "rank": 13,
+      "title": "渊天尊",
+      "author": "烽仙",
+      "qimao_id": "1927075",
+      "qimao_author": "烽仙"
+    },
+    {
+      "rank": 14,
+      "title": "镇妖博物馆",
+      "author": "阎ZK",
+      "qimao_id": "1784850",
+      "qimao_author": "阎ZK"
+    },
+    {
+      "rank": 16,
+      "title": "美食供应商",
+      "author": "会做菜的猫",
+      "qimao_id": "1785064",
+      "qimao_author": "会做菜的猫"
+    },
+    {
+      "rank": 18,
+      "title": "手术直播间",
+      "author": "真熊初墨",
+      "qimao_id": "9981753",
+      "qimao_author": "真熊初墨"
+    },
+    {
+      "rank": 20,
+      "title": "精灵掌门人",
+      "author": "轻泉流响",
+      "qimao_id": "1784881",
+      "qimao_author": "轻泉流响"
+    },
+    {
+      "rank": 1,
+      "title": "太初",
+      "author": "高楼大厦",
+      "qimao_id": "1784988",
+      "qimao_author": "高楼大厦"
+    },
+    {
+      "rank": 2,
+      "title": "重生之似水流年",
+      "author": "苍山月",
+      "qimao_id": "2081562",
+      "qimao_author": "苍山月"
+    },
+    {
+      "rank": 5,
+      "title": "当医生开了外挂",
+      "author": "手握寸关尺",
+      "qimao_id": "1785121",
+      "qimao_author": "手握寸关尺"
+    },
+    {
+      "rank": 10,
+      "title": "我的1979",
+      "author": "争斤论两花花帽",
+      "qimao_id": "9969324",
+      "qimao_author": "争斤论两花花帽"
+    },
+    {
+      "rank": 15,
+      "title": "禁区之狐",
+      "author": "林海听涛",
+      "qimao_id": "9977862",
+      "qimao_author": "林海听涛"
+    },
+    {
+      "rank": 19,
+      "title": "深夜书屋",
+      "author": "纯洁滴小龙",
+      "qimao_id": "1785053",
+      "qimao_author": "纯洁滴小龙"
+    },
+    {
+      "rank": 4,
+      "title": "带着仓库到大明",
+      "author": "迪巴拉爵士",
+      "qimao_id": "1785046",
+      "qimao_author": "迪巴拉爵士"
+    },
+    {
+      "rank": 5,
+      "title": "临渊行",
+      "author": "宅猪",
+      "qimao_id": "1784973",
+      "qimao_author": "宅猪"
+    },
+    {
+      "rank": 6,
+      "title": "重塑千禧年代",
+      "author": "渔雪",
+      "qimao_id": "1805231",
+      "qimao_author": "渔雪"
+    },
+    {
+      "rank": 8,
+      "title": "光明壁垒",
+      "author": "会摔跤的熊猫",
+      "qimao_id": "1785259",
+      "qimao_author": "会摔跤的熊猫"
+    },
+    {
+      "rank": 10,
+      "title": "大明国师",
+      "author": "西湖遇雨",
+      "qimao_id": "2003897",
+      "qimao_author": "西湖遇雨"
+    },
+    {
+      "rank": 11,
+      "title": "重启人生",
+      "author": "王梓钧",
+      "qimao_id": "1859115",
+      "qimao_author": "【日】大下宇陀儿"
+    },
+    {
+      "rank": 12,
+      "title": "最初进化",
+      "author": "卷土",
+      "qimao_id": "9977871",
+      "qimao_author": "卷土"
+    },
+    {
+      "rank": 13,
+      "title": "神话纪元，我进化成了恒星级巨兽",
+      "author": "群玉山头见",
+      "qimao_id": "9976617",
+      "qimao_author": "群玉山头见"
+    },
+    {
+      "rank": 17,
+      "title": "斗战狂潮",
+      "author": "骷髅精灵",
+      "qimao_id": "1784925",
+      "qimao_author": "骷髅精灵"
+    },
+    {
+      "rank": 18,
+      "title": "朕",
+      "author": "王梓钧",
+      "qimao_id": "1648578",
+      "qimao_author": "孤央"
+    },
+    {
+      "rank": 3,
+      "title": "极品全能高手",
+      "author": "花都大少",
+      "qimao_id": "1784911",
+      "qimao_author": "花都大少"
+    },
+    {
+      "rank": 5,
+      "title": "法力无边高大仙",
+      "author": "踏雪真人",
+      "qimao_id": "9976953",
+      "qimao_author": "踏雪真人"
+    },
+    {
+      "rank": 8,
+      "title": "诸界末日在线",
+      "author": "烟火成城",
+      "qimao_id": "1784933",
+      "qimao_author": "烟火成城"
+    },
+    {
+      "rank": 9,
+      "title": "三寸人间",
+      "author": "耳根",
+      "qimao_id": "1784957",
+      "qimao_author": "耳根"
+    },
+    {
+      "rank": 16,
+      "title": "史上最强赘婿",
+      "author": "沉默的糕点",
+      "qimao_id": "1784984",
+      "qimao_author": "沉默的糕点"
+    },
+    {
+      "rank": 17,
+      "title": "我就是不按套路出牌",
+      "author": "百分之七",
+      "qimao_id": "1784846",
+      "qimao_author": "百分之七"
+    },
+    {
+      "rank": 1,
+      "title": "异常生物见闻录",
+      "author": "远瞳",
+      "qimao_id": "1784865",
+      "qimao_author": "远瞳"
+    },
+    {
+      "rank": 4,
+      "title": "保护我方族长",
+      "author": "傲无常",
+      "qimao_id": "9977757",
+      "qimao_author": "傲无常"
+    },
+    {
+      "rank": 5,
+      "title": "数风流人物",
+      "author": "瑞根",
+      "qimao_id": "1785211",
+      "qimao_author": "瑞根"
+    },
+    {
+      "rank": 7,
+      "title": "这次不当训练家了",
+      "author": "骑车的风",
+      "qimao_id": "9975882",
+      "qimao_author": "骑车的风"
+    },
+    {
+      "rank": 19,
+      "title": "大道朝天",
+      "author": "猫腻",
+      "qimao_id": "1784920",
+      "qimao_author": "猫腻"
+    },
+    {
+      "rank": 1,
+      "title": "凌天战尊",
+      "author": "风轻扬",
+      "qimao_id": "1784840",
+      "qimao_author": "风轻扬"
+    },
+    {
+      "rank": 4,
+      "title": "秦吏",
+      "author": "七月新番",
+      "qimao_id": "1785041",
+      "qimao_author": "七月新番"
+    },
+    {
+      "rank": 12,
+      "title": "视死如归魏君子",
+      "author": "平层",
+      "qimao_id": "1784883",
+      "qimao_author": "平层"
+    },
+    {
+      "rank": 13,
+      "title": "御道倾天",
+      "author": "风凌天下",
+      "qimao_id": "1785390",
+      "qimao_author": "风凌天下"
+    },
+    {
+      "rank": 16,
+      "title": "大魏读书人",
+      "author": "七月未时",
+      "qimao_id": "1784855",
+      "qimao_author": "七月未时"
+    },
+    {
+      "rank": 18,
+      "title": "影帝他不想当太监",
+      "author": "江公子阿宝",
+      "qimao_id": "9976713",
+      "qimao_author": "江公子阿宝"
+    },
+    {
+      "rank": 19,
+      "title": "我真没想当训练家啊",
+      "author": "北川南海",
+      "qimao_id": "1785204",
+      "qimao_author": "北川南海"
+    },
+    {
+      "rank": 1,
+      "title": "我已不做大佬好多年",
+      "author": "萌俊",
+      "qimao_id": "1828439",
+      "qimao_author": "萌俊"
+    },
+    {
+      "rank": 14,
+      "title": "我的徒弟都是大反派",
+      "author": "谋生任转蓬",
+      "qimao_id": "1785037",
+      "qimao_author": "谋生任转蓬"
+    },
+    {
+      "rank": 15,
+      "title": "极道天魔",
+      "author": "滚开",
+      "qimao_id": "1784935",
+      "qimao_author": "滚开"
+    },
+    {
+      "rank": 16,
+      "title": "巫师：从骑士呼吸法开始肝经验",
+      "author": "田隶",
+      "qimao_id": "1877446",
+      "qimao_author": "田隶"
+    },
+    {
+      "rank": 17,
+      "title": "1980我的文艺时代",
+      "author": "坐望敬亭",
+      "qimao_id": "9976245",
+      "qimao_author": "坐望敬亭"
+    },
+    {
+      "rank": 1,
+      "title": "武道宗师",
+      "author": "爱潜水的乌贼",
+      "qimao_id": "1784869",
+      "qimao_author": "爱潜水的乌贼"
+    },
+    {
+      "rank": 2,
+      "title": "天阿降临",
+      "author": "烟雨江南",
+      "qimao_id": "1785275",
+      "qimao_author": "烟雨江南"
+    },
+    {
+      "rank": 3,
+      "title": "生活系游戏",
+      "author": "吨吨吨吨吨",
+      "qimao_id": "1784882",
+      "qimao_author": "吨吨吨吨吨"
+    },
+    {
+      "rank": 6,
+      "title": "什么叫六边形打野啊",
+      "author": "这很科学啊",
+      "qimao_id": "9981336",
+      "qimao_author": "这很科学啊"
+    },
+    {
+      "rank": 7,
+      "title": "都市超级医圣",
+      "author": "断桥残雪",
+      "qimao_id": "1785509",
+      "qimao_author": "断桥残雪"
+    },
+    {
+      "rank": 11,
+      "title": "斗破苍穹",
+      "author": "天蚕土豆",
+      "qimao_id": "1784900",
+      "qimao_author": "天蚕土豆"
+    },
+    {
+      "rank": 15,
+      "title": "武炼巅峰",
+      "author": "莫默",
+      "qimao_id": "1784899",
+      "qimao_author": "莫默"
+    },
+    {
+      "rank": 16,
+      "title": "我是至尊",
+      "author": "风凌天下",
+      "qimao_id": "1785027",
+      "qimao_author": "风凌天下"
+    },
+    {
+      "rank": 18,
+      "title": "我真的只是想打铁",
+      "author": "静悄悄地写",
+      "qimao_id": "1785262",
+      "qimao_author": "静悄悄地写"
+    },
+    {
+      "rank": 19,
+      "title": "我真没想出名啊",
+      "author": "巫马行",
+      "qimao_id": "1785069",
+      "qimao_author": "巫马行"
+    },
+    {
+      "rank": 1,
+      "title": "英雄无敌之隐藏建筑大师",
+      "author": "凶猛公仓鼠",
+      "qimao_id": "9977613",
+      "qimao_author": "凶猛公仓鼠"
+    },
+    {
+      "rank": 4,
+      "title": "帝霸",
+      "author": "厌笔萧生",
+      "qimao_id": "1863902",
+      "qimao_author": "厌笔萧生"
+    },
+    {
+      "rank": 7,
+      "title": "金刚不坏大寨主",
+      "author": "徍男",
+      "qimao_id": "1785254",
+      "qimao_author": "徍男"
+    },
+    {
+      "rank": 13,
+      "title": "红楼春",
+      "author": "屋外风吹凉",
+      "qimao_id": "1785230",
+      "qimao_author": "屋外风吹凉"
+    },
+    {
+      "rank": 15,
+      "title": "人道大圣",
+      "author": "莫默",
+      "qimao_id": "1784842",
+      "qimao_author": "莫默"
+    },
+    {
+      "rank": 19,
+      "title": "我真的长生不老",
+      "author": "初恋璀璨如夏花",
+      "qimao_id": "1785456",
+      "qimao_author": "初恋璀璨如夏花"
+    },
+    {
+      "rank": 5,
+      "title": "无尽债务",
+      "author": "Andlao",
+      "qimao_id": "9977070",
+      "qimao_author": "Andlao"
+    },
+    {
+      "rank": 9,
+      "title": "从剧本杀店开始",
+      "author": "吨吨吨吨吨",
+      "qimao_id": "1785201",
+      "qimao_author": "吨吨吨吨吨"
+    },
+    {
+      "rank": 10,
+      "title": "九星之主",
+      "author": "育",
+      "qimao_id": "1785353",
+      "qimao_author": "育"
+    },
+    {
+      "rank": 12,
+      "title": "奶爸的异界餐厅",
+      "author": "轻语江湖",
+      "qimao_id": "1785496",
+      "qimao_author": "轻语江湖"
+    },
+    {
+      "rank": 15,
+      "title": "港综世界大枭雄",
+      "author": "萌俊",
+      "qimao_id": "1785652",
+      "qimao_author": "萌俊"
+    },
+    {
+      "rank": 18,
+      "title": "大宣武圣",
+      "author": "夜南听风",
+      "qimao_id": "9978414",
+      "qimao_author": "夜南听风"
+    },
+    {
+      "rank": 1,
+      "title": "我有一身被动技",
+      "author": "熬夜吃苹果",
+      "qimao_id": "9977940",
+      "qimao_author": "熬夜吃苹果"
+    },
+    {
+      "rank": 2,
+      "title": "青莲之巅",
+      "author": "肖十一莫",
+      "qimao_id": "1786757",
+      "qimao_author": "肖十一莫"
+    },
+    {
+      "rank": 5,
+      "title": "星武纪元",
+      "author": "猪三不",
+      "qimao_id": "1845466",
+      "qimao_author": "醉卧九重云"
+    },
+    {
+      "rank": 6,
+      "title": "洪荒历",
+      "author": "zhttty",
+      "qimao_id": "1785221",
+      "qimao_author": "zhttty"
+    },
+    {
+      "rank": 8,
+      "title": "霸武",
+      "author": "开荒",
+      "qimao_id": "1797753",
+      "qimao_author": "不死的鹰"
+    },
+    {
+      "rank": 10,
+      "title": "养成系男神：听劝后，我成了顶流",
+      "author": "蠢蠢凡愚QD",
+      "qimao_id": "9981543",
+      "qimao_author": "蠢蠢凡愚QD"
+    },
+    {
+      "rank": 11,
+      "title": "我的御兽真不是邪神",
+      "author": "晨色暮鸦",
+      "qimao_id": "9976377",
+      "qimao_author": "晨色暮鸦"
+    },
+    {
+      "rank": 19,
+      "title": "我有一棵神话树",
+      "author": "南瞻台",
+      "qimao_id": "1785245",
+      "qimao_author": "南瞻台"
+    },
+    {
+      "rank": 20,
+      "title": "重燃",
+      "author": "奥尔良烤鲟鱼堡",
+      "qimao_id": "1785089",
+      "qimao_author": "奥尔良烤鲟鱼堡"
+    },
+    {
+      "rank": 3,
+      "title": "星火",
+      "author": "九月酱",
+      "qimao_id": "1886482",
+      "qimao_author": "罗浩"
+    },
+    {
+      "rank": 9,
+      "title": "天影",
+      "author": "萧鼎",
+      "qimao_id": "9973785",
+      "qimao_author": "萧鼎"
+    },
+    {
+      "rank": 11,
+      "title": "玩家凶猛",
+      "author": "黑灯夏火",
+      "qimao_id": "1784874",
+      "qimao_author": "黑灯夏火"
+    },
+    {
+      "rank": 12,
+      "title": "从我是特种兵开始打卡",
+      "author": "纳兰凌云",
+      "qimao_id": "1785159",
+      "qimao_author": "纳兰凌云"
+    },
+    {
+      "rank": 13,
+      "title": "金丹是恒星，你管这叫修仙？",
+      "author": "走地鹤",
+      "qimao_id": "1889228",
+      "qimao_author": "走地鹤"
+    },
+    {
+      "rank": 16,
+      "title": "完美世界",
+      "author": "辰东",
+      "qimao_id": "1806058",
+      "qimao_author": "辰东"
+    },
+    {
+      "rank": 5,
+      "title": "万古最强宗",
+      "author": "江湖再见",
+      "qimao_id": "1785107",
+      "qimao_author": "江湖再见"
+    },
+    {
+      "rank": 7,
+      "title": "开局账号被盗，反手充值一百万",
+      "author": "酒剑仙人",
+      "qimao_id": "9975417",
+      "qimao_author": "酒剑仙人"
+    },
+    {
+      "rank": 10,
+      "title": "高门庶子",
+      "author": "一片雪饼",
+      "qimao_id": "9981444",
+      "qimao_author": "一片雪饼"
+    },
+    {
+      "rank": 15,
+      "title": "废土崛起",
+      "author": "通吃",
+      "qimao_id": "1828447",
+      "qimao_author": "通吃"
+    },
+    {
+      "rank": 19,
+      "title": "垂钓之神",
+      "author": "会狼叫的猪",
+      "qimao_id": "1785371",
+      "qimao_author": "会狼叫的猪"
+    },
+    {
+      "rank": 1,
+      "title": "武圣！",
+      "author": "田隶",
+      "qimao_id": "9975651",
+      "qimao_author": "田隶"
+    },
+    {
+      "rank": 3,
+      "title": "最强反套路系统",
+      "author": "太上布衣",
+      "qimao_id": "1785080",
+      "qimao_author": "太上布衣"
+    },
+    {
+      "rank": 6,
+      "title": "我在荒岛肝属性",
+      "author": "最终永恒",
+      "qimao_id": "9974745",
+      "qimao_author": "最终永恒"
+    },
+    {
+      "rank": 7,
+      "title": "五行天",
+      "author": "方想",
+      "qimao_id": "1785380",
+      "qimao_author": "方想"
+    },
+    {
+      "rank": 8,
+      "title": "平平无奇大师兄",
+      "author": "黑夜弥天",
+      "qimao_id": "1785132",
+      "qimao_author": "黑夜弥天"
+    },
+    {
+      "rank": 11,
+      "title": "大主宰",
+      "author": "天蚕土豆",
+      "qimao_id": "1784961",
+      "qimao_author": "天蚕土豆"
+    },
+    {
+      "rank": 12,
+      "title": "异世界的美食家",
+      "author": "李鸿天",
+      "qimao_id": "1785659",
+      "qimao_author": "李鸿天"
+    },
+    {
+      "rank": 13,
+      "title": "重生野性时代",
+      "author": "王梓钧",
+      "qimao_id": "1784870",
+      "qimao_author": "王梓钧"
+    },
+    {
+      "rank": 17,
+      "title": "重生之财源滚滚",
+      "author": "老鹰吃小鸡",
+      "qimao_id": "1785005",
+      "qimao_author": "老鹰吃小鸡"
+    },
+    {
+      "rank": 18,
+      "title": "危机处理游戏",
+      "author": "土土士",
+      "qimao_id": "9981552",
+      "qimao_author": "土土士"
+    },
+    {
+      "rank": 2,
+      "title": "太乙",
+      "author": "雾外江山",
+      "qimao_id": "1786061",
+      "qimao_author": "雾外江山"
+    },
+    {
+      "rank": 3,
+      "title": "偷偷养只小金乌",
+      "author": "育",
+      "qimao_id": "1807304",
+      "qimao_author": "育"
+    },
+    {
+      "rank": 6,
+      "title": "我的细胞监狱",
+      "author": "穿黄衣的阿肥",
+      "qimao_id": "1828452",
+      "qimao_author": "穿黄衣的阿肥"
+    },
+    {
+      "rank": 10,
+      "title": "出笼记",
+      "author": "核动力战列舰",
+      "qimao_id": "9977730",
+      "qimao_author": "核动力战列舰"
+    },
+    {
+      "rank": 12,
+      "title": "问道红尘",
+      "author": "姬叉",
+      "qimao_id": "1875133",
+      "qimao_author": "见秋"
+    },
+    {
+      "rank": 13,
+      "title": "万道剑尊",
+      "author": "打死都要钱",
+      "qimao_id": "9978006",
+      "qimao_author": "打死都要钱"
+    },
+    {
+      "rank": 20,
+      "title": "拜见教主大人",
+      "author": "封七月",
+      "qimao_id": "1785515",
+      "qimao_author": "封七月"
+    },
+    {
+      "rank": 2,
+      "title": "末世：我的关键词比别人多一个",
+      "author": "棉衣卫",
+      "qimao_id": "9974847",
+      "qimao_author": "棉衣卫"
+    },
+    {
+      "rank": 4,
+      "title": "古龙世界里的吃瓜剑客",
+      "author": "西瓜吃葡萄",
+      "qimao_id": "1955432",
+      "qimao_author": "西瓜吃葡萄"
+    },
+    {
+      "rank": 6,
+      "title": "从龙族开始打穿世界",
+      "author": "起飞的大象",
+      "qimao_id": "9977877",
+      "qimao_author": "起飞的大象"
+    },
+    {
+      "rank": 8,
+      "title": "我只想自力更生",
+      "author": "中秋月明",
+      "qimao_id": "1930518",
+      "qimao_author": "天人之心"
+    },
+    {
+      "rank": 10,
+      "title": "这个外援强到离谱",
+      "author": "街区转角",
+      "qimao_id": "9977217",
+      "qimao_author": "街区转角"
+    },
+    {
+      "rank": 11,
+      "title": "重生之神级学霸",
+      "author": "志鸟村",
+      "qimao_id": "1802092",
+      "qimao_author": "志鸟村"
+    },
+    {
+      "rank": 17,
+      "title": "亚人娘补完手册",
+      "author": "伊巍蟹",
+      "qimao_id": "9976848",
+      "qimao_author": "伊巍蟹"
+    },
+    {
+      "rank": 19,
+      "title": "在第四天灾中幸存",
+      "author": "纳西利亚",
+      "qimao_id": "9977841",
+      "qimao_author": "纳西利亚"
+    },
+    {
+      "rank": 8,
+      "title": "重生南非当警察",
+      "author": "鲇鱼头",
+      "qimao_id": "9977913",
+      "qimao_author": "鲇鱼头"
+    },
+    {
+      "rank": 10,
+      "title": "超凡传",
+      "author": "萧潜",
+      "qimao_id": "10019340",
+      "qimao_author": "萧潜"
+    },
+    {
+      "rank": 11,
+      "title": "海兰萨领主",
+      "author": "海逸小猪",
+      "qimao_id": "10021341",
+      "qimao_author": "海逸小猪"
+    },
+    {
+      "rank": 16,
+      "title": "斗罗大陆V重生唐三",
+      "author": "唐家三少",
+      "qimao_id": "1650204",
+      "qimao_author": "唐家三少"
+    },
+    {
+      "rank": 2,
+      "title": "我有一枚两界印",
+      "author": "西瓜吃葡萄",
+      "qimao_id": "1833855",
+      "qimao_author": "西瓜吃葡萄"
+    },
+    {
+      "rank": 3,
+      "title": "余下的，只有噪音",
+      "author": "沉默的爱",
+      "qimao_id": "1784922",
+      "qimao_author": "沉默的爱"
+    },
+    {
+      "rank": 4,
+      "title": "大道纪",
+      "author": "裴屠狗",
+      "qimao_id": "1785298",
+      "qimao_author": "裴屠狗"
+    },
+    {
+      "rank": 5,
+      "title": "联盟之魔王系统",
+      "author": "神秘的大西瓜",
+      "qimao_id": "1785573",
+      "qimao_author": "神秘的大西瓜"
+    },
+    {
+      "rank": 7,
+      "title": "神藏",
+      "author": "打眼",
+      "qimao_id": "1784968",
+      "qimao_author": "打眼"
+    },
+    {
+      "rank": 8,
+      "title": "太古神王",
+      "author": "净无痕",
+      "qimao_id": "1784949",
+      "qimao_author": "净无痕"
+    },
+    {
+      "rank": 10,
+      "title": "兼职艺术家",
+      "author": "我最白",
+      "qimao_id": "9974385",
+      "qimao_author": "我最白"
+    },
+    {
+      "rank": 12,
+      "title": "我不可能是剑神",
+      "author": "裴不了",
+      "qimao_id": "1784851",
+      "qimao_author": "裴不了"
+    },
+    {
+      "rank": 14,
+      "title": "重生2008：我阅读能赚钱",
+      "author": "520农民",
+      "qimao_id": "1785260",
+      "qimao_author": "520农民"
+    },
+    {
+      "rank": 10,
+      "title": "警探长",
+      "author": "奉义天涯",
+      "qimao_id": "1784888",
+      "qimao_author": "奉义天涯"
+    },
+    {
+      "rank": 14,
+      "title": "末日拼图游戏",
+      "author": "更从心",
+      "qimao_id": "1785365",
+      "qimao_author": "更从心"
+    },
+    {
+      "rank": 16,
+      "title": "小世界其乐无穷",
+      "author": "听日",
+      "qimao_id": "9976605",
+      "qimao_author": "听日"
+    },
+    {
+      "rank": 18,
+      "title": "大苍守夜人",
+      "author": "二十四桥明月夜",
+      "qimao_id": "1892220",
+      "qimao_author": "二十四桥明月夜"
+    },
+    {
+      "rank": 20,
+      "title": "超神宠兽店",
+      "author": "古羲",
+      "qimao_id": "9981702",
+      "qimao_author": "古羲"
+    },
+    {
+      "rank": 1,
+      "title": "我能提取熟练度",
+      "author": "云东流",
+      "qimao_id": "1785294",
+      "qimao_author": "云东流"
+    },
+    {
+      "rank": 2,
+      "title": "天降我才必有用",
+      "author": "石章鱼",
+      "qimao_id": "1785227",
+      "qimao_author": "石章鱼"
+    },
+    {
+      "rank": 4,
+      "title": "古仙复苏，一万狐狸拜我为师",
+      "author": "葡萄果醋",
+      "qimao_id": "9981486",
+      "qimao_author": "葡萄果醋"
+    },
+    {
+      "rank": 5,
+      "title": "我真的是正派",
+      "author": "白驹易逝",
+      "qimao_id": "1785302",
+      "qimao_author": "白驹易逝"
+    },
+    {
+      "rank": 9,
+      "title": "超神制卡师",
+      "author": "零下九十度",
+      "qimao_id": "1784944",
+      "qimao_author": "零下九十度"
+    },
+    {
+      "rank": 10,
+      "title": "妖龙古帝",
+      "author": "遥望南山",
+      "qimao_id": "1785187",
+      "qimao_author": "遥望南山"
+    },
+    {
+      "rank": 11,
+      "title": "影视世界当神探",
+      "author": "冰原三雅",
+      "qimao_id": "10085112",
+      "qimao_author": "冰原三雅"
+    },
+    {
+      "rank": 14,
+      "title": "曾经，我想做个好人",
+      "author": "常世",
+      "qimao_id": "9975171",
+      "qimao_author": "常世"
+    },
+    {
+      "rank": 15,
+      "title": "平常人类的平凡生活",
+      "author": "何处可桃",
+      "qimao_id": "1787213",
+      "qimao_author": "何处可桃"
+    },
+    {
+      "rank": 17,
+      "title": "美利坚名利双收",
+      "author": "白色十三号",
+      "qimao_id": "9981504",
+      "qimao_author": "白色十三号"
+    },
+    {
+      "rank": 19,
+      "title": "我真没想当救世主啊",
+      "author": "火中物",
+      "qimao_id": "1785257",
+      "qimao_author": "火中物"
+    },
+    {
+      "rank": 20,
+      "title": "调教大宋",
+      "author": "苍山月",
+      "qimao_id": "1807308",
+      "qimao_author": "苍山月"
+    },
+    {
+      "rank": 1,
+      "title": "逍遥小书生",
+      "author": "荣小荣",
+      "qimao_id": "1785044",
+      "qimao_author": "荣小荣"
+    },
+    {
+      "rank": 5,
+      "title": "我不想当老大",
+      "author": "超级麦克风",
+      "qimao_id": "1785770",
+      "qimao_author": "超级麦克风"
+    },
+    {
+      "rank": 14,
+      "title": "医疗系学霸",
+      "author": "小小鱼虾",
+      "qimao_id": "10021320",
+      "qimao_author": "小小鱼虾"
+    },
+    {
+      "rank": 15,
+      "title": "仙逆",
+      "author": "耳根",
+      "qimao_id": "1784910",
+      "qimao_author": "耳根"
+    },
+    {
+      "rank": 17,
+      "title": "如意小郎君",
+      "author": "荣小荣",
+      "qimao_id": "1785054",
+      "qimao_author": "荣小荣"
+    },
+    {
+      "rank": 3,
+      "title": "福德天官",
+      "author": "忽悠啊",
+      "qimao_id": "10019757",
+      "qimao_author": "忽悠啊"
+    },
+    {
+      "rank": 4,
+      "title": "大周仙吏",
+      "author": "荣小荣",
+      "qimao_id": "1784872",
+      "qimao_author": "荣小荣"
+    },
+    {
+      "rank": 8,
+      "title": "朕就是亡国之君",
+      "author": "吾谁与归",
+      "qimao_id": "1785460",
+      "qimao_author": "吾谁与归"
+    },
+    {
+      "rank": 9,
+      "title": "我只会拍烂片啊",
+      "author": "巫马行",
+      "qimao_id": "1784884",
+      "qimao_author": "巫马行"
+    },
+    {
+      "rank": 12,
+      "title": "老衲要还俗",
+      "author": "一梦黄粱",
+      "qimao_id": "1688715",
+      "qimao_author": "天涯浪子"
+    },
+    {
+      "rank": 14,
+      "title": "洪主",
+      "author": "烽仙",
+      "qimao_id": "1787206",
+      "qimao_author": "烽仙"
+    },
+    {
+      "rank": 15,
+      "title": "复活帝国",
+      "author": "火中物",
+      "qimao_id": "1785268",
+      "qimao_author": "火中物"
+    },
+    {
+      "rank": 18,
+      "title": "三界红包群",
+      "author": "小教主",
+      "qimao_id": "1785090",
+      "qimao_author": "小教主"
+    },
+    {
+      "rank": 20,
+      "title": "逐道长青",
+      "author": "奕念之",
+      "qimao_id": "9977592",
+      "qimao_author": "奕念之"
+    },
+    {
+      "rank": 5,
+      "title": "重生之最强剑神",
+      "author": "天运老猫",
+      "qimao_id": "1797606",
+      "qimao_author": "千年老龟"
+    },
+    {
+      "rank": 9,
+      "title": "武德充沛",
+      "author": "烟火成城",
+      "qimao_id": "1785225",
+      "qimao_author": "烟火成城"
+    },
+    {
+      "rank": 10,
+      "title": "经营民宿，开局接待武松",
+      "author": "馋嘴小猫咪",
+      "qimao_id": "10043148",
+      "qimao_author": "馋嘴小猫咪"
+    },
+    {
+      "rank": 17,
+      "title": "最强神话帝皇",
+      "author": "任我笑",
+      "qimao_id": "1785103",
+      "qimao_author": "任我笑"
+    },
+    {
+      "rank": 20,
+      "title": "玩家超正义",
+      "author": "不祈十弦",
+      "qimao_id": "1785303",
+      "qimao_author": "不祈十弦"
+    },
+    {
+      "rank": 4,
+      "title": "法爷永远是你大爷",
+      "author": "翔炎",
+      "qimao_id": "1785678",
+      "qimao_author": "翔炎"
+    },
+    {
+      "rank": 5,
+      "title": "元尊",
+      "author": "天蚕土豆",
+      "qimao_id": "150539",
+      "qimao_author": "天蚕土豆"
+    },
+    {
+      "rank": 6,
+      "title": "重生就要对自己狠一点",
+      "author": "吹个大气球9",
+      "qimao_id": "10085325",
+      "qimao_author": "吹个大气球9"
+    },
+    {
+      "rank": 10,
+      "title": "神佛竟是我自己",
+      "author": "独孤欢",
+      "qimao_id": "2019226",
+      "qimao_author": "独孤欢"
+    },
+    {
+      "rank": 13,
+      "title": "靖安侯",
+      "author": "漫客1",
+      "qimao_id": "1927073",
+      "qimao_author": "漫客1"
+    },
+    {
+      "rank": 15,
+      "title": "诸天最强大佬",
+      "author": "七只跳蚤",
+      "qimao_id": "9977601",
+      "qimao_author": "七只跳蚤"
+    },
+    {
+      "rank": 16,
+      "title": "斗罗大陆",
+      "author": "唐家三少",
+      "qimao_id": "1784901",
+      "qimao_author": "唐家三少"
+    },
+    {
+      "rank": 18,
+      "title": "公子别秀",
+      "author": "荣小荣",
+      "qimao_id": "1784859",
+      "qimao_author": "荣小荣"
+    },
+    {
+      "rank": 19,
+      "title": "白袍总管",
+      "author": "萧舒",
+      "qimao_id": "1785102",
+      "qimao_author": "萧舒"
+    },
+    {
+      "rank": 2,
+      "title": "落地一把98K",
+      "author": "Iced子夜",
+      "qimao_id": "1785545",
+      "qimao_author": "Iced子夜"
+    },
+    {
+      "rank": 3,
+      "title": "我要做门阀",
+      "author": "要离刺荆轲",
+      "qimao_id": "1785269",
+      "qimao_author": "要离刺荆轲"
+    },
+    {
+      "rank": 5,
+      "title": "无限先知",
+      "author": "吴杰超",
+      "qimao_id": "1786681",
+      "qimao_author": "吴杰超"
+    },
+    {
+      "rank": 11,
+      "title": "碧落天刀",
+      "author": "风凌天下",
+      "qimao_id": "1802089",
+      "qimao_author": "风凌天下"
+    },
+    {
+      "rank": 12,
+      "title": "史上最强店主",
+      "author": "南极烈日",
+      "qimao_id": "1785837",
+      "qimao_author": "南极烈日"
+    },
+    {
+      "rank": 13,
+      "title": "别人练级我修仙，苟到大乘再出山",
+      "author": "三五玄七",
+      "qimao_id": "9975822",
+      "qimao_author": "三五玄七"
+    },
+    {
+      "rank": 15,
+      "title": "万界圆梦师",
+      "author": "棉衣卫",
+      "qimao_id": "1785280",
+      "qimao_author": "棉衣卫"
+    },
+    {
+      "rank": 20,
+      "title": "这个影帝要加钱",
+      "author": "游方老盗",
+      "qimao_id": "9981567",
+      "qimao_author": "游方老盗"
+    },
+    {
+      "rank": 1,
+      "title": "我快亏成麻瓜了",
+      "author": "江公子阿宝",
+      "qimao_id": "1786849",
+      "qimao_author": "江公子阿宝"
+    },
+    {
+      "rank": 2,
+      "title": "高龄巨星",
+      "author": "蠢蠢凡愚QD",
+      "qimao_id": "1786856",
+      "qimao_author": "蠢蠢凡愚QD"
+    },
+    {
+      "rank": 3,
+      "title": "我的云养女友",
+      "author": "常世",
+      "qimao_id": "1785255",
+      "qimao_author": "常世"
+    },
+    {
+      "rank": 4,
+      "title": "大国军舰",
+      "author": "华东之雄",
+      "qimao_id": "1877419",
+      "qimao_author": "华东之雄"
+    },
+    {
+      "rank": 6,
+      "title": "异界召唤之千古群雄",
+      "author": "东天不冷",
+      "qimao_id": "1785830",
+      "qimao_author": "东天不冷"
+    },
+    {
+      "rank": 9,
+      "title": "通天仙路",
+      "author": "苍天白鹤",
+      "qimao_id": "9976989",
+      "qimao_author": "苍天白鹤"
+    },
+    {
+      "rank": 10,
+      "title": "我家老婆来自一千年前",
+      "author": "花还没开",
+      "qimao_id": "1784871",
+      "qimao_author": "花还没开"
+    },
+    {
+      "rank": 13,
+      "title": "我一个人砍翻乱世",
+      "author": "新丰",
+      "qimao_id": "9981582",
+      "qimao_author": "新丰"
+    },
+    {
+      "rank": 16,
+      "title": "修炼狂潮",
+      "author": "傅啸尘",
+      "qimao_id": "1785108",
+      "qimao_author": "傅啸尘"
+    },
+    {
+      "rank": 17,
+      "title": "人在港综，你管这叫卧底？",
+      "author": "不吃葱花",
+      "qimao_id": "1863903",
+      "qimao_author": "不吃葱花"
+    },
+    {
+      "rank": 3,
+      "title": "重生后才发现我有青梅",
+      "author": "曹瞒君",
+      "qimao_id": "9973872",
+      "qimao_author": "曹瞒君"
+    },
+    {
+      "rank": 4,
+      "title": "诸天投影",
+      "author": "裴屠狗",
+      "qimao_id": "1785723",
+      "qimao_author": "裴屠狗"
+    },
+    {
+      "rank": 6,
+      "title": "我老婆是大明星",
+      "author": "玉米煮不熟",
+      "qimao_id": "1785651",
+      "qimao_author": "玉米煮不熟"
+    },
+    {
+      "rank": 8,
+      "title": "我真的不是气运之子",
+      "author": "云中殿",
+      "qimao_id": "1785655",
+      "qimao_author": "云中殿"
+    },
+    {
+      "rank": 15,
+      "title": "都市超级医仙",
+      "author": "南极海",
+      "qimao_id": "1785060",
+      "qimao_author": "南极海"
+    },
+    {
+      "rank": 18,
+      "title": "众神世界",
+      "author": "永恒之火",
+      "qimao_id": "9981717",
+      "qimao_author": "永恒之火"
+    },
+    {
+      "rank": 1,
+      "title": "桃李春风一杯酒",
+      "author": "小楼听风云",
+      "qimao_id": "9971160",
+      "qimao_author": "小楼听风云"
+    },
+    {
+      "rank": 7,
+      "title": "我是大玩家",
+      "author": "会说话的肘子",
+      "qimao_id": "1784856",
+      "qimao_author": "会说话的肘子"
+    },
+    {
+      "rank": 9,
+      "title": "出名太快怎么办",
+      "author": "十步杀一仙",
+      "qimao_id": "1785645",
+      "qimao_author": "十步杀一仙"
+    },
+    {
+      "rank": 11,
+      "title": "什么叫游走型中单啊",
+      "author": "这很科学啊",
+      "qimao_id": "1785252",
+      "qimao_author": "这很科学啊"
+    },
+    {
+      "rank": 13,
+      "title": "随身带个狩猎空间",
+      "author": "青空洗雨",
+      "qimao_id": "1785714",
+      "qimao_author": "青空洗雨"
+    },
+    {
+      "rank": 14,
+      "title": "无限神座",
+      "author": "白衣学士",
+      "qimao_id": "1787067",
+      "qimao_author": "白衣学士"
+    },
+    {
+      "rank": 17,
+      "title": "万界天尊",
+      "author": "血红",
+      "qimao_id": "1785436",
+      "qimao_author": "血红"
+    },
+    {
+      "rank": 18,
+      "title": "我在凡人科学修仙",
+      "author": "洛青子",
+      "qimao_id": "9977823",
+      "qimao_author": "洛青子"
+    },
+    {
+      "rank": 1,
+      "title": "超神级学霸",
+      "author": "一桶布丁",
+      "qimao_id": "9981411",
+      "qimao_author": "一桶布丁"
+    },
+    {
+      "rank": 3,
+      "title": "你有科学，我有神功",
+      "author": "欢颜笑语",
+      "qimao_id": "1785247",
+      "qimao_author": "欢颜笑语"
+    },
+    {
+      "rank": 8,
+      "title": "大国战隼",
+      "author": "步枪",
+      "qimao_id": "1785785",
+      "qimao_author": "步枪"
+    },
+    {
+      "rank": 11,
+      "title": "重回1980去享福",
+      "author": "二蛇",
+      "qimao_id": "9975147",
+      "qimao_author": "二蛇"
+    },
+    {
+      "rank": 12,
+      "title": "新书",
+      "author": "七月新番",
+      "qimao_id": "1785228",
+      "qimao_author": "七月新番"
+    },
+    {
+      "rank": 16,
+      "title": "突然成仙了怎么办",
+      "author": "欢颜笑语",
+      "qimao_id": "9967956",
+      "qimao_author": "欢颜笑语"
+    },
+    {
+      "rank": 17,
+      "title": "最后一个使徒",
+      "author": "卷土",
+      "qimao_id": "1701509",
+      "qimao_author": "Perse"
+    },
+    {
+      "rank": 20,
+      "title": "两界：别叫我邪魔！",
+      "author": "玉锦剑",
+      "qimao_id": "10020240",
+      "qimao_author": "玉锦剑"
+    },
+    {
+      "rank": 1,
+      "title": "转行后，我成了篮坛第一人",
+      "author": "葛洛夫街兄弟",
+      "qimao_id": "9981537",
+      "qimao_author": "葛洛夫街兄弟"
+    },
+    {
+      "rank": 5,
+      "title": "贼天子",
+      "author": "漫客1",
+      "qimao_id": "10085109",
+      "qimao_author": "漫客1"
+    },
+    {
+      "rank": 6,
+      "title": "无敌神龙养成系统",
+      "author": "九九三",
+      "qimao_id": "9968025",
+      "qimao_author": "九九三"
+    },
+    {
+      "rank": 9,
+      "title": "我修的可能是假仙",
+      "author": "明月地上霜",
+      "qimao_id": "1785139",
+      "qimao_author": "明月地上霜"
+    },
+    {
+      "rank": 10,
+      "title": "帝国吃相",
+      "author": "牧尘客",
+      "qimao_id": "1785807",
+      "qimao_author": "牧尘客"
+    },
+    {
+      "rank": 16,
+      "title": "大明文魁",
+      "author": "幸福来敲门",
+      "qimao_id": "1785822",
+      "qimao_author": "幸福来敲门"
+    },
+    {
+      "rank": 17,
+      "title": "全能游戏设计师",
+      "author": "青衫取醉",
+      "qimao_id": "9975555",
+      "qimao_author": "青衫取醉"
+    },
+    {
+      "rank": 19,
+      "title": "机械炼金术士",
+      "author": "盲候",
+      "qimao_id": "1785258",
+      "qimao_author": "盲候"
+    },
+    {
+      "rank": 1,
+      "title": "不灭龙帝",
+      "author": "妖夜",
+      "qimao_id": "1785063",
+      "qimao_author": "妖夜"
+    },
+    {
+      "rank": 2,
+      "title": "汉阙",
+      "author": "七月新番",
+      "qimao_id": "1785251",
+      "qimao_author": "七月新番"
+    },
+    {
+      "rank": 3,
+      "title": "离婚后，开启逆袭人生",
+      "author": "柚子太菜",
+      "qimao_id": "9974421",
+      "qimao_author": "柚子太菜"
+    },
+    {
+      "rank": 4,
+      "title": "我的基因无限进化",
+      "author": "青空洗雨",
+      "qimao_id": "1785470",
+      "qimao_author": "青空洗雨"
+    },
+    {
+      "rank": 5,
+      "title": "老祖，时代变了",
+      "author": "阿玖未",
+      "qimao_id": "10017390",
+      "qimao_author": "阿玖未"
+    },
+    {
+      "rank": 8,
+      "title": "重生日本当厨神",
+      "author": "千回转",
+      "qimao_id": "1785825",
+      "qimao_author": "千回转"
+    },
+    {
+      "rank": 9,
+      "title": "神道丹尊",
+      "author": "孤单地飞",
+      "qimao_id": "1785048",
+      "qimao_author": "孤单地飞"
+    },
+    {
+      "rank": 13,
+      "title": "港岛旧事",
+      "author": "萌俊",
+      "qimao_id": "9981447",
+      "qimao_author": "萌俊"
+    },
+    {
+      "rank": 15,
+      "title": "最强boss系统",
+      "author": "封七月",
+      "qimao_id": "1785514",
+      "qimao_author": "封七月"
+    },
+    {
+      "rank": 17,
+      "title": "序列玩家",
+      "author": "踏浪寻舟",
+      "qimao_id": "9976755",
+      "qimao_author": "踏浪寻舟"
+    },
+    {
+      "rank": 19,
+      "title": "贞观憨婿",
+      "author": "大眼小金鱼",
+      "qimao_id": "1785341",
+      "qimao_author": "大眼小金鱼"
+    },
+    {
+      "rank": 1,
+      "title": "交锋",
+      "author": "可大可小",
+      "qimao_id": "9977145",
+      "qimao_author": "可大可小"
+    },
+    {
+      "rank": 2,
+      "title": "重生俄罗斯当寡头",
+      "author": "琉璃湾",
+      "qimao_id": "9976269",
+      "qimao_author": "琉璃湾"
+    },
+    {
+      "rank": 4,
+      "title": "开天录",
+      "author": "血红",
+      "qimao_id": "1785453",
+      "qimao_author": "血红"
+    },
+    {
+      "rank": 5,
+      "title": "从八百开始崛起",
+      "author": "汉唐风月1",
+      "qimao_id": "9977676",
+      "qimao_author": "汉唐风月1"
+    },
+    {
+      "rank": 7,
+      "title": "中医许阳",
+      "author": "唐甲甲",
+      "qimao_id": "9967896",
+      "qimao_author": "唐甲甲"
+    },
+    {
+      "rank": 9,
+      "title": "终极星卡师",
+      "author": "云上椿",
+      "qimao_id": "9976950",
+      "qimao_author": "云上椿"
+    },
+    {
+      "rank": 10,
+      "title": "永恒圣王",
+      "author": "雪满弓刀",
+      "qimao_id": "1785348",
+      "qimao_author": "雪满弓刀"
+    },
+    {
+      "rank": 12,
+      "title": "诡秘：从阅读者开始",
+      "author": "名火速返",
+      "qimao_id": "1786702",
+      "qimao_author": "名火速返"
+    },
+    {
+      "rank": 13,
+      "title": "大英公务员",
+      "author": "青山铁杉",
+      "qimao_id": "1786732",
+      "qimao_author": "青山铁杉"
+    },
+    {
+      "rank": 14,
+      "title": "我，天煞孤星，爱好交友",
+      "author": "老婆大大",
+      "qimao_id": "9977193",
+      "qimao_author": "老婆大大"
+    },
+    {
+      "rank": 19,
+      "title": "镜面管理局",
+      "author": "横扫天涯",
+      "qimao_id": "1785989",
+      "qimao_author": "横扫天涯"
+    },
+    {
+      "rank": 2,
+      "title": "上医至明",
+      "author": "陈家三郎",
+      "qimao_id": "9977151",
+      "qimao_author": "陈家三郎"
+    },
+    {
+      "rank": 8,
+      "title": "神宠进化",
+      "author": "酒池醉",
+      "qimao_id": "1785792",
+      "qimao_author": "酒池醉"
+    },
+    {
+      "rank": 9,
+      "title": "这真不是机械飞升",
+      "author": "团又圆",
+      "qimao_id": "9976035",
+      "qimao_author": "团又圆"
+    },
+    {
+      "rank": 11,
+      "title": "绝世药神",
+      "author": "风一色",
+      "qimao_id": "1785461",
+      "qimao_author": "风一色"
+    },
+    {
+      "rank": 12,
+      "title": "昆仑第一圣",
+      "author": "怕辣的红椒",
+      "qimao_id": "1785663",
+      "qimao_author": "怕辣的红椒"
+    },
+    {
+      "rank": 14,
+      "title": "择天记",
+      "author": "猫腻",
+      "qimao_id": "1784886",
+      "qimao_author": "猫腻"
+    },
+    {
+      "rank": 18,
+      "title": "我成帝了金手指才来",
+      "author": "天涯月照今",
+      "qimao_id": "1787071",
+      "qimao_author": "天涯月照今"
+    },
+    {
+      "rank": 19,
+      "title": "妖女哪里逃",
+      "author": "开荒",
+      "qimao_id": "1786028",
+      "qimao_author": "开荒"
+    },
+    {
+      "rank": 20,
+      "title": "从解析太阳开始",
+      "author": "竹围月色",
+      "qimao_id": "9976287",
+      "qimao_author": "竹围月色"
+    },
+    {
+      "rank": 1,
+      "title": "北美枪侠警探",
+      "author": "胖胖的竹子",
+      "qimao_id": "9976263",
+      "qimao_author": "胖胖的竹子"
+    },
+    {
+      "rank": 4,
+      "title": "你好啊！2010",
+      "author": "不是干扣面",
+      "qimao_id": "9981405",
+      "qimao_author": "不是干扣面"
+    },
+    {
+      "rank": 8,
+      "title": "重生似水青春",
+      "author": "鱼人二代",
+      "qimao_id": "1787131",
+      "qimao_author": "鱼人二代"
+    },
+    {
+      "rank": 9,
+      "title": "都市绝武仙医",
+      "author": "炒酸奶",
+      "qimao_id": "1785091",
+      "qimao_author": "炒酸奶"
+    },
+    {
+      "rank": 10,
+      "title": "暴风法神",
+      "author": "余云飞",
+      "qimao_id": "10021086",
+      "qimao_author": "余云飞"
+    },
+    {
+      "rank": 13,
+      "title": "极品捉妖系统",
+      "author": "解三千",
+      "qimao_id": "1785788",
+      "qimao_author": "解三千"
+    },
+    {
+      "rank": 14,
+      "title": "加一个，我不太会打",
+      "author": "葛洛夫街兄弟",
+      "qimao_id": "1785291",
+      "qimao_author": "葛洛夫街兄弟"
+    },
+    {
+      "rank": 15,
+      "title": "黄庭道主",
+      "author": "妖僧花无缺",
+      "qimao_id": "1785848",
+      "qimao_author": "妖僧花无缺"
+    },
+    {
+      "rank": 17,
+      "title": "玄界之门",
+      "author": "忘语",
+      "qimao_id": "1784918",
+      "qimao_author": "忘语"
+    },
+    {
+      "rank": 18,
+      "title": "原来我是修仙大佬",
+      "author": "木下雉水",
+      "qimao_id": "1784955",
+      "qimao_author": "木下雉水"
+    },
+    {
+      "rank": 1,
+      "title": "开局顶流的我怎么会糊",
+      "author": "别人家的小猫咪",
+      "qimao_id": "1785226",
+      "qimao_author": "别人家的小猫咪"
+    },
+    {
+      "rank": 2,
+      "title": "诡道之主",
+      "author": "不放心油条",
+      "qimao_id": "1655020",
+      "qimao_author": "沧浪之水"
+    },
+    {
+      "rank": 5,
+      "title": "峡谷正能量",
+      "author": "Iced子夜",
+      "qimao_id": "1785264",
+      "qimao_author": "Iced子夜"
+    },
+    {
+      "rank": 7,
+      "title": "巅峰学霸",
+      "author": "一桶布丁",
+      "qimao_id": "9981450",
+      "qimao_author": "一桶布丁"
+    },
+    {
+      "rank": 9,
+      "title": "苟在东宫涨天赋，发现太子女儿身",
+      "author": "机械八爪",
+      "qimao_id": "9975966",
+      "qimao_author": "机械八爪"
+    },
+    {
+      "rank": 11,
+      "title": "动力之王",
+      "author": "千年静守",
+      "qimao_id": "1788621",
+      "qimao_author": "千年静守"
+    },
+    {
+      "rank": 12,
+      "title": "皇兄何故造反？",
+      "author": "月麒麟",
+      "qimao_id": "9977010",
+      "qimao_author": "月麒麟"
+    },
+    {
+      "rank": 15,
+      "title": "燃钢之魂",
+      "author": "阴天神隐",
+      "qimao_id": "1786510",
+      "qimao_author": "阴天神隐"
+    },
+    {
+      "rank": 17,
+      "title": "黑神话：大唐",
+      "author": "独孤欢",
+      "qimao_id": "9974817",
+      "qimao_author": "独孤欢"
+    },
+    {
+      "rank": 19,
+      "title": "大国重工",
+      "author": "齐橙",
+      "qimao_id": "1785338",
+      "qimao_author": "齐橙"
+    },
+    {
+      "rank": 20,
+      "title": "篮坛第一外挂",
+      "author": "静悄悄地写",
+      "qimao_id": "1787810",
+      "qimao_author": "静悄悄地写"
+    },
+    {
+      "rank": 1,
+      "title": "开局金风细雨楼主，一刀惊天下",
+      "author": "升斗烟民",
+      "qimao_id": "9977748",
+      "qimao_author": "升斗烟民"
+    },
+    {
+      "rank": 2,
+      "title": "妖魔哪里走",
+      "author": "全金属弹壳",
+      "qimao_id": "1785271",
+      "qimao_author": "全金属弹壳"
+    },
+    {
+      "rank": 5,
+      "title": "我真的是个内线",
+      "author": "葛洛夫街兄弟",
+      "qimao_id": "1785310",
+      "qimao_author": "葛洛夫街兄弟"
+    },
+    {
+      "rank": 6,
+      "title": "电影的世界",
+      "author": "有梦之人",
+      "qimao_id": "1785858",
+      "qimao_author": "有梦之人"
+    },
+    {
+      "rank": 10,
+      "title": "悠闲乡村直播间",
+      "author": "名窑",
+      "qimao_id": "1788004",
+      "qimao_author": "名窑"
+    },
+    {
+      "rank": 13,
+      "title": "武动乾坤",
+      "author": "天蚕土豆",
+      "qimao_id": "1784916",
+      "qimao_author": "天蚕土豆"
+    },
+    {
+      "rank": 14,
+      "title": "星环使命",
+      "author": "虚伪王庭",
+      "qimao_id": "1787249",
+      "qimao_author": "虚伪王庭"
+    },
+    {
+      "rank": 15,
+      "title": "这个文字冒险游戏绝对有毒",
+      "author": "七字五彩",
+      "qimao_id": "1785197",
+      "qimao_author": "七字五彩"
+    },
+    {
+      "rank": 16,
+      "title": "太阳王之证",
+      "author": "汉朝天子",
+      "qimao_id": "10021497",
+      "qimao_author": "汉朝天子"
+    },
+    {
+      "rank": 17,
+      "title": "开局满级爆射，梅西求我入阿根廷",
+      "author": "臊子拌面",
+      "qimao_id": "1785244",
+      "qimao_author": "臊子拌面"
+    },
+    {
+      "rank": 18,
+      "title": "庆余年",
+      "author": "猫腻",
+      "qimao_id": "1784912",
+      "qimao_author": "猫腻"
+    },
+    {
+      "rank": 1,
+      "title": "锦衣",
+      "author": "上山打老虎额",
+      "qimao_id": "1785215",
+      "qimao_author": "上山打老虎额"
+    },
+    {
+      "rank": 4,
+      "title": "我向大帝借了个脑子",
+      "author": "渣土车",
+      "qimao_id": "9976527",
+      "qimao_author": "渣土车"
+    },
+    {
+      "rank": 5,
+      "title": "创造游戏世界",
+      "author": "姐姐的新娘",
+      "qimao_id": "1785256",
+      "qimao_author": "姐姐的新娘"
+    },
+    {
+      "rank": 8,
+      "title": "我想当巨星",
+      "author": "临河羡鱼翁",
+      "qimao_id": "1788632",
+      "qimao_author": "临河羡鱼翁"
+    },
+    {
+      "rank": 9,
+      "title": "我加载了怪谈游戏",
+      "author": "十三谦",
+      "qimao_id": "1785990",
+      "qimao_author": "十三谦"
+    },
+    {
+      "rank": 12,
+      "title": "超品相师",
+      "author": "九灯和善",
+      "qimao_id": "1722553",
+      "qimao_author": "雪中林"
+    },
+    {
+      "rank": 13,
+      "title": "天启之夜",
+      "author": "虚伪王庭",
+      "qimao_id": "1877413",
+      "qimao_author": "虚伪王庭"
+    },
+    {
+      "rank": 15,
+      "title": "欢想世界",
+      "author": "徐公子胜治",
+      "qimao_id": "1787095",
+      "qimao_author": "徐公子胜治"
+    },
+    {
+      "rank": 17,
+      "title": "战锤40K：凡世之神",
+      "author": "乌首匹夫",
+      "qimao_id": "9981465",
+      "qimao_author": "乌首匹夫"
+    },
+    {
+      "rank": 20,
+      "title": "重生从咸鱼赢起",
+      "author": "打不死的小萧",
+      "qimao_id": "1785281",
+      "qimao_author": "打不死的小萧"
+    },
+    {
+      "rank": 1,
+      "title": "环球挖土党",
+      "author": "痞徒",
+      "qimao_id": "1788345",
+      "qimao_author": "痞徒"
+    },
+    {
+      "rank": 5,
+      "title": "神级大魔头",
+      "author": "拉姆",
+      "qimao_id": "1788363",
+      "qimao_author": "拉姆"
+    },
+    {
+      "rank": 6,
+      "title": "冠军信条",
+      "author": "葛洛夫街兄弟",
+      "qimao_id": "10085151",
+      "qimao_author": "葛洛夫街兄弟"
+    },
+    {
+      "rank": 9,
+      "title": "捡宝王",
+      "author": "全金属弹壳",
+      "qimao_id": "1785616",
+      "qimao_author": "全金属弹壳"
+    },
+    {
+      "rank": 15,
+      "title": "北颂",
+      "author": "圣诞稻草人",
+      "qimao_id": "1785484",
+      "qimao_author": "圣诞稻草人"
+    },
+    {
+      "rank": 16,
+      "title": "我降临于诸天世界",
+      "author": "郭家",
+      "qimao_id": "9974733",
+      "qimao_author": "郭家"
+    },
+    {
+      "rank": 17,
+      "title": "无敌真寂寞",
+      "author": "新丰",
+      "qimao_id": "1785506",
+      "qimao_author": "新丰"
+    },
+    {
+      "rank": 18,
+      "title": "大明最后一个狠人",
+      "author": "大明第一帅",
+      "qimao_id": "1785352",
+      "qimao_author": "大明第一帅"
+    },
+    {
+      "rank": 19,
+      "title": "我真的不开挂",
+      "author": "旧生",
+      "qimao_id": "9976968",
+      "qimao_author": "旧生"
+    },
+    {
+      "rank": 4,
+      "title": "这个明星合法但有病",
+      "author": "冥王星话事人",
+      "qimao_id": "9981507",
+      "qimao_author": "冥王星话事人"
+    },
+    {
+      "rank": 6,
+      "title": "凶猛道侣也重生了",
+      "author": "雨下的好大",
+      "qimao_id": "1785708",
+      "qimao_author": "雨下的好大"
+    },
+    {
+      "rank": 8,
+      "title": "机破星河",
+      "author": "当年离歌",
+      "qimao_id": "1785809",
+      "qimao_author": "当年离歌"
+    },
+    {
+      "rank": 9,
+      "title": "从今天起是球王",
+      "author": "超级麦克风",
+      "qimao_id": "1788052",
+      "qimao_author": "超级麦克风"
+    },
+    {
+      "rank": 13,
+      "title": "梦幻西游之重返2005",
+      "author": "秋风夏蝉",
+      "qimao_id": "10021518",
+      "qimao_author": "秋风夏蝉"
+    },
+    {
+      "rank": 18,
+      "title": "重生之最强人生",
+      "author": "俊秀才",
+      "qimao_id": "160809",
+      "qimao_author": "小猪火起来"
+    },
+    {
+      "rank": 20,
+      "title": "科技霸主从带娃开始",
+      "author": "蚂蚁吃萝卜",
+      "qimao_id": "10019283",
+      "qimao_author": "蚂蚁吃萝卜"
+    },
+    {
+      "rank": 1,
+      "title": "我真不是魔神",
+      "author": "要离刺荆轲",
+      "qimao_id": "1785532",
+      "qimao_author": "要离刺荆轲"
+    },
+    {
+      "rank": 3,
+      "title": "红旗招展的岁月",
+      "author": "角儿18",
+      "qimao_id": "9976413",
+      "qimao_author": "角儿18"
+    },
+    {
+      "rank": 5,
+      "title": "世子很凶",
+      "author": "关关公子",
+      "qimao_id": "1784887",
+      "qimao_author": "关关公子"
+    },
+    {
+      "rank": 6,
+      "title": "这个领主大人非常科学",
+      "author": "白浩者",
+      "qimao_id": "1786077",
+      "qimao_author": "小白白的"
+    },
+    {
+      "rank": 7,
+      "title": "大劫主",
+      "author": "黑山老鬼",
+      "qimao_id": "1785501",
+      "qimao_author": "黑山老鬼"
+    },
+    {
+      "rank": 8,
+      "title": "仙子很凶",
+      "author": "关关公子",
+      "qimao_id": "1785246",
+      "qimao_author": "关关公子"
+    },
+    {
+      "rank": 12,
+      "title": "曹操穿越武大郎",
+      "author": "神枪老飞侠",
+      "qimao_id": "10085106",
+      "qimao_author": "神枪老飞侠"
+    },
+    {
+      "rank": 14,
+      "title": "秘巫之主",
+      "author": "真愚老人",
+      "qimao_id": "1787874",
+      "qimao_author": "真愚老人"
+    },
+    {
+      "rank": 15,
+      "title": "我的废弃石油小镇成了新一线",
+      "author": "八月黄",
+      "qimao_id": "9972729",
+      "qimao_author": "八月黄"
+    },
+    {
+      "rank": 20,
+      "title": "来自地狱的男人",
+      "author": "秋风123",
+      "qimao_id": "1785513",
+      "qimao_author": "秋风123"
+    },
+    {
+      "rank": 1,
+      "title": "宋北云",
+      "author": "伴读小牧童",
+      "qimao_id": "1786679",
+      "qimao_author": "伴读小牧童"
+    },
+    {
+      "rank": 2,
+      "title": "1983小海岛，从养殖大户开始",
+      "author": "七月不渡",
+      "qimao_id": "9975504",
+      "qimao_author": "七月不渡"
+    },
+    {
+      "rank": 3,
+      "title": "朕只是一个演员",
+      "author": "平层",
+      "qimao_id": "1785289",
+      "qimao_author": "平层"
+    },
+    {
+      "rank": 4,
+      "title": "神级剑魂系统",
+      "author": "夜南听风",
+      "qimao_id": "1785112",
+      "qimao_author": "夜南听风"
+    },
+    {
+      "rank": 8,
+      "title": "道祖是克苏鲁",
+      "author": "板斧战士",
+      "qimao_id": "1786671",
+      "qimao_author": "板斧战士"
+    },
+    {
+      "rank": 10,
+      "title": "打篮球太厉害了怎么办",
+      "author": "超级麦克风",
+      "qimao_id": "1786734",
+      "qimao_author": "超级麦克风"
+    },
+    {
+      "rank": 12,
+      "title": "致命打击：枪火游侠佣兵路",
+      "author": "耗子爱吃鸡腿",
+      "qimao_id": "10085175",
+      "qimao_author": "耗子爱吃鸡腿"
+    },
+    {
+      "rank": 13,
+      "title": "三国：关家逆子，龙佑荆襄",
+      "author": "牛奶糖糖糖",
+      "qimao_id": "2009394",
+      "qimao_author": "牛奶糖糖糖"
+    },
+    {
+      "rank": 19,
+      "title": "瞎编功法，徒儿你真练成了？",
+      "author": "半道清风",
+      "qimao_id": "1971034",
+      "qimao_author": "半道清风"
+    },
+    {
+      "rank": 20,
+      "title": "霍格沃茨万事皆三",
+      "author": "桐棠",
+      "qimao_id": "1786885",
+      "qimao_author": "桐棠"
+    },
+    {
+      "rank": 2,
+      "title": "西游，我体内有九只金乌",
+      "author": "可怜的懒虫",
+      "qimao_id": "10021065",
+      "qimao_author": "可怜的懒虫"
+    },
+    {
+      "rank": 4,
+      "title": "御兽进化商",
+      "author": "琥珀纽扣",
+      "qimao_id": "1786064",
+      "qimao_author": "琥珀纽扣"
+    },
+    {
+      "rank": 5,
+      "title": "贞观大闲人",
+      "author": "贼眉鼠眼",
+      "qimao_id": "1785094",
+      "qimao_author": "贼眉鼠眼"
+    },
+    {
+      "rank": 10,
+      "title": "特种岁月",
+      "author": "严七官",
+      "qimao_id": "1786868",
+      "qimao_author": "严七官"
+    },
+    {
+      "rank": 13,
+      "title": "诡异修仙世界",
+      "author": "龙蛇枝",
+      "qimao_id": "1788351",
+      "qimao_author": "龙蛇枝"
+    },
+    {
+      "rank": 14,
+      "title": "两界搬运工",
+      "author": "石闻",
+      "qimao_id": "1785715",
+      "qimao_author": "石闻"
+    },
+    {
+      "rank": 16,
+      "title": "我的夫人竟是魔教教主",
+      "author": "倔强的小肥兔",
+      "qimao_id": "1785463",
+      "qimao_author": "倔强的小肥兔"
+    },
+    {
+      "rank": 20,
+      "title": "寒门枭士",
+      "author": "高月",
+      "qimao_id": "1785580",
+      "qimao_author": "高月"
+    },
+    {
+      "rank": 2,
+      "title": "逍遥梦路",
+      "author": "文抄公",
+      "qimao_id": "9976722",
+      "qimao_author": "文抄公"
+    },
+    {
+      "rank": 3,
+      "title": "从火影开始做幕后黑手",
+      "author": "浓墨浇书",
+      "qimao_id": "1785693",
+      "qimao_author": "浓墨浇书"
+    },
+    {
+      "rank": 5,
+      "title": "史上第一密探",
+      "author": "沉默的糕点",
+      "qimao_id": "1785074",
+      "qimao_author": "沉默的糕点"
+    },
+    {
+      "rank": 8,
+      "title": "星界蚁族",
+      "author": "千里送一血",
+      "qimao_id": "9976854",
+      "qimao_author": "千里送一血"
+    },
+    {
+      "rank": 10,
+      "title": "宝可梦修改器",
+      "author": "骑车的风",
+      "qimao_id": "1785283",
+      "qimao_author": "骑车的风"
+    },
+    {
+      "rank": 11,
+      "title": "诸天万界神龙系统",
+      "author": "维斯特帕列",
+      "qimao_id": "1825988",
+      "qimao_author": "天蓝地沃"
+    },
+    {
+      "rank": 13,
+      "title": "无限辉煌图卷",
+      "author": "温茶米酒",
+      "qimao_id": "1786701",
+      "qimao_author": "温茶米酒"
+    },
+    {
+      "rank": 18,
+      "title": "神圣罗马帝国",
+      "author": "新海月1",
+      "qimao_id": "1786839",
+      "qimao_author": "新海月1"
+    },
+    {
+      "rank": 19,
+      "title": "至尊特工",
+      "author": "8难",
+      "qimao_id": "1785560",
+      "qimao_author": "8难"
+    },
+    {
+      "rank": 20,
+      "title": "神魔书",
+      "author": "血红",
+      "qimao_id": "1786014",
+      "qimao_author": "血红"
+    },
+    {
+      "rank": 2,
+      "title": "抢救大明朝",
+      "author": "大罗罗",
+      "qimao_id": "1786904",
+      "qimao_author": "大罗罗"
+    },
+    {
+      "rank": 3,
+      "title": "围棋：我和AI五五开",
+      "author": "一剑刺刺刺",
+      "qimao_id": "1819391",
+      "qimao_author": "一剑刺刺刺"
+    },
+    {
+      "rank": 5,
+      "title": "大秦：我竟然是秦始皇长子",
+      "author": "飞天杨哥",
+      "qimao_id": "1785451",
+      "qimao_author": "飞天杨哥"
+    },
+    {
+      "rank": 10,
+      "title": "人道永昌",
+      "author": "小楼听风云",
+      "qimao_id": "9974826",
+      "qimao_author": "小楼听风云"
+    },
+    {
+      "rank": 12,
+      "title": "两界：从关公像睁眼开始",
+      "author": "七只跳蚤",
+      "qimao_id": "1877423",
+      "qimao_author": "七只跳蚤"
+    },
+    {
+      "rank": 13,
+      "title": "秦将",
+      "author": "起飞的东君",
+      "qimao_id": "9975339",
+      "qimao_author": "起飞的东君"
+    },
+    {
+      "rank": 14,
+      "title": "从天后演唱会出道",
+      "author": "月下吃柠檬",
+      "qimao_id": "1785359",
+      "qimao_author": "月下吃柠檬"
+    },
+    {
+      "rank": 15,
+      "title": "影帝的诸天轮回",
+      "author": "惠鹏鹏",
+      "qimao_id": "10021548",
+      "qimao_author": "惠鹏鹏"
+    },
+    {
+      "rank": 1,
+      "title": "诡秘：悖论途径",
+      "author": "翟南",
+      "qimao_id": "1785261",
+      "qimao_author": "翟南"
+    },
+    {
+      "rank": 2,
+      "title": "奥术神座",
+      "author": "爱潜水的乌贼",
+      "qimao_id": "1784863",
+      "qimao_author": "爱潜水的乌贼"
+    },
+    {
+      "rank": 3,
+      "title": "我的师傅每到大限才突破",
+      "author": "猪肉200斤",
+      "qimao_id": "1785194",
+      "qimao_author": "猪肉200斤"
+    },
+    {
+      "rank": 4,
+      "title": "我每月能刷新金手指",
+      "author": "天涯月照今",
+      "qimao_id": "10021308",
+      "qimao_author": "天涯月照今"
+    },
+    {
+      "rank": 7,
+      "title": "华娱之实绩为王",
+      "author": "白狼浪",
+      "qimao_id": "9976386",
+      "qimao_author": "白狼浪"
+    },
+    {
+      "rank": 10,
+      "title": "还好分身可以投放万界",
+      "author": "团又圆",
+      "qimao_id": "1786402",
+      "qimao_author": "团又圆"
+    },
+    {
+      "rank": 12,
+      "title": "不装了，我是厨神我摊牌了！",
+      "author": "馋嘴小猫咪",
+      "qimao_id": "1786743",
+      "qimao_author": "馋嘴小猫咪"
+    },
+    {
+      "rank": 13,
+      "title": "超级卡牌系统",
+      "author": "黑乎乎的老妖",
+      "qimao_id": "1785840",
+      "qimao_author": "黑乎乎的老妖"
+    },
+    {
+      "rank": 18,
+      "title": "我能进入蜀山游戏",
+      "author": "问心万古",
+      "qimao_id": "10018761",
+      "qimao_author": "问心万古"
+    },
+    {
+      "rank": 19,
+      "title": "寒门状元",
+      "author": "天子",
+      "qimao_id": "1787290",
+      "qimao_author": "天子"
+    },
+    {
+      "rank": 2,
+      "title": "带刀禁卫",
+      "author": "快剑江湖",
+      "qimao_id": "10019847",
+      "qimao_author": "快剑江湖"
+    },
+    {
+      "rank": 5,
+      "title": "重回七七种田养娃",
+      "author": "参娃",
+      "qimao_id": "9974028",
+      "qimao_author": "参娃"
+    },
+    {
+      "rank": 6,
+      "title": "仙道长青",
+      "author": "林泉隐士",
+      "qimao_id": "1787760",
+      "qimao_author": "林泉隐士"
+    },
+    {
+      "rank": 7,
+      "title": "都市最强装逼系统",
+      "author": "必火",
+      "qimao_id": "9976971",
+      "qimao_author": "必火"
+    },
+    {
+      "rank": 9,
+      "title": "我在幕后调教大佬",
+      "author": "阎ZK",
+      "qimao_id": "1785306",
+      "qimao_author": "阎ZK"
+    },
+    {
+      "rank": 10,
+      "title": "文娱帝国",
+      "author": "我最白",
+      "qimao_id": "1785520",
+      "qimao_author": "我最白"
+    },
+    {
+      "rank": 11,
+      "title": "我是幕后大佬",
+      "author": "一刀斩斩斩",
+      "qimao_id": "1785702",
+      "qimao_author": "一刀斩斩斩"
+    },
+    {
+      "rank": 12,
+      "title": "御兽巡使",
+      "author": "书荒被迫写书",
+      "qimao_id": "1786664",
+      "qimao_author": "书荒被迫写书"
+    },
+    {
+      "rank": 13,
+      "title": "什么叫红温型上单啊",
+      "author": "微波炉热可乐",
+      "qimao_id": "9973986",
+      "qimao_author": "微波炉热可乐"
+    },
+    {
+      "rank": 20,
+      "title": "巡天妖捕",
+      "author": "寂寞我独走",
+      "qimao_id": "9976059",
+      "qimao_author": "寂寞我独走"
+    }
+  ],
+  "not_found": [
+    {
+      "rank": 1,
+      "title": "宿命之环",
+      "author": "爱潜水的乌贼"
+    },
+    {
+      "rank": 2,
+      "title": "诡秘之主",
+      "author": "爱潜水的乌贼"
+    },
+    {
+      "rank": 4,
+      "title": "灵境行者",
+      "author": "卖报小郎君"
+    },
+    {
+      "rank": 5,
+      "title": "苟在初圣魔门当人材",
+      "author": "鹤守月满池"
+    },
+    {
+      "rank": 8,
+      "title": "大奉打更人",
+      "author": "卖报小郎君"
+    },
+    {
+      "rank": 9,
+      "title": "谁让他修仙的！",
+      "author": "最白的乌鸦"
+    },
+    {
+      "rank": 10,
+      "title": "深海余烬",
+      "author": "远瞳"
+    },
+    {
+      "rank": 11,
+      "title": "明克街13号",
+      "author": "纯洁滴小龙"
+    },
+    {
+      "rank": 12,
+      "title": "国民法医",
+      "author": "志鸟村"
+    },
+    {
+      "rank": 13,
+      "title": "深空彼岸",
+      "author": "辰东"
+    },
+    {
+      "rank": 14,
+      "title": "择日飞升",
+      "author": "宅猪"
+    },
+    {
+      "rank": 16,
+      "title": "星门",
+      "author": "老鹰吃小鸡"
+    },
+    {
+      "rank": 17,
+      "title": "都重生了谁谈恋爱啊",
+      "author": "错哪儿了"
+    },
+    {
+      "rank": 19,
+      "title": "高武纪元",
+      "author": "烽仙"
+    },
+    {
+      "rank": 20,
+      "title": "黎明之剑",
+      "author": "远瞳"
+    },
+    {
+      "rank": 5,
+      "title": "逼我重生是吧",
+      "author": "幼儿园一把手"
+    },
+    {
+      "rank": 6,
+      "title": "大梦主",
+      "author": "忘语"
+    },
+    {
+      "rank": 8,
+      "title": "乱世书",
+      "author": "姬叉"
+    },
+    {
+      "rank": 10,
+      "title": "晋末长剑",
+      "author": "孤独麦客"
+    },
+    {
+      "rank": 11,
+      "title": "黄昏分界",
+      "author": "黑山老鬼"
+    },
+    {
+      "rank": 16,
+      "title": "家父汉高祖",
+      "author": "历史系之狼"
+    },
+    {
+      "rank": 17,
+      "title": "从红月开始",
+      "author": "黑山老鬼"
+    },
+    {
+      "rank": 18,
+      "title": "天启预报",
+      "author": "风月"
+    },
+    {
+      "rank": 19,
+      "title": "山河稷",
+      "author": "姬叉"
+    },
+    {
+      "rank": 20,
+      "title": "我有一个修仙世界",
+      "author": "纯九莲宝灯"
+    },
+    {
+      "rank": 1,
+      "title": "普罗之主",
+      "author": "沙拉古斯"
+    },
+    {
+      "rank": 2,
+      "title": "我本无意成仙",
+      "author": "金色茉莉花"
+    },
+    {
+      "rank": 3,
+      "title": "我是导演，我不比烂",
+      "author": "不是老狗"
+    },
+    {
+      "rank": 4,
+      "title": "亏成首富从游戏开始-《年少有为》电视剧原著",
+      "author": "青衫取醉"
+    },
+    {
+      "rank": 5,
+      "title": "大医凌然",
+      "author": "志鸟村"
+    },
+    {
+      "rank": 8,
+      "title": "太平令",
+      "author": "阎ZK"
+    },
+    {
+      "rank": 10,
+      "title": "天才俱乐部",
+      "author": "城城与蝉"
+    },
+    {
+      "rank": 11,
+      "title": "不许没收我的人籍",
+      "author": "可怜的夕夕"
+    },
+    {
+      "rank": 13,
+      "title": "苟在妖武乱世修仙",
+      "author": "文抄公"
+    },
+    {
+      "rank": 14,
+      "title": "炮火弧线",
+      "author": "康斯坦丁伯爵"
+    },
+    {
+      "rank": 15,
+      "title": "从斩妖除魔开始长生不死",
+      "author": "陆月十九"
+    },
+    {
+      "rank": 16,
+      "title": "黜龙",
+      "author": "榴弹怕水"
+    },
+    {
+      "rank": 18,
+      "title": "汉乡",
+      "author": "孑与2"
+    },
+    {
+      "rank": 19,
+      "title": "长夜余火",
+      "author": "爱潜水的乌贼"
+    },
+    {
+      "rank": 20,
+      "title": "满唐华彩",
+      "author": "怪诞的表哥"
+    },
+    {
+      "rank": 2,
+      "title": "御兽之王",
+      "author": "轻泉流响"
+    },
+    {
+      "rank": 3,
+      "title": "这个人仙太过正经",
+      "author": "言归正传"
+    },
+    {
+      "rank": 4,
+      "title": "女侠且慢",
+      "author": "关关公子"
+    },
+    {
+      "rank": 5,
+      "title": "道君",
+      "author": "跃千愁"
+    },
+    {
+      "rank": 6,
+      "title": "火力为王",
+      "author": "如水意"
+    },
+    {
+      "rank": 9,
+      "title": "吞噬星空2起源大陆",
+      "author": "我吃西红柿"
+    },
+    {
+      "rank": 10,
+      "title": "我的治愈系游戏",
+      "author": "我会修空调"
+    },
+    {
+      "rank": 13,
+      "title": "高天之上",
+      "author": "阴天神隐"
+    },
+    {
+      "rank": 15,
+      "title": "术师手册",
+      "author": "听日"
+    },
+    {
+      "rank": 16,
+      "title": "志怪书",
+      "author": "金色茉莉花"
+    },
+    {
+      "rank": 18,
+      "title": "宇宙职业选手",
+      "author": "我吃西红柿"
+    },
+    {
+      "rank": 19,
+      "title": "我的化身正在成为最终BOSS",
+      "author": "汐尺"
+    },
+    {
+      "rank": 2,
+      "title": "港片：你洪兴仔，慈善大王什么鬼",
+      "author": "皮皮树"
+    },
+    {
+      "rank": 3,
+      "title": "非正常美食文",
+      "author": "吨吨吨吨吨"
+    },
+    {
+      "rank": 4,
+      "title": "重生之我要冲浪",
+      "author": "睡觉会变白"
+    },
+    {
+      "rank": 5,
+      "title": "我的模拟长生路",
+      "author": "愤怒的乌贼"
+    },
+    {
+      "rank": 6,
+      "title": "我为长生仙",
+      "author": "阎ZK"
+    },
+    {
+      "rank": 7,
+      "title": "我的谍战岁月",
+      "author": "猪头七"
+    },
+    {
+      "rank": 9,
+      "title": "北宋穿越指南",
+      "author": "王梓钧"
+    },
+    {
+      "rank": 10,
+      "title": "绍宋",
+      "author": "榴弹怕水"
+    },
+    {
+      "rank": 11,
+      "title": "飞剑问道",
+      "author": "我吃西红柿"
+    },
+    {
+      "rank": 12,
+      "title": "从军火商到战争之王",
+      "author": "耗子爱吃鸡腿"
+    },
+    {
+      "rank": 15,
+      "title": "终宋",
+      "author": "怪诞的表哥"
+    },
+    {
+      "rank": 17,
+      "title": "红楼之挽天倾",
+      "author": "林悦南兮"
+    },
+    {
+      "rank": 19,
+      "title": "我就是神！",
+      "author": "历史里吹吹风"
+    },
+    {
+      "rank": 3,
+      "title": "请公子斩妖",
+      "author": "裴不了"
+    },
+    {
+      "rank": 4,
+      "title": "那就让她们献上忠诚吧！",
+      "author": "常世"
+    },
+    {
+      "rank": 6,
+      "title": "那年华娱",
+      "author": "做梦的木头"
+    },
+    {
+      "rank": 7,
+      "title": "文豪1978",
+      "author": "坐望敬亭"
+    },
+    {
+      "rank": 8,
+      "title": "牧者密续",
+      "author": "不祈十弦"
+    },
+    {
+      "rank": 9,
+      "title": "剑出大唐",
+      "author": "一片苏叶"
+    },
+    {
+      "rank": 11,
+      "title": "明天下",
+      "author": "孑与2"
+    },
+    {
+      "rank": 12,
+      "title": "从武王伐纣开始建立千年世家",
+      "author": "花非花月夜"
+    },
+    {
+      "rank": 13,
+      "title": "稳住别浪",
+      "author": "跳舞"
+    },
+    {
+      "rank": 14,
+      "title": "烂柯棋缘",
+      "author": "真费事"
+    },
+    {
+      "rank": 16,
+      "title": "我的诡异人生",
+      "author": "白刃斩春风"
+    },
+    {
+      "rank": 17,
+      "title": "这个影帝只想考证",
+      "author": "江公子阿宝"
+    },
+    {
+      "rank": 18,
+      "title": "我的属性修行人生",
+      "author": "滚开"
+    },
+    {
+      "rank": 20,
+      "title": "放开那个女巫",
+      "author": "二目"
+    },
+    {
+      "rank": 1,
+      "title": "趋吉避凶，从天师府开始",
+      "author": "八月飞鹰"
+    },
+    {
+      "rank": 2,
+      "title": "第一玩家",
+      "author": "流泪猫安头"
+    },
+    {
+      "rank": 3,
+      "title": "不朽凡人",
+      "author": "鹅是老五"
+    },
+    {
+      "rank": 7,
+      "title": "我的姐夫是太子",
+      "author": "上山打老虎额"
+    },
+    {
+      "rank": 9,
+      "title": "望长天",
+      "author": "弥天大厦"
+    },
+    {
+      "rank": 14,
+      "title": "隐秘死角",
+      "author": "滚开"
+    },
+    {
+      "rank": 15,
+      "title": "天命皆烬",
+      "author": "阴天神隐"
+    },
+    {
+      "rank": 16,
+      "title": "大数据修仙",
+      "author": "陈风笑"
+    },
+    {
+      "rank": 19,
+      "title": "儒道至圣",
+      "author": "永恒之火"
+    },
+    {
+      "rank": 20,
+      "title": "大医无疆",
+      "author": "石章鱼"
+    },
+    {
+      "rank": 1,
+      "title": "斗罗大陆III龙王传说",
+      "author": "唐家三少"
+    },
+    {
+      "rank": 2,
+      "title": "这个明星很想退休",
+      "author": "幼儿园一把手"
+    },
+    {
+      "rank": 4,
+      "title": "国王",
+      "author": "新海月1"
+    },
+    {
+      "rank": 6,
+      "title": "学霸的军工科研系统",
+      "author": "十月廿二"
+    },
+    {
+      "rank": 7,
+      "title": "斗罗大陆IV终极斗罗",
+      "author": "唐家三少"
+    },
+    {
+      "rank": 10,
+      "title": "绝境黑夜",
+      "author": "滚开"
+    },
+    {
+      "rank": 11,
+      "title": "凡人修仙传",
+      "author": "忘语"
+    },
+    {
+      "rank": 12,
+      "title": "我家娘子，不对劲",
+      "author": "一蝉知夏"
+    },
+    {
+      "rank": 13,
+      "title": "北齐怪谈",
+      "author": "历史系之狼"
+    },
+    {
+      "rank": 14,
+      "title": "走进不科学",
+      "author": "新手钓鱼人"
+    },
+    {
+      "rank": 15,
+      "title": "终极火力",
+      "author": "如水意"
+    },
+    {
+      "rank": 18,
+      "title": "我的玩家好凶猛",
+      "author": "帅犬弗兰克"
+    },
+    {
+      "rank": 19,
+      "title": "大夏文圣",
+      "author": "七月未时"
+    },
+    {
+      "rank": 20,
+      "title": "让你当兵戒网瘾，你成军官了",
+      "author": "特种兵歌"
+    },
+    {
+      "rank": 2,
+      "title": "说好制作烂游戏，泰坦陨落什么鬼",
+      "author": "布洛芬战士"
+    },
+    {
+      "rank": 3,
+      "title": "仙父",
+      "author": "言归正传"
+    },
+    {
+      "rank": 6,
+      "title": "沧元图",
+      "author": "我吃西红柿"
+    },
+    {
+      "rank": 8,
+      "title": "从1983开始",
+      "author": "睡觉会变白"
+    },
+    {
+      "rank": 9,
+      "title": "穹顶之上",
+      "author": "人间武库"
+    },
+    {
+      "rank": 10,
+      "title": "星空职业者",
+      "author": "文抄公"
+    },
+    {
+      "rank": 11,
+      "title": "小阁老",
+      "author": "三戒大师"
+    },
+    {
+      "rank": 12,
+      "title": "混在末日，独自成仙",
+      "author": "言归正传"
+    },
+    {
+      "rank": 13,
+      "title": "惊涛落日",
+      "author": "康斯坦丁伯爵"
+    },
+    {
+      "rank": 14,
+      "title": "重生在火红年代的悠闲生活",
+      "author": "屋外风吹凉"
+    },
+    {
+      "rank": 15,
+      "title": "十方武圣",
+      "author": "滚开"
+    },
+    {
+      "rank": 16,
+      "title": "从柯南开始重新做人",
+      "author": "李四羊"
+    },
+    {
+      "rank": 17,
+      "title": "芝加哥1990",
+      "author": "齐可休"
+    },
+    {
+      "rank": 18,
+      "title": "衣冠不南渡",
+      "author": "历史系之狼"
+    },
+    {
+      "rank": 20,
+      "title": "艾泽拉斯阴影轨迹",
+      "author": "帅犬弗兰克"
+    },
+    {
+      "rank": 2,
+      "title": "我从凡间来",
+      "author": "想见江南"
+    },
+    {
+      "rank": 3,
+      "title": "神明调查报告",
+      "author": "黑山老鬼"
+    },
+    {
+      "rank": 5,
+      "title": "我绑架了时间线",
+      "author": "一刀斩斩斩"
+    },
+    {
+      "rank": 6,
+      "title": "我只想安静的做个苟道中人",
+      "author": "爆炸小拿铁"
+    },
+    {
+      "rank": 7,
+      "title": "半仙",
+      "author": "跃千愁"
+    },
+    {
+      "rank": 8,
+      "title": "修仙就是这样子的",
+      "author": "凤嘲凰"
+    },
+    {
+      "rank": 9,
+      "title": "怪物被杀就会死",
+      "author": "阴天神隐"
+    },
+    {
+      "rank": 10,
+      "title": "北宋大丈夫",
+      "author": "迪巴拉爵士"
+    },
+    {
+      "rank": 11,
+      "title": "系统很抽象，还好我也是",
+      "author": "扑街天线"
+    },
+    {
+      "rank": 14,
+      "title": "我！清理员！",
+      "author": "鱼狱圄"
+    },
+    {
+      "rank": 15,
+      "title": "宅魔女",
+      "author": "咸鱼成仙"
+    },
+    {
+      "rank": 17,
+      "title": "每天都离现形更近一步",
+      "author": "陈词懒调"
+    },
+    {
+      "rank": 20,
+      "title": "万界守门人",
+      "author": "烟火成城"
+    },
+    {
+      "rank": 2,
+      "title": "重启神话",
+      "author": "凤嘲凰"
+    },
+    {
+      "rank": 3,
+      "title": "战锤：我不要成为臭罐头啊！！！",
+      "author": "枯灯夜话"
+    },
+    {
+      "rank": 4,
+      "title": "怪猎：猎人的笔记",
+      "author": "是河豚啊"
+    },
+    {
+      "rank": 5,
+      "title": "晚唐浮生",
+      "author": "孤独麦客"
+    },
+    {
+      "rank": 6,
+      "title": "战地摄影师手札",
+      "author": "痞徒"
+    },
+    {
+      "rank": 7,
+      "title": "天下第九",
+      "author": "鹅是老五"
+    },
+    {
+      "rank": 8,
+      "title": "永恒国度",
+      "author": "孤独漂流"
+    },
+    {
+      "rank": 9,
+      "title": "前任无双",
+      "author": "跃千愁"
+    },
+    {
+      "rank": 10,
+      "title": "提前登陆五百年，我靠挖宝成神",
+      "author": "最终永恒"
+    },
+    {
+      "rank": 11,
+      "title": "诸界第一因",
+      "author": "裴屠狗"
+    },
+    {
+      "rank": 12,
+      "title": "谍影凌云",
+      "author": "罗飞羽"
+    },
+    {
+      "rank": 13,
+      "title": "玄浑道章",
+      "author": "误道者"
+    },
+    {
+      "rank": 18,
+      "title": "遮天",
+      "author": "辰东"
+    },
+    {
+      "rank": 19,
+      "title": "消费系男神",
+      "author": "起酥面包"
+    },
+    {
+      "rank": 20,
+      "title": "重生飞扬年代",
+      "author": "金蟾老祖"
+    },
+    {
+      "rank": 4,
+      "title": "我在春秋不当王",
+      "author": "羲和晨昊"
+    },
+    {
+      "rank": 5,
+      "title": "惊悚乐园",
+      "author": "三天两觉"
+    },
+    {
+      "rank": 8,
+      "title": "未来天王",
+      "author": "陈词懒调"
+    },
+    {
+      "rank": 9,
+      "title": "谁让他玩游戏王的！",
+      "author": "名称被占用"
+    },
+    {
+      "rank": 10,
+      "title": "圣武称尊",
+      "author": "小圆源"
+    },
+    {
+      "rank": 12,
+      "title": "我真没想下围棋啊！",
+      "author": "山中土块"
+    },
+    {
+      "rank": 13,
+      "title": "超级神基因",
+      "author": "十二翼黑暗炽天使"
+    },
+    {
+      "rank": 14,
+      "title": "深渊独行",
+      "author": "言归正传"
+    },
+    {
+      "rank": 17,
+      "title": "艾泽拉斯圣光黎明",
+      "author": "驿路羁旅"
+    },
+    {
+      "rank": 20,
+      "title": "天倾之后",
+      "author": "佛前献花"
+    },
+    {
+      "rank": 2,
+      "title": "逆流纯真年代",
+      "author": "人间武库"
+    },
+    {
+      "rank": 3,
+      "title": "贫道要考大学",
+      "author": "转角吻猪"
+    },
+    {
+      "rank": 5,
+      "title": "剑卒过河",
+      "author": "惰堕"
+    },
+    {
+      "rank": 6,
+      "title": "重生大时代之1993",
+      "author": "三月麻竹"
+    },
+    {
+      "rank": 8,
+      "title": "当骄傲仍然重要时",
+      "author": "沉默的爱"
+    },
+    {
+      "rank": 9,
+      "title": "秦功",
+      "author": "下雨我带刀"
+    },
+    {
+      "rank": 10,
+      "title": "美漫世界黎明轨迹",
+      "author": "帅犬弗兰克"
+    },
+    {
+      "rank": 11,
+      "title": "那年花开1981",
+      "author": "风随流云"
+    },
+    {
+      "rank": 12,
+      "title": "坐看仙倾",
+      "author": "错哪儿了"
+    },
+    {
+      "rank": 14,
+      "title": "飞扬跋扈，从唐人街开始",
+      "author": "不吃葱花"
+    },
+    {
+      "rank": 16,
+      "title": "黑石密码",
+      "author": "三脚架"
+    },
+    {
+      "rank": 17,
+      "title": "我真不想跟神仙打架",
+      "author": "中秋月明"
+    },
+    {
+      "rank": 18,
+      "title": "覆汉",
+      "author": "榴弹怕水"
+    },
+    {
+      "rank": 20,
+      "title": "全职高手",
+      "author": "蝴蝶蓝"
+    },
+    {
+      "rank": 1,
+      "title": "我就是你们的天敌",
+      "author": "不放心油条"
+    },
+    {
+      "rank": 2,
+      "title": "雪鹰领主",
+      "author": "我吃西红柿"
+    },
+    {
+      "rank": 3,
+      "title": "第一次魔法世界大战",
+      "author": "流浪的蛤蟆"
+    },
+    {
+      "rank": 4,
+      "title": "滨江警事",
+      "author": "卓牧闲"
+    },
+    {
+      "rank": 6,
+      "title": "临安不夜侯",
+      "author": "月关"
+    },
+    {
+      "rank": 7,
+      "title": "速通修仙！",
+      "author": "平层"
+    },
+    {
+      "rank": 8,
+      "title": "说好开发消消乐，地球战争什么鬼",
+      "author": "黑心小C"
+    },
+    {
+      "rank": 11,
+      "title": "真君驾到",
+      "author": "阎ZK"
+    },
+    {
+      "rank": 13,
+      "title": "重生08：装备系男神",
+      "author": "辛老板"
+    },
+    {
+      "rank": 14,
+      "title": "我怎么还活着？",
+      "author": "愤怒的松鼠"
+    },
+    {
+      "rank": 16,
+      "title": "这个武圣血条太厚",
+      "author": "不会飞的笔"
+    },
+    {
+      "rank": 17,
+      "title": "大道争锋",
+      "author": "误道者"
+    },
+    {
+      "rank": 19,
+      "title": "影视世界旅行家",
+      "author": "昨夜大雨"
+    },
+    {
+      "rank": 20,
+      "title": "从栽下菩提树开始成神",
+      "author": "念头不通达"
+    },
+    {
+      "rank": 3,
+      "title": "全民星海时代",
+      "author": "山高地迥"
+    },
+    {
+      "rank": 4,
+      "title": "父可敌国",
+      "author": "三戒大师"
+    },
+    {
+      "rank": 7,
+      "title": "足球：才16岁，让我退役复出？",
+      "author": "懒惰的咕噜大王"
+    },
+    {
+      "rank": 9,
+      "title": "我的女友是恶劣大小姐",
+      "author": "掠过的乌鸦"
+    },
+    {
+      "rank": 12,
+      "title": "仙不是这么修的",
+      "author": "凤嘲凰"
+    },
+    {
+      "rank": 13,
+      "title": "我写的自传不可能是悲剧",
+      "author": "空长青"
+    },
+    {
+      "rank": 14,
+      "title": "吞噬星空",
+      "author": "我吃西红柿"
+    },
+    {
+      "rank": 15,
+      "title": "活人深处",
+      "author": "穿黄衣的阿肥"
+    },
+    {
+      "rank": 16,
+      "title": "奶爸的文艺人生",
+      "author": "寒门"
+    },
+    {
+      "rank": 17,
+      "title": "基因大时代",
+      "author": "猪三不"
+    },
+    {
+      "rank": 18,
+      "title": "大明话事人",
+      "author": "随轻风去"
+    },
+    {
+      "rank": 1,
+      "title": "龙虎道主",
+      "author": "我是瞎混的"
+    },
+    {
+      "rank": 2,
+      "title": "信息全知者",
+      "author": "魔性沧月"
+    },
+    {
+      "rank": 4,
+      "title": "大明小学生",
+      "author": "随轻风去"
+    },
+    {
+      "rank": 5,
+      "title": "天朝仙吏",
+      "author": "六戏"
+    },
+    {
+      "rank": 6,
+      "title": "末日：我打造无限列车",
+      "author": "不二可乐"
+    },
+    {
+      "rank": 7,
+      "title": "舌尖上的霍格沃茨",
+      "author": "幽萌之羽"
+    },
+    {
+      "rank": 8,
+      "title": "忍校教师，我教书就能变强",
+      "author": "桔子不黄"
+    },
+    {
+      "rank": 10,
+      "title": "剑出衡山",
+      "author": "一片苏叶"
+    },
+    {
+      "rank": 14,
+      "title": "大唐扫把星",
+      "author": "迪巴拉爵士"
+    },
+    {
+      "rank": 15,
+      "title": "择日走红",
+      "author": "宋不留春"
+    },
+    {
+      "rank": 17,
+      "title": "讨逆",
+      "author": "迪巴拉爵士"
+    },
+    {
+      "rank": 18,
+      "title": "漫威里的德鲁伊",
+      "author": "骑行拐杖"
+    },
+    {
+      "rank": 19,
+      "title": "旧日之箓",
+      "author": "熊狼狗"
+    },
+    {
+      "rank": 20,
+      "title": "十四亿国民的王国继承人",
+      "author": "刘遇"
+    },
+    {
+      "rank": 1,
+      "title": "上玉阙",
+      "author": "长安九千里"
+    },
+    {
+      "rank": 2,
+      "title": "重生2014：我，刑侦之王",
+      "author": "胖又没吃你家大米"
+    },
+    {
+      "rank": 3,
+      "title": "我在东京教剑道",
+      "author": "康斯坦丁伯爵"
+    },
+    {
+      "rank": 4,
+      "title": "悟性逆天：我在诸天创法传道",
+      "author": "不是星期天"
+    },
+    {
+      "rank": 6,
+      "title": "大乘期才有逆袭系统",
+      "author": "最白的乌鸦"
+    },
+    {
+      "rank": 8,
+      "title": "影视：流窜在诸天的收集员",
+      "author": "万象初心"
+    },
+    {
+      "rank": 9,
+      "title": "超维度玩家",
+      "author": "诸生浮屠"
+    },
+    {
+      "rank": 11,
+      "title": "顶级气运，悄悄修炼千年",
+      "author": "任我笑"
+    },
+    {
+      "rank": 12,
+      "title": "大魏宫廷",
+      "author": "贱宗首席弟子"
+    },
+    {
+      "rank": 13,
+      "title": "LOL：才满18，让我逆袭重生",
+      "author": "五分想象"
+    },
+    {
+      "rank": 14,
+      "title": "绝对一番",
+      "author": "海底漫步者"
+    },
+    {
+      "rank": 16,
+      "title": "天灾信使",
+      "author": "听日"
+    },
+    {
+      "rank": 17,
+      "title": "恋爱净化协议",
+      "author": "伊巍蟹"
+    },
+    {
+      "rank": 18,
+      "title": "苟成圣人，仙官召我养马",
+      "author": "任我笑"
+    },
+    {
+      "rank": 20,
+      "title": "深空之影",
+      "author": "虚伪王庭"
+    },
+    {
+      "rank": 2,
+      "title": "我只想安静地打游戏",
+      "author": "十二翼黑暗炽天使"
+    },
+    {
+      "rank": 4,
+      "title": "某霍格沃茨的魔文教授",
+      "author": "韩游思"
+    },
+    {
+      "rank": 5,
+      "title": "我的兵种无限进化",
+      "author": "笔墨纸键"
+    },
+    {
+      "rank": 9,
+      "title": "天生仙种",
+      "author": "太湖霸王"
+    },
+    {
+      "rank": 10,
+      "title": "一事无成的我只能去当海贼王",
+      "author": "爱吃咸鱼的老虎"
+    },
+    {
+      "rank": 14,
+      "title": "弃宇宙",
+      "author": "鹅是老五"
+    },
+    {
+      "rank": 15,
+      "title": "旧神之巅",
+      "author": "育"
+    },
+    {
+      "rank": 16,
+      "title": "顾道长生",
+      "author": "睡觉会变白"
+    },
+    {
+      "rank": 19,
+      "title": "修仙：我在现代留过学",
+      "author": "脑袋大又秃"
+    },
+    {
+      "rank": 20,
+      "title": "烈风",
+      "author": "嘟嘟雪球来啦"
+    },
+    {
+      "rank": 1,
+      "title": "明日之劫",
+      "author": "熊狼狗"
+    },
+    {
+      "rank": 4,
+      "title": "我的1978小农庄",
+      "author": "名窑"
+    },
+    {
+      "rank": 5,
+      "title": "我以神明为食",
+      "author": "相思洗红豆"
+    },
+    {
+      "rank": 7,
+      "title": "灾变卡皇",
+      "author": "盲候"
+    },
+    {
+      "rank": 8,
+      "title": "刚成仙神，子孙求我出山",
+      "author": "任我笑"
+    },
+    {
+      "rank": 9,
+      "title": "只想退休的我被迫成了大将",
+      "author": "咸鱼军头"
+    },
+    {
+      "rank": 11,
+      "title": "俗人回档",
+      "author": "庚不让"
+    },
+    {
+      "rank": 14,
+      "title": "从赛博朋克开始的跨位面科工",
+      "author": "0.2097"
+    },
+    {
+      "rank": 15,
+      "title": "陈医生，别怂！",
+      "author": "手握寸关尺"
+    },
+    {
+      "rank": 16,
+      "title": "修真四万年（《星域四万年》）",
+      "author": "卧牛真人"
+    },
+    {
+      "rank": 17,
+      "title": "我得给这世界上堂课",
+      "author": "巫马行"
+    },
+    {
+      "rank": 18,
+      "title": "诸天尽头",
+      "author": "凤嘲凰"
+    },
+    {
+      "rank": 19,
+      "title": "间谍的战争",
+      "author": "如水意"
+    },
+    {
+      "rank": 1,
+      "title": "美漫丧钟",
+      "author": "混沌文工团"
+    },
+    {
+      "rank": 3,
+      "title": "反叛的大魔王",
+      "author": "赵青杉"
+    },
+    {
+      "rank": 5,
+      "title": "巫师：我的职业面板没有上限",
+      "author": "acane酱"
+    },
+    {
+      "rank": 7,
+      "title": "综网的巫：从艾泽拉斯吃到山海经",
+      "author": "易伤秋者"
+    },
+    {
+      "rank": 9,
+      "title": "剑徒之路",
+      "author": "惰堕"
+    },
+    {
+      "rank": 12,
+      "title": "全职猎人：我死了也变强了",
+      "author": "紫蓝色的猪"
+    },
+    {
+      "rank": 13,
+      "title": "阿尔宙斯的海贼之旅",
+      "author": "白色鸽鸽子"
+    },
+    {
+      "rank": 14,
+      "title": "御兽飞升",
+      "author": "轻泉流响"
+    },
+    {
+      "rank": 15,
+      "title": "为父只想静静看着你长生",
+      "author": "李鸿天"
+    },
+    {
+      "rank": 16,
+      "title": "女主从书里跑出来了怎么办",
+      "author": "姬叉"
+    },
+    {
+      "rank": 18,
+      "title": "封神：开局一个凤凰分身",
+      "author": "想静静的顿河"
+    },
+    {
+      "rank": 20,
+      "title": "古神在低语",
+      "author": "海棠灯"
+    },
+    {
+      "rank": 1,
+      "title": "说好军转民，这煤气罐什么鬼？",
+      "author": "那年回响"
+    },
+    {
+      "rank": 2,
+      "title": "玄德",
+      "author": "御炎"
+    },
+    {
+      "rank": 3,
+      "title": "神明模拟器",
+      "author": "鹿人戛"
+    },
+    {
+      "rank": 4,
+      "title": "我有一枚命运魔骰",
+      "author": "水煮仙人球"
+    },
+    {
+      "rank": 5,
+      "title": "从神探李元芳开始",
+      "author": "兴霸天"
+    },
+    {
+      "rank": 6,
+      "title": "诡秘：善魔女",
+      "author": "囧囧哟"
+    },
+    {
+      "rank": 7,
+      "title": "寒门宰相",
+      "author": "幸福来敲门"
+    },
+    {
+      "rank": 9,
+      "title": "恋爱？重生的我只想爆奖励",
+      "author": "起酥面包"
+    },
+    {
+      "rank": 12,
+      "title": "重返火红年代",
+      "author": "一斤五百克"
+    },
+    {
+      "rank": 13,
+      "title": "我要与超人约架",
+      "author": "辣酱热干面"
+    },
+    {
+      "rank": 14,
+      "title": "警察陆令",
+      "author": "奉义天涯"
+    },
+    {
+      "rank": 15,
+      "title": "圣女来时不纳粮",
+      "author": "稚嫩小菠萝"
+    },
+    {
+      "rank": 17,
+      "title": "爱发微博的我，成了职业通天代",
+      "author": "血流三千尺"
+    },
+    {
+      "rank": 18,
+      "title": "签约AC米兰后，我开摆了",
+      "author": "葬爱叶良辰"
+    },
+    {
+      "rank": 19,
+      "title": "赝太子",
+      "author": "荆柯守"
+    },
+    {
+      "rank": 20,
+      "title": "海贼：第一个伙伴是汤姆猫",
+      "author": "想吃冰棒"
+    },
+    {
+      "rank": 1,
+      "title": "长生志异",
+      "author": "真愚老人"
+    },
+    {
+      "rank": 6,
+      "title": "终末的绅士",
+      "author": "穿黄衣的阿肥"
+    },
+    {
+      "rank": 9,
+      "title": "我太想重生了",
+      "author": "沉默的糕点"
+    },
+    {
+      "rank": 11,
+      "title": "精灵世界的心灵大师",
+      "author": "说唱鸽"
+    },
+    {
+      "rank": 13,
+      "title": "我是仙",
+      "author": "历史里吹吹风"
+    },
+    {
+      "rank": 15,
+      "title": "CS：才16岁，让我老登逆袭？",
+      "author": "地精咖啡"
+    },
+    {
+      "rank": 16,
+      "title": "最后的黑暗之王",
+      "author": "山川不念"
+    },
+    {
+      "rank": 17,
+      "title": "一世之尊",
+      "author": "爱潜水的乌贼"
+    },
+    {
+      "rank": 18,
+      "title": "LOL：这个男人太强了！",
+      "author": "一片苏叶"
+    },
+    {
+      "rank": 19,
+      "title": "男神，你人设崩了！",
+      "author": "周一口鸟"
+    },
+    {
+      "rank": 20,
+      "title": "从火影开始做打工人",
+      "author": "浓墨浇书"
+    },
+    {
+      "rank": 1,
+      "title": "我的1991",
+      "author": "三月麻竹"
+    },
+    {
+      "rank": 2,
+      "title": "黄金召唤师",
+      "author": "醉虎"
+    },
+    {
+      "rank": 3,
+      "title": "我不是野人",
+      "author": "孑与2"
+    },
+    {
+      "rank": 4,
+      "title": "从密修学院僧开始",
+      "author": "夜半探窗"
+    },
+    {
+      "rank": 5,
+      "title": "重生09：合成系男神",
+      "author": "辛老板"
+    },
+    {
+      "rank": 6,
+      "title": "佣兵的战争",
+      "author": "如水意"
+    },
+    {
+      "rank": 7,
+      "title": "一品修仙",
+      "author": "不放心油条"
+    },
+    {
+      "rank": 8,
+      "title": "人在战锤，求你别赞美哆啦万机神",
+      "author": "犹格在码字"
+    },
+    {
+      "rank": 9,
+      "title": "什么金盆洗手，我又不是龙头大佬",
+      "author": "凌晨吃早茶"
+    },
+    {
+      "rank": 11,
+      "title": "超维武仙",
+      "author": "万事皆虚"
+    },
+    {
+      "rank": 12,
+      "title": "箱子里的大明",
+      "author": "三十二变"
+    },
+    {
+      "rank": 13,
+      "title": "转生眼中的火影世界",
+      "author": "空想之龙"
+    },
+    {
+      "rank": 15,
+      "title": "CSGO：这个选手太听劝了！",
+      "author": "地精咖啡"
+    },
+    {
+      "rank": 17,
+      "title": "我在尊魂幡里当主魂",
+      "author": "灵山王"
+    },
+    {
+      "rank": 19,
+      "title": "精灵世界的底层训练家",
+      "author": "说唱鸽"
+    },
+    {
+      "rank": 3,
+      "title": "大时代从1983开始",
+      "author": "晨风天堂"
+    },
+    {
+      "rank": 6,
+      "title": "武侠：开局奖励满级神功",
+      "author": "落魄的小纯洁"
+    },
+    {
+      "rank": 7,
+      "title": "仙官有令",
+      "author": "裴不了"
+    },
+    {
+      "rank": 8,
+      "title": "次元法典",
+      "author": "西贝猫"
+    },
+    {
+      "rank": 12,
+      "title": "猎人：我真不是除念师",
+      "author": "紫蓝色的猪"
+    },
+    {
+      "rank": 13,
+      "title": "我在1982有个家",
+      "author": "全金属弹壳"
+    },
+    {
+      "rank": 16,
+      "title": "净土边缘",
+      "author": "海棠灯"
+    },
+    {
+      "rank": 18,
+      "title": "牧龙师",
+      "author": "乱"
+    },
+    {
+      "rank": 2,
+      "title": "道士夜仗剑",
+      "author": "亲吻指尖"
+    },
+    {
+      "rank": 3,
+      "title": "咫尺之间人尽敌国",
+      "author": "乘风御剑"
+    },
+    {
+      "rank": 4,
+      "title": "罪狱岛",
+      "author": "魔性沧月"
+    },
+    {
+      "rank": 6,
+      "title": "成为怪谈就算成功",
+      "author": "翟南"
+    },
+    {
+      "rank": 7,
+      "title": "这个明星来自地球",
+      "author": "关乌鸦"
+    },
+    {
+      "rank": 8,
+      "title": "我在决斗都市玩卡牌",
+      "author": "名称被占用"
+    },
+    {
+      "rank": 9,
+      "title": "离职小米后，我成了友商公敌",
+      "author": "挨踢的老臣"
+    },
+    {
+      "rank": 10,
+      "title": "剑走偏锋的大明",
+      "author": "郁雨竹"
+    },
+    {
+      "rank": 11,
+      "title": "神秘之劫",
+      "author": "文抄公"
+    },
+    {
+      "rank": 12,
+      "title": "龙皇武神",
+      "author": "步征"
+    },
+    {
+      "rank": 13,
+      "title": "山河志异",
+      "author": "瑞根"
+    },
+    {
+      "rank": 16,
+      "title": "圣光",
+      "author": "通吃"
+    },
+    {
+      "rank": 18,
+      "title": "仙人只想躺着",
+      "author": "猪心虾仁"
+    },
+    {
+      "rank": 19,
+      "title": "苟在仙界成大佬",
+      "author": "沉入太平洋"
+    },
+    {
+      "rank": 20,
+      "title": "半岛检察官",
+      "author": "竹叶糕"
+    },
+    {
+      "rank": 1,
+      "title": "回到2002当医生",
+      "author": "真熊初墨"
+    },
+    {
+      "rank": 2,
+      "title": "从肉体凡胎到粉碎星球",
+      "author": "乘风御剑"
+    },
+    {
+      "rank": 5,
+      "title": "离婚后，我能听到未来的声音",
+      "author": "林中谷"
+    },
+    {
+      "rank": 6,
+      "title": "脑海带着一扇门",
+      "author": "薄荷也会上火"
+    },
+    {
+      "rank": 7,
+      "title": "我的一天有48小时",
+      "author": "小呆昭"
+    },
+    {
+      "rank": 10,
+      "title": "宠物天王",
+      "author": "皆破"
+    },
+    {
+      "rank": 11,
+      "title": "雀魂：开局国士无双",
+      "author": "玄汐蓝"
+    },
+    {
+      "rank": 13,
+      "title": "东京少女们大有问题",
+      "author": "掠过的乌鸦"
+    },
+    {
+      "rank": 16,
+      "title": "请君问梦",
+      "author": "翟南"
+    },
+    {
+      "rank": 17,
+      "title": "我可不是侦探",
+      "author": "海底漫步者"
+    },
+    {
+      "rank": 19,
+      "title": "文化入侵异世界",
+      "author": "姐姐的新娘"
+    },
+    {
+      "rank": 1,
+      "title": "猎命人",
+      "author": "永恒之火"
+    },
+    {
+      "rank": 2,
+      "title": "我组建了最强剑客集团",
+      "author": "漱梦实"
+    },
+    {
+      "rank": 3,
+      "title": "他们越反对，越是说明我做对了",
+      "author": "金属雨点"
+    },
+    {
+      "rank": 4,
+      "title": "无上天尊",
+      "author": "开荒"
+    },
+    {
+      "rank": 6,
+      "title": "西游：开局拜师菩提祖师",
+      "author": "阿牛要吃菜"
+    },
+    {
+      "rank": 7,
+      "title": "裂天空骑",
+      "author": "华表"
+    },
+    {
+      "rank": 8,
+      "title": "九锡",
+      "author": "上汤豆苗"
+    },
+    {
+      "rank": 11,
+      "title": "谁把我的尸体藏起来了！",
+      "author": "有妖眼"
+    },
+    {
+      "rank": 12,
+      "title": "饲养全人类",
+      "author": "三百斤的微笑"
+    },
+    {
+      "rank": 13,
+      "title": "漫游在影视世界",
+      "author": "不是马里奥"
+    },
+    {
+      "rank": 14,
+      "title": "洛杉矶神探",
+      "author": "跑盘"
+    },
+    {
+      "rank": 15,
+      "title": "农业狂魔",
+      "author": "好多牛"
+    },
+    {
+      "rank": 16,
+      "title": "奇迹的召唤师",
+      "author": "如倾如诉"
+    },
+    {
+      "rank": 18,
+      "title": "人在东京，法内狂徒",
+      "author": "竹叶糕"
+    },
+    {
+      "rank": 19,
+      "title": "新白蛇问仙",
+      "author": "舒楠泽"
+    },
+    {
+      "rank": 1,
+      "title": "在港综成为传说",
+      "author": "凤嘲凰"
+    },
+    {
+      "rank": 2,
+      "title": "完美人生",
+      "author": "刀一耕"
+    },
+    {
+      "rank": 3,
+      "title": "梦回大明春",
+      "author": "王梓钧"
+    },
+    {
+      "rank": 7,
+      "title": "有诡",
+      "author": "白刃斩春风"
+    },
+    {
+      "rank": 8,
+      "title": "天庭最后一个大佬",
+      "author": "言归正传"
+    },
+    {
+      "rank": 9,
+      "title": "洛杉矶之狼",
+      "author": "白色十三号"
+    },
+    {
+      "rank": 11,
+      "title": "进化的四十六亿重奏",
+      "author": "相位行者"
+    },
+    {
+      "rank": 12,
+      "title": "大明第一臣",
+      "author": "青史尽成灰"
+    },
+    {
+      "rank": 14,
+      "title": "火影：我在暗部苟成超影",
+      "author": "糖醋花椒"
+    },
+    {
+      "rank": 17,
+      "title": "世界树的游戏",
+      "author": "咯嘣"
+    },
+    {
+      "rank": 20,
+      "title": "骂谁实力派呢",
+      "author": "胖一点"
+    },
+    {
+      "rank": 1,
+      "title": "这号有毒",
+      "author": "幼儿园一把手"
+    },
+    {
+      "rank": 4,
+      "title": "大国科技",
+      "author": "九月酱"
+    },
+    {
+      "rank": 6,
+      "title": "在异界开医院没有那么难吧",
+      "author": "加兰2020"
+    },
+    {
+      "rank": 7,
+      "title": "夫人请住手",
+      "author": "竹叶糕"
+    },
+    {
+      "rank": 8,
+      "title": "细说红尘",
+      "author": "真费事"
+    },
+    {
+      "rank": 9,
+      "title": "仙笼",
+      "author": "布谷聊"
+    },
+    {
+      "rank": 10,
+      "title": "直死无限",
+      "author": "如倾如诉"
+    },
+    {
+      "rank": 14,
+      "title": "长生武道：从五禽养生拳开始",
+      "author": "真不是许仙"
+    },
+    {
+      "rank": 16,
+      "title": "史上最强师兄",
+      "author": "八月飞鹰"
+    },
+    {
+      "rank": 17,
+      "title": "无限血核",
+      "author": "蛊真人"
+    },
+    {
+      "rank": 18,
+      "title": "穷鬼的上下两千年",
+      "author": "非玩家角色"
+    },
+    {
+      "rank": 19,
+      "title": "不灭钢之魂",
+      "author": "奇迹型MKIII"
+    },
+    {
+      "rank": 5,
+      "title": "天道今天不上班",
+      "author": "魔性沧月"
+    },
+    {
+      "rank": 7,
+      "title": "我成了女魔头的心魔",
+      "author": "金秋雨落"
+    },
+    {
+      "rank": 8,
+      "title": "海盗王权",
+      "author": "北海牧鲸"
+    },
+    {
+      "rank": 11,
+      "title": "谁还不是个修行者了",
+      "author": "金色茉莉花"
+    },
+    {
+      "rank": 12,
+      "title": "篡清：我初恋是慈禧",
+      "author": "沉默的糕点"
+    },
+    {
+      "rank": 14,
+      "title": "魂殿第一玩家",
+      "author": "天空泪"
+    },
+    {
+      "rank": 15,
+      "title": "盛唐挽歌",
+      "author": "携剑远行"
+    },
+    {
+      "rank": 18,
+      "title": "你这律师不对劲",
+      "author": "酒剑仙人"
+    },
+    {
+      "rank": 19,
+      "title": "40k：午夜之刃",
+      "author": "拿刀划墙纸"
+    },
+    {
+      "rank": 20,
+      "title": "一剑斩破九重天",
+      "author": "流浪的蛤蟆"
+    },
+    {
+      "rank": 1,
+      "title": "从大学讲师到首席院士",
+      "author": "不吃小南瓜"
+    },
+    {
+      "rank": 2,
+      "title": "万道龙皇",
+      "author": "牧童听竹"
+    },
+    {
+      "rank": 5,
+      "title": "死刑变无罪？谁叫他做侦探的！",
+      "author": "青衫仗剑行天涯"
+    },
+    {
+      "rank": 7,
+      "title": "霍格沃茨之灰巫师",
+      "author": "睡个饱觉"
+    },
+    {
+      "rank": 9,
+      "title": "您完全不按套路通关是吗",
+      "author": "星声"
+    },
+    {
+      "rank": 10,
+      "title": "神探陈益",
+      "author": "勤奋的关关"
+    },
+    {
+      "rank": 11,
+      "title": "这个网游策划果然有问题",
+      "author": "献歌"
+    },
+    {
+      "rank": 12,
+      "title": "重生过去当传奇",
+      "author": "锋临天下"
+    },
+    {
+      "rank": 13,
+      "title": "税收只在机枪射程内！",
+      "author": "践行践远"
+    },
+    {
+      "rank": 14,
+      "title": "系统的黑科技网吧",
+      "author": "逆水之叶"
+    },
+    {
+      "rank": 16,
+      "title": "纣临",
+      "author": "三天两觉"
+    },
+    {
+      "rank": 17,
+      "title": "怪猎：这条火龙有特性",
+      "author": "忘记恰饭"
+    },
+    {
+      "rank": 19,
+      "title": "兼职保镖",
+      "author": "虾写"
+    },
+    {
+      "rank": 20,
+      "title": "吕布的人生模拟器",
+      "author": "会说话的胡子"
+    },
+    {
+      "rank": 2,
+      "title": "白衣披甲",
+      "author": "真熊初墨"
+    },
+    {
+      "rank": 3,
+      "title": "瞎子捉刀人：开局满级九阳神功",
+      "author": "今日问道"
+    },
+    {
+      "rank": 4,
+      "title": "大周不良人",
+      "author": "一袖乾坤"
+    },
+    {
+      "rank": 5,
+      "title": "重生过去震八方",
+      "author": "锋临天下"
+    },
+    {
+      "rank": 6,
+      "title": "希腊带恶人",
+      "author": "紫夜弦歌"
+    },
+    {
+      "rank": 8,
+      "title": "水浒开局在阳谷县当都头",
+      "author": "祝家大爷"
+    },
+    {
+      "rank": 10,
+      "title": "华娱1997",
+      "author": "胖一点"
+    },
+    {
+      "rank": 12,
+      "title": "带着系统来大唐",
+      "author": "农家一锅出"
+    },
+    {
+      "rank": 15,
+      "title": "维度侵蚀者",
+      "author": "残酷厕纸天使"
+    },
+    {
+      "rank": 16,
+      "title": "完蛋，我来到自己写的垃圾书里了",
+      "author": "伴读小牧童"
+    },
+    {
+      "rank": 19,
+      "title": "导演的快乐你不懂",
+      "author": "泥白佛"
+    },
+    {
+      "rank": 20,
+      "title": "朕能走到对岸吗",
+      "author": "爱吃麻辣猪蹄"
+    },
+    {
+      "rank": 2,
+      "title": "一气朝阳",
+      "author": "亲吻指尖"
+    },
+    {
+      "rank": 4,
+      "title": "一品丹仙",
+      "author": "八宝饭"
+    },
+    {
+      "rank": 5,
+      "title": "人在现实，超脱彼岸",
+      "author": "易子七"
+    },
+    {
+      "rank": 6,
+      "title": "我在修仙界长生不死",
+      "author": "贰更2"
+    },
+    {
+      "rank": 7,
+      "title": "幻想世界大穿越",
+      "author": "辰一十一"
+    },
+    {
+      "rank": 9,
+      "title": "重生：开局逮到高冷校花超市偷窃",
+      "author": "陆远秋"
+    },
+    {
+      "rank": 10,
+      "title": "苟成神君，宗门让我入赘",
+      "author": "雨下的好大"
+    },
+    {
+      "rank": 13,
+      "title": "亡灵之息",
+      "author": "羽民"
+    },
+    {
+      "rank": 14,
+      "title": "重生：我老婆是天后",
+      "author": "叔叔请放开我"
+    },
+    {
+      "rank": 15,
+      "title": "李治你别怂",
+      "author": "贼眉鼠眼"
+    },
+    {
+      "rank": 18,
+      "title": "颤栗高空",
+      "author": "奥比椰"
+    },
+    {
+      "rank": 19,
+      "title": "在火影教书，系统说我是纲手学生",
+      "author": "宝石对影"
+    },
+    {
+      "rank": 2,
+      "title": "全民魔女1994",
+      "author": "宇宙鸽"
+    },
+    {
+      "rank": 3,
+      "title": "蜀汉之庄稼汉",
+      "author": "甲青"
+    },
+    {
+      "rank": 4,
+      "title": "大唐太子的悠闲生活",
+      "author": "张九文"
+    },
+    {
+      "rank": 7,
+      "title": "奋斗在红楼",
+      "author": "九悟"
+    },
+    {
+      "rank": 8,
+      "title": "全民深渊：我技能无限强化",
+      "author": "吴杰超"
+    },
+    {
+      "rank": 11,
+      "title": "绝代名师",
+      "author": "相思洗红豆"
+    },
+    {
+      "rank": 12,
+      "title": "恋爱在精神病院",
+      "author": "掠过的乌鸦"
+    },
+    {
+      "rank": 13,
+      "title": "什么叫破坏型中场啊",
+      "author": "亲爱的瓜"
+    },
+    {
+      "rank": 14,
+      "title": "我的女友是恶女",
+      "author": "海底漫步者"
+    },
+    {
+      "rank": 15,
+      "title": "你当律师，把法官送进去了？",
+      "author": "大风雾"
+    },
+    {
+      "rank": 18,
+      "title": "从天才开始无敌于斗破",
+      "author": "a小白b"
+    },
+    {
+      "rank": 20,
+      "title": "腐蚀国度",
+      "author": "虾写"
+    },
+    {
+      "rank": 6,
+      "title": "冰封末世：我打造完美领地",
+      "author": "一条小白蛇"
+    },
+    {
+      "rank": 7,
+      "title": "这是我的星球",
+      "author": "姬叉"
+    },
+    {
+      "rank": 10,
+      "title": "我真没针对法爷",
+      "author": "十年一键"
+    },
+    {
+      "rank": 11,
+      "title": "期待在异世界",
+      "author": "如倾如诉"
+    },
+    {
+      "rank": 12,
+      "title": "美利坚1982",
+      "author": "一勺往事"
+    },
+    {
+      "rank": 14,
+      "title": "谁说这顶流癫！这顶流太棒了！",
+      "author": "知稚"
+    },
+    {
+      "rank": 16,
+      "title": "恶魔囚笼",
+      "author": "颓废龙"
+    },
+    {
+      "rank": 18,
+      "title": "狂探",
+      "author": "旷海忘湖"
+    },
+    {
+      "rank": 20,
+      "title": "文豪：这孩子打小就聪明",
+      "author": "一切以大橘为重"
+    },
+    {
+      "rank": 3,
+      "title": "灵能者不死于枪火",
+      "author": "二重渔者"
+    },
+    {
+      "rank": 6,
+      "title": "人在无限，开始速通",
+      "author": "小抽大象"
+    },
+    {
+      "rank": 8,
+      "title": "女帝座下第一走狗",
+      "author": "十万菜团"
+    },
+    {
+      "rank": 11,
+      "title": "大明圣孙",
+      "author": "西湖遇雨"
+    },
+    {
+      "rank": 15,
+      "title": "最后结局",
+      "author": "zhttty"
+    },
+    {
+      "rank": 16,
+      "title": "白银霸主",
+      "author": "醉虎"
+    },
+    {
+      "rank": 17,
+      "title": "大宋神探志",
+      "author": "兴霸天"
+    },
+    {
+      "rank": 18,
+      "title": "奥特曼：我真的只是人类",
+      "author": "猫色"
+    },
+    {
+      "rank": 20,
+      "title": "天神诀",
+      "author": "太一生水"
+    },
+    {
+      "rank": 1,
+      "title": "踩着魔门妖女成为最强",
+      "author": "幽祝"
+    },
+    {
+      "rank": 3,
+      "title": "肝出个万法道君",
+      "author": "白特慢啊"
+    },
+    {
+      "rank": 4,
+      "title": "LOL：重生S3，调教全联盟",
+      "author": "青石离"
+    },
+    {
+      "rank": 5,
+      "title": "绑定打卡系统，我成了悠闲旅行家",
+      "author": "纯纯的橙"
+    },
+    {
+      "rank": 6,
+      "title": "开局被追杀，我获得第一快剑",
+      "author": "落魄的小纯洁"
+    },
+    {
+      "rank": 7,
+      "title": "赛博大明",
+      "author": "国产达闻西"
+    },
+    {
+      "rank": 10,
+      "title": "我必须立刻撞大运",
+      "author": "翟南"
+    },
+    {
+      "rank": 13,
+      "title": "修仙：当你把事情做到极致",
+      "author": "忘记穿马甲"
+    },
+    {
+      "rank": 15,
+      "title": "召唤梦魇",
+      "author": "滚开"
+    },
+    {
+      "rank": 16,
+      "title": "来自末日",
+      "author": "吃书妖"
+    },
+    {
+      "rank": 17,
+      "title": "征服之路",
+      "author": "静悄悄地写"
+    },
+    {
+      "rank": 2,
+      "title": "成为圣人是一种什么体验？",
+      "author": "要离刺荆轲"
+    },
+    {
+      "rank": 3,
+      "title": "寻找走丢的舰娘",
+      "author": "海底熔岩"
+    },
+    {
+      "rank": 5,
+      "title": "从呆毛王开始公开处刑",
+      "author": "重新飞起来"
+    },
+    {
+      "rank": 6,
+      "title": "唐砖",
+      "author": "孑与2"
+    },
+    {
+      "rank": 7,
+      "title": "地球人实在太凶猛了",
+      "author": "卧牛真人"
+    },
+    {
+      "rank": 11,
+      "title": "你跑不过我吧",
+      "author": "想枕头的瞌睡"
+    },
+    {
+      "rank": 12,
+      "title": "重生1878：美利坚头号悍匪",
+      "author": "满身花影"
+    },
+    {
+      "rank": 16,
+      "title": "造化之王",
+      "author": "猪三不"
+    },
+    {
+      "rank": 19,
+      "title": "我和她们穿越到北宋",
+      "author": "任鸟飞"
+    },
+    {
+      "rank": 20,
+      "title": "谍战生存指南",
+      "author": "谈谈钱"
+    },
+    {
+      "rank": 3,
+      "title": "神话：天帝今天不上班",
+      "author": "死三二一"
+    },
+    {
+      "rank": 4,
+      "title": "我不是赛博精神病",
+      "author": "板斧战士"
+    },
+    {
+      "rank": 6,
+      "title": "天道方程式",
+      "author": "二目"
+    },
+    {
+      "rank": 8,
+      "title": "秦人的悠闲生活",
+      "author": "张九文"
+    },
+    {
+      "rank": 10,
+      "title": "曙光纪元",
+      "author": "人勿玩人"
+    },
+    {
+      "rank": 13,
+      "title": "这个外挂过于中二",
+      "author": "鱼狱圄"
+    },
+    {
+      "rank": 14,
+      "title": "天命高武",
+      "author": "踏雪真人"
+    },
+    {
+      "rank": 16,
+      "title": "修复师",
+      "author": "打眼"
+    },
+    {
+      "rank": 18,
+      "title": "让你复读战高四，你捡漏上军校？",
+      "author": "砺军"
+    },
+    {
+      "rank": 3,
+      "title": "大唐第一世家",
+      "author": "晴了"
+    },
+    {
+      "rank": 4,
+      "title": "我一个特技演员疯狂整活很合理吧",
+      "author": "冥夜冷月"
+    },
+    {
+      "rank": 7,
+      "title": "难道我是神",
+      "author": "熊狼狗"
+    },
+    {
+      "rank": 8,
+      "title": "柯学验尸官",
+      "author": "河流之汪"
+    },
+    {
+      "rank": 9,
+      "title": "北朝帝业",
+      "author": "衣冠正伦"
+    },
+    {
+      "rank": 11,
+      "title": "隐秘买家",
+      "author": "绝密八宝粥"
+    },
+    {
+      "rank": 12,
+      "title": "都市剑说",
+      "author": "华表"
+    },
+    {
+      "rank": 19,
+      "title": "早安大明",
+      "author": "迪巴拉爵士"
+    },
+    {
+      "rank": 20,
+      "title": "进化之眼",
+      "author": "亚舍罗"
+    },
+    {
+      "rank": 2,
+      "title": "神级幸运星",
+      "author": "辰机唐红豆"
+    },
+    {
+      "rank": 3,
+      "title": "我说了我会时光倒流",
+      "author": "熊狼狗"
+    },
+    {
+      "rank": 6,
+      "title": "从零开始建立穿越者联盟",
+      "author": "九棍"
+    },
+    {
+      "rank": 7,
+      "title": "恶龙：我捡来的幼龙总想当女帝",
+      "author": "恶龙走了"
+    },
+    {
+      "rank": 10,
+      "title": "大龙挂了",
+      "author": "白雨涵"
+    },
+    {
+      "rank": 11,
+      "title": "复山河",
+      "author": "新海月1"
+    },
+    {
+      "rank": 14,
+      "title": "都重生了，又当消防兵了？",
+      "author": "大先生吃土豆"
+    },
+    {
+      "rank": 16,
+      "title": "合道",
+      "author": "断桥残雪"
+    },
+    {
+      "rank": 18,
+      "title": "圣拳！",
+      "author": "灰色墓碑"
+    },
+    {
+      "rank": 19,
+      "title": "我将埋葬众神",
+      "author": "见异思剑"
+    },
+    {
+      "rank": 2,
+      "title": "在下壶中仙",
+      "author": "海底漫步者"
+    },
+    {
+      "rank": 3,
+      "title": "我在军营肝技能",
+      "author": "与东流"
+    },
+    {
+      "rank": 4,
+      "title": "虚拟帝国从游戏开始",
+      "author": "达尔文动物园"
+    },
+    {
+      "rank": 7,
+      "title": "我没落网，凭什么说我有罪！",
+      "author": "青衫仗剑行天涯"
+    },
+    {
+      "rank": 8,
+      "title": "我的艺人邻居",
+      "author": "青椒真好吃"
+    },
+    {
+      "rank": 10,
+      "title": "海贼：从捡到红发断臂开始",
+      "author": "洛城太守"
+    },
+    {
+      "rank": 11,
+      "title": "一个喷嚏毁灭一个魔法文明",
+      "author": "永远十六岁"
+    },
+    {
+      "rank": 12,
+      "title": "一品道门",
+      "author": "第九天命"
+    },
+    {
+      "rank": 13,
+      "title": "贫僧不想当影帝",
+      "author": "陶安逸"
+    },
+    {
+      "rank": 14,
+      "title": "LOL：迦娜女神的召唤师",
+      "author": "河流之汪"
+    },
+    {
+      "rank": 20,
+      "title": "从行星总督开始",
+      "author": "红心布"
+    },
+    {
+      "rank": 1,
+      "title": "道君：从上品金丹开始",
+      "author": "金丹摘除手术"
+    },
+    {
+      "rank": 2,
+      "title": "始皇家的好圣孙",
+      "author": "三月啦"
+    },
+    {
+      "rank": 3,
+      "title": "走进修仙",
+      "author": "吾道长不孤"
+    },
+    {
+      "rank": 5,
+      "title": "权游之圣焰君王",
+      "author": "萝卜上秤"
+    },
+    {
+      "rank": 7,
+      "title": "道门法则",
+      "author": "八宝饭"
+    },
+    {
+      "rank": 10,
+      "title": "华娱的盛宴",
+      "author": "刀一耕"
+    },
+    {
+      "rank": 11,
+      "title": "守序暴君",
+      "author": "不在意中人"
+    },
+    {
+      "rank": 12,
+      "title": "归义非唐",
+      "author": "北城二千"
+    },
+    {
+      "rank": 14,
+      "title": "无限轮回荣光",
+      "author": "九四或跃在渊"
+    },
+    {
+      "rank": 15,
+      "title": "湾区之王",
+      "author": "磨砚少年"
+    },
+    {
+      "rank": 16,
+      "title": "从璃月开始的价值之主！",
+      "author": "大紫罗天"
+    },
+    {
+      "rank": 17,
+      "title": "宇宙无限食堂",
+      "author": "小呆昭"
+    },
+    {
+      "rank": 19,
+      "title": "华娱，这个美术生想当导演",
+      "author": "两猫养一人"
+    },
+    {
+      "rank": 2,
+      "title": "7号基地",
+      "author": "净无痕"
+    },
+    {
+      "rank": 4,
+      "title": "经营游戏竟是我自己",
+      "author": "太白水君"
+    },
+    {
+      "rank": 9,
+      "title": "清末的法师",
+      "author": "黄文才"
+    },
+    {
+      "rank": 10,
+      "title": "这个导演没有格局",
+      "author": "中贰钓鱼佬"
+    },
+    {
+      "rank": 11,
+      "title": "无限神装在都市",
+      "author": "万事皆虚"
+    },
+    {
+      "rank": 13,
+      "title": "超凡大卫",
+      "author": "吃瓜子群众"
+    },
+    {
+      "rank": 16,
+      "title": "我看到了一切",
+      "author": "岭南仨人"
+    },
+    {
+      "rank": 17,
+      "title": "主神崛起",
+      "author": "文抄公"
+    },
+    {
+      "rank": 18,
+      "title": "长生从娶妻开始",
+      "author": "喜爱吃黄瓜"
+    },
+    {
+      "rank": 19,
+      "title": "美利坚警探：从美剧菜鸟老警开始",
+      "author": "默默不存在"
+    },
+    {
+      "rank": 5,
+      "title": "我夺舍了魔皇",
+      "author": "八月飞鹰"
+    },
+    {
+      "rank": 6,
+      "title": "执法者手册",
+      "author": "桃咕"
+    },
+    {
+      "rank": 7,
+      "title": "全能中锋",
+      "author": "金印"
+    },
+    {
+      "rank": 9,
+      "title": "重生2011，二本捡漏985",
+      "author": "无醉春秋"
+    },
+    {
+      "rank": 11,
+      "title": "别再催眠我了，反派皇女！",
+      "author": "鱼香起司"
+    },
+    {
+      "rank": 14,
+      "title": "心灵主宰",
+      "author": "孤独漂流"
+    },
+    {
+      "rank": 15,
+      "title": "神诡世界，我能修改命数",
+      "author": "白特慢啊"
+    },
+    {
+      "rank": 16,
+      "title": "冠军法则",
+      "author": "葛洛夫街兄弟"
+    },
+    {
+      "rank": 17,
+      "title": "盗天仙途",
+      "author": "荆柯守"
+    },
+    {
+      "rank": 18,
+      "title": "拜师九叔",
+      "author": "西瓜有皮不好吃"
+    },
+    {
+      "rank": 1,
+      "title": "我没想做演员",
+      "author": "油炸大金"
+    },
+    {
+      "rank": 3,
+      "title": "阴阳镜",
+      "author": "鱼儿小小"
+    },
+    {
+      "rank": 6,
+      "title": "长生苟仙，宗门撞钟三百年",
+      "author": "火到星空深处"
+    },
+    {
+      "rank": 7,
+      "title": "制皮百年，我成了魔门巨头",
+      "author": "是桃花酥呀"
+    },
+    {
+      "rank": 8,
+      "title": "咸鱼翻身的正确姿势",
+      "author": "二宝天使"
+    },
+    {
+      "rank": 9,
+      "title": "大宋泼皮",
+      "author": "很废很小白"
+    },
+    {
+      "rank": 11,
+      "title": "霍格沃兹的旧日之主",
+      "author": "月色好美啊"
+    },
+    {
+      "rank": 12,
+      "title": "百世求仙",
+      "author": "黑茄酿啤酒"
+    },
+    {
+      "rank": 15,
+      "title": "后明余晖",
+      "author": "神州翰林院的平海"
+    },
+    {
+      "rank": 17,
+      "title": "全球神祇时代",
+      "author": "一夕成道"
+    },
+    {
+      "rank": 18,
+      "title": "我只能和S级女神谈恋爱",
+      "author": "唐小虾"
+    },
+    {
+      "rank": 19,
+      "title": "我只想当一个安静的学霸",
+      "author": "术小城"
+    },
+    {
+      "rank": 1,
+      "title": "雾都侦探",
+      "author": "虾写"
+    },
+    {
+      "rank": 4,
+      "title": "茅山捉鬼人",
+      "author": "青子"
+    },
+    {
+      "rank": 6,
+      "title": "万法道君，从小云雨术开始",
+      "author": "一键花开"
+    },
+    {
+      "rank": 7,
+      "title": "一开始，我只想搞钱",
+      "author": "油炸大金"
+    },
+    {
+      "rank": 9,
+      "title": "错练邪功，法天象地",
+      "author": "剑飞暴雨中"
+    },
+    {
+      "rank": 12,
+      "title": "我的时空旅舍",
+      "author": "金色茉莉花"
+    },
+    {
+      "rank": 14,
+      "title": "寒门崛起：我的武道逆袭生涯",
+      "author": "九灯和善"
+    },
+    {
+      "rank": 15,
+      "title": "才不是魔女",
+      "author": "青空乐章"
+    },
+    {
+      "rank": 16,
+      "title": "外乡人的旅途",
+      "author": "移动邮箱"
+    },
+    {
+      "rank": 17,
+      "title": "抗战：从成为楚云飞开始崛起",
+      "author": "吴未的书"
+    },
+    {
+      "rank": 1,
+      "title": "魔女小姐不想成为歌姬",
+      "author": "青空乐章"
+    },
+    {
+      "rank": 4,
+      "title": "重生2010，国士无双",
+      "author": "不是老狗"
+    },
+    {
+      "rank": 6,
+      "title": "杨小落的便宜奶爸",
+      "author": "寒门"
+    },
+    {
+      "rank": 7,
+      "title": "退后让为师来",
+      "author": "隐语者"
+    },
+    {
+      "rank": 8,
+      "title": "全球挖矿",
+      "author": "大烟缸"
+    },
+    {
+      "rank": 9,
+      "title": "诅咒之龙",
+      "author": "路过的穿越者"
+    },
+    {
+      "rank": 11,
+      "title": "1986：我的普罗旺斯幸福生活",
+      "author": "一池浅芽"
+    },
+    {
+      "rank": 16,
+      "title": "天可汗回忆录",
+      "author": "七星肥熊"
+    },
+    {
+      "rank": 17,
+      "title": "霍格沃茨：我真是模范巫师",
+      "author": "短尾狸猫"
+    },
+    {
+      "rank": 18,
+      "title": "从执教皇马开始",
+      "author": "陈爱庭"
+    },
+    {
+      "rank": 19,
+      "title": "成影帝了，系统才加载完",
+      "author": "江公子阿宝"
+    },
+    {
+      "rank": 20,
+      "title": "我以道种铸长生",
+      "author": "鱼龙飞度"
+    },
+    {
+      "rank": 5,
+      "title": "我就是正常玩家！",
+      "author": "太白水君"
+    },
+    {
+      "rank": 6,
+      "title": "靖明",
+      "author": "冬三十娘"
+    },
+    {
+      "rank": 8,
+      "title": "打工先知",
+      "author": "小呆昭"
+    },
+    {
+      "rank": 9,
+      "title": "我在大明肝生活技能",
+      "author": "肥鸟先行"
+    },
+    {
+      "rank": 11,
+      "title": "原来我是妖二代",
+      "author": "卖报小郎君"
+    },
+    {
+      "rank": 14,
+      "title": "变成血族是什么体验",
+      "author": "神行汉堡"
+    },
+    {
+      "rank": 15,
+      "title": "我能用意念粉碎星球",
+      "author": "俺来组成头部"
+    },
+    {
+      "rank": 16,
+      "title": "出场就满级的人生该怎么办",
+      "author": "伴读小牧童"
+    },
+    {
+      "rank": 17,
+      "title": "这不是娱乐",
+      "author": "睡觉会变白"
+    },
+    {
+      "rank": 20,
+      "title": "美利坚打猎：从荒野独居开始",
+      "author": "山居寒岁"
+    },
+    {
+      "rank": 1,
+      "title": "文明之万界领主",
+      "author": "飞翔de懒猫"
+    },
+    {
+      "rank": 3,
+      "title": "来自星渊",
+      "author": "深度绯红"
+    },
+    {
+      "rank": 4,
+      "title": "这群玩家比诡更诡",
+      "author": "三百斤的微笑"
+    },
+    {
+      "rank": 8,
+      "title": "腾飞我的航空时代",
+      "author": "安溪柚"
+    },
+    {
+      "rank": 14,
+      "title": "诸天从茅山开始",
+      "author": "龙升云霄"
+    },
+    {
+      "rank": 15,
+      "title": "向地狱进发",
+      "author": "给您添蘑菇啦"
+    },
+    {
+      "rank": 16,
+      "title": "马前卒",
+      "author": "枪手1号"
+    },
+    {
+      "rank": 17,
+      "title": "智人",
+      "author": "岭南仨人"
+    },
+    {
+      "rank": 18,
+      "title": "我在古代日本当剑豪",
+      "author": "漱梦实"
+    },
+    {
+      "rank": 19,
+      "title": "龙王大人在上",
+      "author": "雨魔"
+    }
+  ],
+  "errors": []
+}

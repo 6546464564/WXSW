@@ -82,7 +82,7 @@ struct BookshelfView: View {
                 }
             }
             .background(WanxiangColors.background.ignoresSafeArea())
-            .navigationTitle("书架")
+            .navigationTitle(S.bookshelf)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .task(id: sortRaw) {

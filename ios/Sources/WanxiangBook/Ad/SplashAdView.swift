@@ -56,7 +56,7 @@ struct SplashAdView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: 96, height: 96)
-                Text("万象书屋")
+                Text(S.appName)
                     .font(.system(size: 26, weight: .heavy))
                     .foregroundStyle(WanxiangColors.textPrimary)
                 Text("阅读自由")
