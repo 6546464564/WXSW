@@ -305,11 +305,9 @@ public final class BookSourceEngine: @unchecked Sendable {
             return (source, .failure(BookSourceEngineError.httpFailed("unknown")))
         }
         let dt = Date().timeIntervalSince(t0)
-        if dt > 1.0 || ProcessInfo.processInfo.environment["WX_LOG_PER_SOURCE"] != nil {
-            let status: String
-            switch result.1 { case .success(let arr): status = "ok(\(arr.count))"; case .failure(let e): status = "err(\(e.localizedDescription.prefix(40)))" }
-            print(String(format: "[search] %.2fs %@ %@", dt, source.bookSourceName, status))
-        }
+        let status: String
+        switch result.1 { case .success(let arr): status = "ok(\(arr.count))"; case .failure(let e): status = "err(\(String(describing: e).prefix(120)))" }
+        NSLog("[search] %.2fs %@ %@", dt, source.bookSourceName, status)
         return result
     }
 

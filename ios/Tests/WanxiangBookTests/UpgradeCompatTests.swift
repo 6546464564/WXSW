@@ -5,8 +5,8 @@ final class UpgradeCompatTests: XCTestCase {
 
     // MARK: - BookChapterMigration: 换源章节映射
 
-    private func makeChapter(title: String) -> BookChapter {
-        BookChapter(bookUrl: "test", title: title, chapterUrl: "")
+    private func makeChapter(title: String, index: Int = 0) -> BookChapter {
+        BookChapter(chapterIndex: index, chapterUrl: "", title: title)
     }
 
     func test_mappedDurChapterIndex_emptyNewChapters_returnsOldIndex() {

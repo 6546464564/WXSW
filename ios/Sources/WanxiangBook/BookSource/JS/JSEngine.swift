@@ -1416,8 +1416,10 @@ public actor JSEngine {
                     };
                 }
             };
+            globalThis.javax.crypto.Cipher = globalThis.Cipher;
             globalThis.javax.crypto.spec = {
-                SecretKeySpec: globalThis.SecretKeySpec
+                SecretKeySpec: globalThis.SecretKeySpec,
+                IvParameterSpec: globalThis.IvParameterSpec
             };
 
             // === JavaImporter / Packages ===

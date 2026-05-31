@@ -106,4 +106,53 @@ final class BookSourceCompatTests: XCTestCase {
             }
         }
     }
+
+    func test_h5book_search() async throws {
+        let jsLib = """
+        var HMAC_KEY='1234567890123456';var BASE='https://h5.h5bookyyds.com';function genHeaders(){var ts=''+java.lang.System.currentTimeMillis();var nonce=java.util.UUID.randomUUID().toString().replace(/-/g,'').substring(0,32);var ks=new javax.crypto.spec.SecretKeySpec(java.lang.String(HMAC_KEY).getBytes('UTF-8'),'HmacSHA256');var mac=javax.crypto.Mac.getInstance('HmacSHA256');mac.init(ks);var sb=mac.doFinal(java.lang.String(ts+'.'+nonce).getBytes('UTF-8'));var sig='';for(var i=0;i<sb.length;i++){var b=sb[i]&0xFF;sig+=(b<16?'0':'')+java.lang.Integer.toHexString(b);}return{'x-timestamp':ts,'x-nonce':nonce,'x-signature':sig};}function decrypt(hex){hex=(''+hex).trim();var len=hex.length/2;var d=java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE,len);for(var i=0;i<len;i++){var v=java.lang.Integer.parseInt(hex.substring(i*2,i*2+2),16);d[i]=v>127?v-256:v;}var kb=java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE,32);for(var i=0;i<32;i++){var x=((d[48+i]&0xFF)^(d[i]&0xFF));kb[i]=x>127?x-256:x;}var iv=java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE,16);for(var i=0;i<16;i++){var x=((d[80+i]&0xFF)^(d[32+i]&0xFF));iv[i]=x>127?x-256:x;}var cl=len-96;var cb=java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE,cl);java.lang.System.arraycopy(d,96,cb,0,cl);var cipher=javax.crypto.Cipher.getInstance('AES/CBC/PKCS5Padding');cipher.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(kb,'AES'),new javax.crypto.spec.IvParameterSpec(iv));return''+new java.lang.String(cipher.doFinal(cb),'UTF-8');}
+        """
+        var rule = SearchRule()
+        rule.bookList = "@js:JSON.parse(decrypt(result)).book"
+        rule.name = "$.name"
+        rule.author = "$.author"
+        rule.bookUrl = "@js:var item=(typeof result==='string')?JSON.parse(result):result;BASE+'/d-aDUuaDVib29reXlkcy5jb20=/book/'+item.book_id"
+
+        var source = BookSource(
+            bookSourceUrl: "https://h5.h5bookyyds.com",
+            bookSourceName: "H5Book",
+            searchUrl: "@js:BASE+'/api/search/list?keyword='+encodeURIComponent(key)",
+            ruleSearch: rule
+        )
+        source.jsLib = jsLib
+        source.header = "@js:JSON.stringify(genHeaders())"
+
+        let results = try await BookSourceEngine.shared.search(in: source, key: "青山")
+        NSLog("[H5Book-test] search returned %d results", results.count)
+        for r in results.prefix(3) {
+            NSLog("[H5Book-test] name=%@ author=%@ url=%@", r.name, r.author, r.bookUrl)
+        }
+        XCTAssertGreaterThan(results.count, 0, "H5Book should return search results for 青山")
+    }
+
+    func test_sudugu_search() async throws {
+        var rule = SearchRule()
+        rule.bookList = "class.item"
+        rule.name = "class.itemtxt@tag.h3@tag.a@text"
+        rule.author = "class.itemtxt@tag.p.1@tag.a@text"
+        rule.bookUrl = "class.itemtxt@tag.h3@tag.a@href"
+
+        let source = BookSource(
+            bookSourceUrl: "https://www.sudugu.org",
+            bookSourceName: "速读谷",
+            searchUrl: "/i/sor.aspx?key={{key}}",
+            ruleSearch: rule
+        )
+
+        let results = try await BookSourceEngine.shared.search(in: source, key: "青山")
+        NSLog("[sudugu-test] search returned %d results", results.count)
+        for r in results.prefix(3) {
+            NSLog("[sudugu-test] name=%@ author=%@ url=%@", r.name, r.author, r.bookUrl)
+        }
+        XCTAssertGreaterThan(results.count, 0, "速读谷 should return search results for 青山")
+    }
 }
