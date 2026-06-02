@@ -106,11 +106,7 @@ function validateMirrorPayload(payload) {
   if (!payload.ranksFemale || typeof payload.ranksFemale !== 'object') {
     errors.push('missing ranksFemale');
   } else {
-    const femaleKeys = [...new Set([
-      ...FEMALE_MAJAX_RANKS.map((r) => r.key),
-      ...FEMALE_SSR_FALLBACK_KEYS,
-    ])];
-    for (const key of femaleKeys) {
+    for (const { key } of FEMALE_MAJAX_RANKS) {
       const list = payload.ranksFemale[key];
       if (!Array.isArray(list) || list.length < MIN_RANK_BOOKS) {
         errors.push(`ranksFemale.${key} need >= ${MIN_RANK_BOOKS} books, got ${list?.length ?? 0}`);
@@ -170,33 +166,56 @@ function parseBook(obj, fallbackRank = 0) {
   };
 }
 
-let _proxyDispatcher = null;
+let _sessionDispatcher = null;
 
-function refreshProxyDispatcher() {
+function _ensureSessionDispatcher() {
+  if (_sessionDispatcher) return _sessionDispatcher;
+  const proxyUrl = process.env.PROXY_URL;
+  if (proxyUrl) {
+    try {
+      const { ProxyAgent } = require('undici');
+      _sessionDispatcher = new ProxyAgent(proxyUrl);
+      return _sessionDispatcher;
+    } catch { /* undici not available */ }
+  }
   try {
-    const legadoEngine = require('./legadoEngine');
-    _proxyDispatcher = legadoEngine._getProxyDispatcher?.() || null;
-  } catch { _proxyDispatcher = null; }
+    _sessionDispatcher = require('./legadoEngine')._getProxyDispatcher?.() || null;
+  } catch { _sessionDispatcher = null; }
+  return _sessionDispatcher;
 }
 
-async function httpGet(url, extraHeaders = {}) {
-  if (!_proxyDispatcher) refreshProxyDispatcher();
-  const opts = {
-    headers: {
-      'User-Agent': UA,
-      'Referer': `${BASE}/`,
-      'Accept-Language': 'zh-CN,zh;q=0.9',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
-      ...extraHeaders,
-    },
-    redirect: 'follow',
-  };
-  if (_proxyDispatcher) opts.dispatcher = _proxyDispatcher;
-  const resp = await fetch(url, opts);
-  if (!resp.ok && resp.status !== 304) {
-    throw new Error(`${url} HTTP ${resp.status}`);
+function _resetSessionDispatcher() {
+  if (_sessionDispatcher?.close) {
+    try { _sessionDispatcher.close(); } catch { /* ignore */ }
   }
-  return resp;
+  _sessionDispatcher = null;
+}
+
+async function httpGet(url, extraHeaders = {}, retries = 2) {
+  const dispatcher = _ensureSessionDispatcher();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const opts = {
+        headers: {
+          'User-Agent': UA,
+          'Referer': `${BASE}/`,
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
+          ...extraHeaders,
+        },
+        redirect: 'follow',
+      };
+      if (dispatcher) opts.dispatcher = dispatcher;
+      const resp = await fetch(url, opts);
+      if (!resp.ok && resp.status !== 304) {
+        throw new Error(`${url} HTTP ${resp.status}`);
+      }
+      return resp;
+    } catch (e) {
+      if (attempt >= retries) throw e;
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
 }
 
 /** 万象书屋: GET m.qidian.com/rank/?gender=<male|female> → 9 榜 × 5 本 (SSR 备用) */
@@ -257,7 +276,7 @@ async function fetchMajaxCsrf(gender, ssrPath = 'yuepiao') {
 async function fetchMajaxRankPage(majaxPath, gender, pageNum, csrf, ssrPath) {
   const refererPage = `${BASE}/rank/${ssrPath}?gender=${gender}`;
   const url = `${BASE}/majax/rank/${majaxPath}?_csrfToken=${csrf}&gender=${gender}&pageNum=${pageNum}`;
-  if (!_proxyDispatcher) refreshProxyDispatcher();
+  const dispatcher = _ensureSessionDispatcher();
   const opts = {
     headers: {
       'User-Agent': UA,
@@ -266,7 +285,7 @@ async function fetchMajaxRankPage(majaxPath, gender, pageNum, csrf, ssrPath) {
       'Cookie': `_csrfToken=${csrf}`,
     },
   };
-  if (_proxyDispatcher) opts.dispatcher = _proxyDispatcher;
+  if (dispatcher) opts.dispatcher = dispatcher;
   const r = await fetch(url, opts);
   if (!r.ok) throw new Error(`majax ${majaxPath} pageNum=${pageNum} HTTP ${r.status}`);
   const j = await r.json();
@@ -285,11 +304,6 @@ async function fetchFemaleRanksViaMajax() {
   for (const { majax, ssrPath, key } of FEMALE_MAJAX_RANKS) {
     const books = await fetchMajaxRankPage(majax, 'female', 1, csrf, ssrPath);
     out[key] = books.slice(0, HOME_RANK_PREVIEW);
-  }
-
-  // dsRank/signRank 无女频 majax; SSR gender=female 与男频同源, 省略以免女频展示男书
-  for (const key of FEMALE_SSR_FALLBACK_KEYS) {
-    out[key] = [];
   }
 
   return out;
@@ -430,8 +444,7 @@ function buildPublishRankList(pool, spec, preview = HOME_RANK_PREVIEW) {
 }
 
 /** 出版频道四榜: 来源 catId=13100 + 作者搜索池 (起点无出版榜 majax) */
-async function fetchPublishRanks() {
-  const pool = await fetchPublishBookPool();
+function buildPublishRanksFromPool(pool) {
   const out = {};
   for (const spec of PUBLISH_RANK_SPECS) {
     out[spec.key] = buildPublishRankList(pool, spec, PUBLISH_RANK_PREVIEW);
@@ -440,8 +453,7 @@ async function fetchPublishRanks() {
 }
 
 /** 出版月票 TOP50: 分类榜 + 推荐序补满 */
-async function fetchPublishTop50() {
-  const pool = await fetchPublishBookPool();
+function buildPublishTop50FromPool(pool) {
   const byRecommend = [...pool.merged].sort((a, b) => (b._recommend || 0) - (a._recommend || 0));
   const seen = new Set();
   const out = [];
@@ -454,19 +466,34 @@ async function fetchPublishTop50() {
   return out;
 }
 
+// keep old API for tests
+async function fetchPublishRanks() { return buildPublishRanksFromPool(await fetchPublishBookPool()); }
+async function fetchPublishTop50() { return buildPublishTop50FromPool(await fetchPublishBookPool()); }
+
 /**
- * 任一子任务失败 → 抛异常, 整次 cron 标记 ok=0, 但 DB 旧 cache 仍可用.
+ * 分批抓取避免代理并发过高导致 "Request was cancelled".
+ * 批次 1: majax 排行 + SSR 排行 (串行 majax + 1 SSR)
+ * 批次 2: 月票 + 完结 + 出版 (出版池只抓一次)
  */
 async function fetchMirrorPayload() {
-  const [ranksMajax, ranksSsr, yuepiaoTop50, finish, ranksPublish, yuepiaoTop50Publish] = await Promise.all([
+  _resetSessionDispatcher();
+
+  // 批次 1: 排行榜
+  const [ranksMajax, ranksSsr] = await Promise.all([
     fetchMaleRanksViaMajax(),
     fetchRanksAggregate('male'),
+  ]);
+
+  // 批次 2: 月票 / 完结 / 出版 (共享出版书池)
+  const [yuepiaoTop50, finish, publishPool] = await Promise.all([
     fetchYuepiao50('male'),
     fetchFinishRanks(),
-    fetchPublishRanks(),
-    fetchPublishTop50(),
+    fetchPublishBookPool(),
   ]);
-  // MAJAX 优先 (每榜 10 本), SSR 兜底 (每榜 5 本)
+
+  const ranksPublish = buildPublishRanksFromPool(publishPool);
+  const yuepiaoTop50Publish = buildPublishTop50FromPool(publishPool);
+
   const ranks = {};
   for (const key of RANK_KEYS) {
     const majaxArr = ranksMajax[key] || [];
