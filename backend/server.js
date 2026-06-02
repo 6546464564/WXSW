@@ -1010,6 +1010,29 @@ app.get('/api/search/proxy', rateLimitSources, async (req, res) => {
   }
 });
 
+app.get('/api/search/changesource', rateLimitSources, async (req, res) => {
+  const name = (req.query.name || '').trim();
+  const author = (req.query.author || '').trim();
+  if (!name) return res.status(400).json({ ok: false, msg: 'name required' });
+  try {
+    const platform = req.platform || 'ios';
+    const sources = db.listEnabledSourcesJson(platform)
+      .filter(s => s.searchUrl && s.bookSourceUrl !== (process.env.PUBLIC_URL || 'https://www.wxsw.app'));
+    const result = await proxySearch.changeSourceSearch(sources, name, author);
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({
+      ok: true,
+      count: result.candidates.length,
+      fromCache: result.fromCache,
+      sourceCount: result.sourceCount,
+      candidates: result.candidates,
+    });
+  } catch (e) {
+    logger.error('changesource search failed', { name, author, msg: e.message });
+    res.status(500).json({ ok: false, msg: 'search failed' });
+  }
+});
+
 // ═══════════════════ 书籍缓存 API ═══════════════════
 
 // --- 公开: App 搜索书库 ---

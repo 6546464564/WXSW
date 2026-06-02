@@ -127,4 +127,57 @@ function relevanceTier(book, kw) {
   return 2;
 }
 
-module.exports = { proxySearch, searchCache };
+const changeSourceCache = new Map();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of changeSourceCache) {
+    if (now - entry.ts > CACHE_TTL_MS) changeSourceCache.delete(key);
+  }
+}, 60_000);
+
+async function changeSourceSearch(sources, name, author) {
+  const cacheKey = normalizeKey(name) + '::' + normalizeKey(author);
+  const cached = changeSourceCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return { candidates: cached.candidates, fromCache: true, sourceCount: cached.sourceCount };
+  }
+
+  const n1 = name.trim();
+  const a1 = author.trim();
+  const candidates = [];
+  const seenOrigins = new Set();
+
+  const queue = [...sources];
+  let running = 0;
+  let idx = 0;
+
+  await new Promise(resolve => {
+    function next() {
+      while (running < SEARCH_CONCURRENCY && idx < queue.length) {
+        const source = queue[idx++];
+        running++;
+        searchOneSource(source, n1).then(books => {
+          for (const b of books) {
+            const n2 = (b.name || '').trim();
+            const a2 = (b.author || '').trim();
+            if (n2 !== n1) continue;
+            if (a1 && a2 && a1 !== a2) continue;
+            if (seenOrigins.has(b.origin)) continue;
+            seenOrigins.add(b.origin);
+            candidates.push(b);
+          }
+          running--;
+          next();
+        });
+      }
+      if (running === 0) resolve();
+    }
+    next();
+  });
+
+  changeSourceCache.set(cacheKey, { candidates, ts: Date.now(), sourceCount: sources.length });
+  return { candidates, fromCache: false, sourceCount: sources.length };
+}
+
+module.exports = { proxySearch, searchCache, changeSourceSearch };

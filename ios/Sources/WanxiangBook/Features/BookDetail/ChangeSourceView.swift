@@ -579,55 +579,39 @@ final class ChangeSourceViewModel: ObservableObject {
         progressSearchingName = ""
         currentSearchingName = ""
 
-        // 2) 排好序的源 list → 历史好源先发, 用户感知速度 ↑
-        let rawSources = filteredSourcesForSearch()
-        let sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
-        totalSourceCount = sources.count
+        // 2) 后端换源搜索
+        totalSourceCount = 0
         availableGroups = collectGroups()
         isSearching = true
         let t0 = Date()
-        let concurrency = effectiveSearchConcurrency
         let task = Task { [weak self] in
             guard let self else { return }
-            // 等 sheet 动画完成再并发打源, 避免与首帧列表渲染抢主线程 graph update.
             try? await Task.sleep(nanoseconds: 300_000_000)
             if Task.isCancelled { return }
-            let stream = await BookSourceEngine.shared.searchAll(
-                in: sources, key: target.name,
-                maxConcurrency: concurrency
-            )
-            for await (src, result) in stream {
-                if Task.isCancelled { break }
-                let dt = Int((Date().timeIntervalSince(t0)) * 1000)
-                // 万象书屋: 记录 search perf, 让下次开换源时本源优先级动态调整.
-                let okFlag: Bool
-                if case .success(let arr) = result, !arr.isEmpty { okFlag = true } else { okFlag = false }
-                SourcePerformanceTracker.shared.record(
-                    sourceUrl: src.bookSourceUrl, ok: okFlag, durationMs: dt
+            do {
+                let books = try await WanxiangAPI.shared.changeSourceProxy(
+                    name: target.name, author: target.author
                 )
+                if Task.isCancelled { return }
+                let dt = Int((Date().timeIntervalSince(t0)) * 1000)
                 await MainActor.run {
-                    self.noteSearchProgress(searchedName: src.bookSourceName)
+                    self.totalSourceCount = books.count
+                    self.enqueueMergeSearchHits(books, target: target, respondTimeMs: dt)
+                    self.flushCoalescedMergeHits()
+                    self.flushSearchProgress()
+                    self.isSearching = false
+                    self.currentSearchingName = ""
+                    self.flushPendingCacheWrites(target: target)
+                    self.persistAllCandidatesToCache(target: target)
+                    self.flushPendingInfoFillIfIdle()
                 }
-                switch result {
-                case .success(let books):
-                    let matched = books.filter { self.matches(target: target, candidate: $0) }
-                    if !matched.isEmpty {
-                        await MainActor.run {
-                            self.enqueueMergeSearchHits(matched, target: target, respondTimeMs: dt)
-                        }
-                    }
-                case .failure:
-                    continue
+                NSLog("[ChangeSource] proxy ok, candidates=%d, dt=%dms", books.count, dt)
+            } catch {
+                NSLog("[ChangeSource] proxy failed: %@", error.localizedDescription)
+                await MainActor.run {
+                    self.isSearching = false
+                    self.currentSearchingName = ""
                 }
-            }
-            await MainActor.run {
-                self.flushCoalescedMergeHits()
-                self.flushSearchProgress()
-                self.isSearching = false
-                self.currentSearchingName = ""
-                self.flushPendingCacheWrites(target: target)
-                self.persistAllCandidatesToCache(target: target)
-                self.flushPendingInfoFillIfIdle()
             }
         }
         searchTask = task
@@ -663,41 +647,29 @@ final class ChangeSourceViewModel: ObservableObject {
 
         let task = Task { [weak self] in
             guard let self else { return }
-            let rawSources = await MainActor.run { self.filteredSourcesForSearch() }
-            let sources = SourcePerformanceTracker.shared.sortByScore(rawSources)
-            let stream = await BookSourceEngine.shared.searchAll(
-                in: sources, key: combined,
-                maxConcurrency: BookSourceEngine.changeSourceSearchConcurrency
-            )
-            let t0 = Date()
-            for await (src, result) in stream {
-                if Task.isCancelled { break }
-                let dt = Int((Date().timeIntervalSince(t0)) * 1000)
-                let okFlag: Bool
-                if case .success(let arr) = result, !arr.isEmpty { okFlag = true } else { okFlag = false }
-                SourcePerformanceTracker.shared.record(
-                    sourceUrl: src.bookSourceUrl, ok: okFlag, durationMs: dt
+            do {
+                let books = try await WanxiangAPI.shared.changeSourceProxy(
+                    name: target.name, author: trimmed
                 )
-                switch result {
-                case .success(let books):
-                    let matched = books.filter { self.matches(target: target, candidate: $0) }
-                    if !matched.isEmpty {
-                        await MainActor.run {
-                            self.enqueueMergeSearchHits(matched, target: target, respondTimeMs: dt)
-                        }
+                if Task.isCancelled { return }
+                let dt = Int((Date().timeIntervalSince(Date())) * 1000)
+                await MainActor.run {
+                    self.enqueueMergeSearchHits(books, target: target, respondTimeMs: abs(dt))
+                    self.flushCoalescedMergeHits()
+                    if self.secondaryRoundActiveKey == combined {
+                        self.secondaryRoundActiveKey = nil
                     }
-                case .failure:
-                    continue
+                    self.flushPendingCacheWrites(target: target)
+                    self.persistAllCandidatesToCache(target: target)
+                    self.flushPendingInfoFillIfIdle()
                 }
-            }
-            await MainActor.run {
-                self.flushCoalescedMergeHits()
-                if self.secondaryRoundActiveKey == combined {
-                    self.secondaryRoundActiveKey = nil
+            } catch {
+                NSLog("[ChangeSource] secondary proxy failed: %@", error.localizedDescription)
+                await MainActor.run {
+                    if self.secondaryRoundActiveKey == combined {
+                        self.secondaryRoundActiveKey = nil
+                    }
                 }
-                self.flushPendingCacheWrites(target: target)
-                self.persistAllCandidatesToCache(target: target)
-                self.flushPendingInfoFillIfIdle()
             }
         }
         secondaryRoundTask = task

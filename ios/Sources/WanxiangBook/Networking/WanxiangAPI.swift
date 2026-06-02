@@ -492,6 +492,39 @@ actor WanxiangAPI {
             )
         }
     }
+
+    // MARK: - 换源代搜
+
+    struct ChangeSourceResponse: Decodable {
+        let ok: Bool
+        let count: Int
+        let fromCache: Bool
+        let sourceCount: Int
+        let candidates: [ProxySearchBook]
+    }
+
+    func changeSourceProxy(name: String, author: String) async throws -> [SearchBook] {
+        let eName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
+        let eAuthor = author.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? author
+        var r = request(path: "/api/search/changesource?name=\(eName)&author=\(eAuthor)")
+        r.timeoutInterval = 30
+        let resp = try await send(r, as: ChangeSourceResponse.self)
+        return resp.candidates.map { pb in
+            SearchBook(
+                origin: pb.origin,
+                originName: pb.originName,
+                name: pb.name,
+                author: pb.author,
+                bookUrl: pb.bookUrl,
+                coverUrl: pb.coverUrl,
+                intro: pb.intro,
+                kind: pb.kind,
+                lastChapter: pb.lastChapter,
+                mergedSourceURLs: [],
+                mergedSourceNames: []
+            )
+        }
+    }
 }
 
 // MARK: - 错误类型
