@@ -446,6 +446,52 @@ actor WanxiangAPI {
         let r = request(path: "/api/cache/books/\(bookId)/chapters/\(chapterIdx)")
         return try await send(r, as: LibraryContentResponse.self)
     }
+
+    // MARK: - 服务端代搜
+
+    struct ProxySearchBook: Decodable, Sendable {
+        let origin: String
+        let originName: String
+        let name: String
+        let author: String
+        let bookUrl: String
+        let coverUrl: String?
+        let intro: String?
+        let kind: String?
+        let lastChapter: String?
+        let mergedSourceURLs: [String]?
+        let mergedSourceNames: [String]?
+    }
+
+    struct ProxySearchResponse: Decodable {
+        let ok: Bool
+        let count: Int
+        let fromCache: Bool
+        let sourceCount: Int
+        let books: [ProxySearchBook]
+    }
+
+    func searchProxy(keyword: String) async throws -> [SearchBook] {
+        let encoded = keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? keyword
+        var r = request(path: "/api/search/proxy?keyword=\(encoded)")
+        r.timeoutInterval = 30
+        let resp = try await send(r, as: ProxySearchResponse.self)
+        return resp.books.map { pb in
+            SearchBook(
+                origin: pb.origin,
+                originName: pb.originName,
+                name: pb.name,
+                author: pb.author,
+                bookUrl: pb.bookUrl,
+                coverUrl: pb.coverUrl,
+                intro: pb.intro,
+                kind: pb.kind,
+                lastChapter: pb.lastChapter,
+                mergedSourceURLs: pb.mergedSourceURLs ?? [],
+                mergedSourceNames: pb.mergedSourceNames ?? []
+            )
+        }
+    }
 }
 
 // MARK: - 错误类型

@@ -853,6 +853,73 @@ final class SearchViewModel: ObservableObject {
             self.dedupeRowIndex = batchDedupe
         }
 
+        // 2.5 服务端代搜: 尝试让服务器并发搜索全部书源, 手机只接收结果.
+        //     成功且有结果 → 跳过本地搜索 (大幅减轻手机负载);
+        //     失败/超时/空结果 → 降级到本地搜索 (保持原有体验).
+        var proxySearchUsed = false
+        if generation == self.searchGeneration {
+            do {
+                let proxyResults = try await WanxiangAPI.shared.searchProxy(keyword: key)
+                if !proxyResults.isEmpty && generation == self.searchGeneration {
+                    var batchResults = self.results
+                    var batchDedupe = self.dedupeRowIndex
+                    var batchVariants = self.rowVariants
+                    for b in proxyResults {
+                        if precisionSearch,
+                           SearchLegadoOrdering.relevanceTier(book: b, key: key) >= 2 {
+                            continue
+                        }
+                        let dk = b.dedupeKey
+                        var bForVariant = b
+                        bForVariant.mergedSourceURLs = []
+                        bForVariant.mergedSourceNames = []
+                        batchVariants[dk, default: []].append(bForVariant)
+                        if let idx = batchDedupe[dk], idx < batchResults.count {
+                            var row = batchResults[idx]
+                            var seen = Set<String>([row.origin])
+                            seen.formUnion(row.mergedSourceURLs)
+                            if !seen.contains(b.origin) {
+                                row.mergedSourceURLs.append(b.origin)
+                                row.mergedSourceNames.append(b.originName)
+                            }
+                            if (row.intro?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                               let bi = b.intro?.trimmingCharacters(in: .whitespacesAndNewlines), !bi.isEmpty {
+                                row.intro = b.intro
+                            }
+                            if (row.coverUrl?.isEmpty ?? true), let c = b.coverUrl, !c.isEmpty { row.coverUrl = c }
+                            if (row.lastChapter?.isEmpty ?? true), let l = b.lastChapter, !l.isEmpty { row.lastChapter = l }
+                            if (row.kind?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+                               let kd = b.kind?.trimmingCharacters(in: .whitespacesAndNewlines), !kd.isEmpty { row.kind = b.kind }
+                            batchResults[idx] = row
+                        } else {
+                            var first = b
+                            first.mergedSourceURLs = b.mergedSourceURLs
+                            first.mergedSourceNames = b.mergedSourceNames
+                            batchDedupe[dk] = batchResults.count
+                            batchResults.append(first)
+                        }
+                    }
+                    self.results = batchResults
+                    self.dedupeRowIndex = batchDedupe
+                    self.rowVariants = batchVariants
+                    for (dk, variants) in batchVariants {
+                        SearchVariantsCache.shared.set(key: dk, variants: variants)
+                    }
+                    self.applyLegadoStyleOrdering()
+                    proxySearchUsed = true
+                    NSLog("[SearchVM] proxy search success, results=%d", proxyResults.count)
+                }
+            } catch {
+                NSLog("[SearchVM] proxy search failed, falling back to local: %@", String(describing: error))
+            }
+        }
+
+        if proxySearchUsed && generation == self.searchGeneration {
+            isSearching = false
+            self.scheduleResultEnrichment(generation: generation)
+            return
+        }
+
         // 3. 拉本地缓存的源 + 熔断过滤.
         SourceHealthChecker.shared.cancelHealthCheck()
         let rawSources = await waitForSources(timeoutSec: 3)

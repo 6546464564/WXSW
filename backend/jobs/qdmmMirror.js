@@ -33,11 +33,18 @@ function isWafBlocked(html, status) {
     || (html.length < 500 && status !== 200);
 }
 
+function _getDispatcher() {
+  try {
+    return require('./legadoEngine')._getProxyDispatcher?.() || null;
+  } catch { return null; }
+}
+
 /** 用管理员粘贴的 Cookie 直抓 (过 WAF 后从 DevTools → Network 复制) */
 async function fetchWithCookie(cookieHeader) {
+  const dispatcher = _getDispatcher();
   for (const url of QDMM_URLS) {
     try {
-      const resp = await fetch(url, {
+      const opts = {
         headers: {
           'User-Agent': UA,
           'Cookie': cookieHeader,
@@ -46,7 +53,9 @@ async function fetchWithCookie(cookieHeader) {
           'Referer': 'https://www.qdmm.com/',
         },
         redirect: 'follow',
-      });
+      };
+      if (dispatcher) opts.dispatcher = dispatcher;
+      const resp = await fetch(url, opts);
       const html = await resp.text();
       if (isWafBlocked(html, resp.status)) continue;
       const pd = extractPageDataFromHtml(html);

@@ -29,16 +29,36 @@ const { JSONPath } = require('jsonpath-plus');
 
 const UA = 'Mozilla/5.0 (Linux; Android 12; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36';
 
+let _proxyDispatcher = null;
+
+function setProxyUrl(proxyUrl) {
+  if (!proxyUrl) { _proxyDispatcher = null; return; }
+  try {
+    const { ProxyAgent } = require('undici');
+    _proxyDispatcher = new ProxyAgent(proxyUrl);
+  } catch (e) {
+    console.warn('[legadoEngine] undici ProxyAgent unavailable:', e.message);
+    _proxyDispatcher = null;
+  }
+}
+
+if (process.env.PROXY_URL) {
+  setProxyUrl(process.env.PROXY_URL);
+  console.log('[legadoEngine] proxy enabled:', process.env.PROXY_URL.replace(/:([^@:]+)@/, ':***@'));
+}
+
 class BlockedError extends Error {
   constructor(url) { super(`Blocked by source: ${url}`); this.name = 'BlockedError'; }
 }
 
 async function httpGet(url, { headers = {}, timeout = 15000 } = {}) {
-  const resp = await fetch(url, {
+  const opts = {
     headers: { 'User-Agent': UA, ...headers },
     redirect: 'follow',
     signal: AbortSignal.timeout(timeout),
-  });
+  };
+  if (_proxyDispatcher) opts.dispatcher = _proxyDispatcher;
+  const resp = await fetch(url, opts);
   if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
   const text = await resp.text();
   if (text.length < 1000 && (text.includes('google.com') || text.includes('captcha') || text.includes('challenge'))) {
@@ -523,4 +543,6 @@ module.exports = {
   evalListRule,
   sleep,
   BlockedError,
+  setProxyUrl,
+  _getProxyDispatcher: () => _proxyDispatcher,
 };

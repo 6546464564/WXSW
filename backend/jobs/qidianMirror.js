@@ -170,8 +170,18 @@ function parseBook(obj, fallbackRank = 0) {
   };
 }
 
+let _proxyDispatcher = null;
+
+function refreshProxyDispatcher() {
+  try {
+    const legadoEngine = require('./legadoEngine');
+    _proxyDispatcher = legadoEngine._getProxyDispatcher?.() || null;
+  } catch { _proxyDispatcher = null; }
+}
+
 async function httpGet(url, extraHeaders = {}) {
-  const resp = await fetch(url, {
+  if (!_proxyDispatcher) refreshProxyDispatcher();
+  const opts = {
     headers: {
       'User-Agent': UA,
       'Referer': `${BASE}/`,
@@ -180,7 +190,9 @@ async function httpGet(url, extraHeaders = {}) {
       ...extraHeaders,
     },
     redirect: 'follow',
-  });
+  };
+  if (_proxyDispatcher) opts.dispatcher = _proxyDispatcher;
+  const resp = await fetch(url, opts);
   if (!resp.ok && resp.status !== 304) {
     throw new Error(`${url} HTTP ${resp.status}`);
   }
@@ -245,14 +257,17 @@ async function fetchMajaxCsrf(gender, ssrPath = 'yuepiao') {
 async function fetchMajaxRankPage(majaxPath, gender, pageNum, csrf, ssrPath) {
   const refererPage = `${BASE}/rank/${ssrPath}?gender=${gender}`;
   const url = `${BASE}/majax/rank/${majaxPath}?_csrfToken=${csrf}&gender=${gender}&pageNum=${pageNum}`;
-  const r = await fetch(url, {
+  if (!_proxyDispatcher) refreshProxyDispatcher();
+  const opts = {
     headers: {
       'User-Agent': UA,
       'Referer': refererPage,
       'Accept': 'application/json, text/plain, */*',
       'Cookie': `_csrfToken=${csrf}`,
     },
-  });
+  };
+  if (_proxyDispatcher) opts.dispatcher = _proxyDispatcher;
+  const r = await fetch(url, opts);
   if (!r.ok) throw new Error(`majax ${majaxPath} pageNum=${pageNum} HTTP ${r.status}`);
   const j = await r.json();
   if (j.code !== 0) throw new Error(`majax ${majaxPath} pageNum=${pageNum} code=${j.code} msg=${j.msg}`);

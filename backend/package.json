@@ -26,7 +26,8 @@
     "otplib": "^13.4.0",
     "supertest": "^7.2.2",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "undici": "^7.27.0"
   },
   "engines": {
     "node": ">=18"

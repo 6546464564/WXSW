@@ -912,6 +912,104 @@ app.post('/api/admin/review-mode', requireAdmin, requireRole(['super']), (req, r
   res.json({ ok: true, enabled });
 });
 
+// --- admin 代搜配置 ---
+const legadoEngine = require('./jobs/legadoEngine');
+
+function initProxyFromDb() {
+  const saved = db.kvGet('proxy_url');
+  if (saved) {
+    legadoEngine.setProxyUrl(saved);
+    logger.info('proxy loaded from db', { url: saved.replace(/:([^@:]+)@/, ':***@') });
+  }
+}
+initProxyFromDb();
+
+app.get('/api/admin/proxy-search/config', requireAdmin, (req, res) => {
+  const raw = db.kvGet('proxy_url') || '';
+  const masked = raw ? raw.replace(/:([^@:]+)@/, ':***@') : '';
+  const cacheStats = require('./jobs/proxySearch').searchCache;
+  res.json({
+    ok: true,
+    proxyUrl: masked,
+    hasProxy: !!raw,
+    cacheSize: cacheStats.size,
+    envProxy: process.env.PROXY_URL ? process.env.PROXY_URL.replace(/:([^@:]+)@/, ':***@') : null,
+  });
+});
+
+app.post('/api/admin/proxy-search/config', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
+  const { host, port, username, password } = req.body || {};
+  if (!host || !port) {
+    db.kvSet('proxy_url', '');
+    legadoEngine.setProxyUrl(null);
+    return res.json({ ok: true, msg: '代理已清除' });
+  }
+  const proxyUrl = username && password
+    ? `http://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}`
+    : `http://${host}:${port}`;
+  db.kvSet('proxy_url', proxyUrl);
+  legadoEngine.setProxyUrl(proxyUrl);
+  logger.info('proxy config updated', { url: proxyUrl.replace(/:([^@:]+)@/, ':***@') });
+  res.json({ ok: true, msg: '代理已配置' });
+});
+
+app.post('/api/admin/proxy-search/test', requireAdmin, async (req, res) => {
+  try {
+    const resp = await legadoEngine.httpGet('https://httpbin.org/ip', { timeout: 10000 });
+    const ip = JSON.parse(resp);
+    res.json({ ok: true, ip: ip.origin || 'unknown', raw: resp.slice(0, 200) });
+  } catch (e) {
+    res.json({ ok: false, msg: e.message });
+  }
+});
+
+app.post('/api/admin/proxy-search/test-search', requireAdmin, async (req, res) => {
+  const keyword = (req.body.keyword || '斗破苍穹').trim();
+  try {
+    const proxySearchModule = require('./jobs/proxySearch');
+    const sources = db.listEnabledSourcesJson('ios')
+      .filter(s => s.searchUrl && s.bookSourceUrl !== (process.env.PUBLIC_URL || 'https://www.wxsw.app'));
+    const result = await proxySearchModule.proxySearch(sources, keyword);
+    res.json({ ok: true, count: result.books.length, fromCache: result.fromCache, sourceCount: result.sourceCount, books: result.books.slice(0, 20) });
+  } catch (e) {
+    res.json({ ok: false, msg: e.message });
+  }
+});
+
+app.post('/api/admin/proxy-search/clear-cache', requireAdmin, (req, res) => {
+  const proxySearchModule = require('./jobs/proxySearch');
+  const size = proxySearchModule.searchCache.size;
+  proxySearchModule.searchCache.clear();
+  res.json({ ok: true, msg: `已清除 ${size} 条缓存` });
+});
+
+// ═══════════════════ 服务端代搜 API ═══════════════════
+
+const proxySearch = require('./jobs/proxySearch');
+
+app.get('/api/search/proxy', rateLimitSources, async (req, res) => {
+  const keyword = (req.query.keyword || req.query.key || '').trim();
+  if (!keyword) return res.status(400).json({ ok: false, msg: 'keyword required' });
+  if (keyword.length > 100) return res.status(400).json({ ok: false, msg: 'keyword too long' });
+  try {
+    const platform = req.platform || 'ios';
+    const sources = db.listEnabledSourcesJson(platform)
+      .filter(s => s.searchUrl && s.bookSourceUrl !== (process.env.PUBLIC_URL || 'https://www.wxsw.app'));
+    const result = await proxySearch.proxySearch(sources, keyword);
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({
+      ok: true,
+      count: result.books.length,
+      fromCache: result.fromCache,
+      sourceCount: result.sourceCount,
+      books: result.books,
+    });
+  } catch (e) {
+    logger.error('proxy search failed', { keyword, msg: e.message });
+    res.status(500).json({ ok: false, msg: 'search failed' });
+  }
+});
+
 // ═══════════════════ 书籍缓存 API ═══════════════════
 
 // --- 公开: App 搜索书库 ---

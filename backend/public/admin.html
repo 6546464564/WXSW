@@ -77,6 +77,49 @@
                 </div>
             </section>
 
+            <!-- Proxy Search Config -->
+            <section>
+                <h2 class="text-lg font-bold mb-3 text-stone-700">服务端代搜配置</h2>
+                <div class="bg-white rounded-xl shadow p-5 space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm text-stone-500 mb-1">隧道主机 (Host)</label>
+                            <input id="proxy-host" type="text" placeholder="tn10021.jiliuip.com"
+                                class="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/40" />
+                        </div>
+                        <div>
+                            <label class="block text-sm text-stone-500 mb-1">端口 (Port)</label>
+                            <input id="proxy-port" type="text" placeholder="12866"
+                                class="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/40" />
+                        </div>
+                        <div>
+                            <label class="block text-sm text-stone-500 mb-1">用户名</label>
+                            <input id="proxy-user" type="text" placeholder="jt1037546079"
+                                class="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/40" />
+                        </div>
+                        <div>
+                            <label class="block text-sm text-stone-500 mb-1">密码</label>
+                            <input id="proxy-pass" type="password" placeholder="••••••"
+                                class="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/40" />
+                        </div>
+                    </div>
+                    <div class="flex gap-2 flex-wrap items-center">
+                        <button onclick="saveProxyConfig()"
+                            class="px-4 py-2 bg-amber-800 hover:bg-amber-900 text-white rounded-lg text-sm">保存配置</button>
+                        <button onclick="testProxy()"
+                            class="px-4 py-2 bg-stone-600 hover:bg-stone-700 text-white rounded-lg text-sm">测试连接</button>
+                        <button onclick="testProxySearch()"
+                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">测试搜索</button>
+                        <button onclick="clearProxyCache()"
+                            class="px-4 py-2 bg-stone-400 hover:bg-stone-500 text-white rounded-lg text-sm">清除缓存</button>
+                        <button onclick="clearProxyConfig()"
+                            class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm">清除代理</button>
+                    </div>
+                    <div id="proxy-status" class="text-sm text-stone-500 hidden"></div>
+                    <div id="proxy-result" class="hidden bg-stone-50 rounded-lg p-4 max-h-96 overflow-auto text-sm font-mono"></div>
+                </div>
+            </section>
+
             <!-- Sources -->
             <section>
                 <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -728,9 +771,84 @@
             loadPromoCodes();
             loadReviewMode();
             loadContentCache();
+            loadProxyConfig();
             setCcTab('all');
-            // 自动刷新统计
             setInterval(loadStats, 30 * 1000);
+        }
+
+        // ─── 代搜配置 ───
+        async function loadProxyConfig() {
+            try {
+                const r = await apiSend('/api/admin/proxy-search/config');
+                if (!r.ok) return;
+                const statusEl = document.getElementById('proxy-status');
+                statusEl.classList.remove('hidden');
+                if (r.hasProxy) {
+                    statusEl.innerHTML = `<span class="text-green-600">✓ 代理已配置</span> · 当前: ${r.proxyUrl} · 缓存: ${r.cacheSize} 条`;
+                } else if (r.envProxy) {
+                    statusEl.innerHTML = `<span class="text-blue-600">✓ 环境变量代理</span> · ${r.envProxy} · 缓存: ${r.cacheSize} 条`;
+                } else {
+                    statusEl.innerHTML = `<span class="text-stone-400">未配置代理</span> · 缓存: ${r.cacheSize} 条`;
+                }
+            } catch {}
+        }
+
+        async function saveProxyConfig() {
+            const host = document.getElementById('proxy-host').value.trim();
+            const port = document.getElementById('proxy-port').value.trim();
+            const username = document.getElementById('proxy-user').value.trim();
+            const password = document.getElementById('proxy-pass').value.trim();
+            if (!host || !port) { alert('请填写主机和端口'); return; }
+            const r = await apiSend('/api/admin/proxy-search/config', 'POST', { host, port, username, password });
+            alert(r.msg || (r.ok ? '已保存' : '失败'));
+            loadProxyConfig();
+        }
+
+        async function clearProxyConfig() {
+            if (!confirm('确定清除代理配置？清除后搜索将不走代理。')) return;
+            const r = await apiSend('/api/admin/proxy-search/config', 'POST', {});
+            alert(r.msg || '已清除');
+            loadProxyConfig();
+        }
+
+        async function testProxy() {
+            const resultEl = document.getElementById('proxy-result');
+            resultEl.classList.remove('hidden');
+            resultEl.textContent = '正在测试代理连接...';
+            const r = await apiSend('/api/admin/proxy-search/test', 'POST');
+            if (r.ok) {
+                resultEl.innerHTML = `<span class="text-green-600">✓ 代理连接正常</span><br>出口 IP: ${r.ip}`;
+            } else {
+                resultEl.innerHTML = `<span class="text-red-600">✗ 连接失败</span><br>${r.msg || '未知错误'}`;
+            }
+        }
+
+        async function testProxySearch() {
+            const keyword = prompt('输入搜索关键词:', '斗破苍穹');
+            if (!keyword) return;
+            const resultEl = document.getElementById('proxy-result');
+            resultEl.classList.remove('hidden');
+            resultEl.textContent = `正在搜索"${keyword}"...（可能需要 10-30 秒）`;
+            const r = await apiSend('/api/admin/proxy-search/test-search', 'POST', { keyword });
+            if (r.ok) {
+                let html = `<span class="text-green-600">✓ 搜索成功</span> · 来源: ${r.sourceCount} 个源 · 结果: ${r.count} 本 · 缓存: ${r.fromCache ? '是' : '否'}<br><br>`;
+                html += '<table class="w-full text-left"><tr class="border-b"><th class="pb-1">书名</th><th class="pb-1">作者</th><th class="pb-1">来源</th></tr>';
+                for (const b of (r.books || [])) {
+                    const srcCount = 1 + (b.mergedSourceURLs?.length || 0);
+                    html += `<tr class="border-b border-stone-100"><td class="py-1">${b.name}</td><td>${b.author}</td><td>${srcCount} 个源</td></tr>`;
+                }
+                html += '</table>';
+                resultEl.innerHTML = html;
+            } else {
+                resultEl.innerHTML = `<span class="text-red-600">✗ 搜索失败</span><br>${r.msg || '未知错误'}`;
+            }
+            loadProxyConfig();
+        }
+
+        async function clearProxyCache() {
+            const r = await apiSend('/api/admin/proxy-search/clear-cache', 'POST');
+            alert(r.msg || '已清除');
+            loadProxyConfig();
         }
 
         async function login() {
