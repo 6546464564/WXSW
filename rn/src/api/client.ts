@@ -46,10 +46,9 @@ class WanxiangClient {
     this.client.interceptors.response.use(
       response => response,
       async error => {
-        // 401: token 失效，重新注册
-        if (error.response?.status === 401 && this.deviceId) {
+        if ((error.response?.status === 401 || error.response?.status === 403) && this.deviceId && !error.config?._retried) {
+          error.config._retried = true;
           await this.registerDevice(true);
-          // 重试原请求
           const config = error.config;
           config.headers['X-Device-Token'] = this.deviceToken;
           return this.client.request(config);

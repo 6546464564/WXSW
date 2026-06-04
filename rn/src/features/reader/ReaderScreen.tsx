@@ -322,53 +322,42 @@ function PagedReader({
     transform: [{translateX: panX.value + SCREEN_W}],
   }));
 
+  // Cover: current page slides right (going back only)
   const coverCurStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateX: interpolate(
-          panX.value, [0, SCREEN_W], [0, SCREEN_W], Extrapolation.CLAMP,
-        ),
-      },
-    ],
+    transform: [{
+      translateX: interpolate(panX.value, [0, SCREEN_W], [0, SCREEN_W], Extrapolation.CLAMP),
+    }],
   }));
+  // Cover: next page slides in from right (going forward only)
   const coverNextStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateX: interpolate(
-          panX.value, [-SCREEN_W, 0], [0, SCREEN_W], Extrapolation.CLAMP,
-        ),
-      },
-    ],
+    transform: [{
+      translateX: interpolate(panX.value, [-SCREEN_W, 0], [0, SCREEN_W], Extrapolation.CLAMP),
+    }],
   }));
-  const coverShadowStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      panX.value, [-SCREEN_W, 0, SCREEN_W], [0, 0, 0.4], Extrapolation.CLAMP,
-    ),
-  }));
-  const coverNextShadowStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      panX.value, [-SCREEN_W, 0], [0.4, 0], Extrapolation.CLAMP,
-    ),
+  // Cover: prev page is static underneath, fades in slightly when revealed
+  const coverPrevUnderStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(panX.value, [0, SCREEN_W * 0.3], [0.85, 1], Extrapolation.CLAMP),
   }));
 
+  // Simulate: current page 3D flip
   const simCurStyle = useAnimatedStyle(() => {
     const rotY = interpolate(
-      panX.value, [-SCREEN_W, 0, SCREEN_W], [-45, 0, 45], Extrapolation.CLAMP,
+      panX.value, [-SCREEN_W, 0, SCREEN_W], [-60, 0, 60], Extrapolation.CLAMP,
     );
     const sc = interpolate(
-      panX.value, [-SCREEN_W, 0, SCREEN_W], [0.88, 1, 0.88], Extrapolation.CLAMP,
+      panX.value, [-SCREEN_W, 0, SCREEN_W], [0.85, 1, 0.85], Extrapolation.CLAMP,
     );
     return {
       transform: [{perspective: 1200}, {rotateY: `${rotY}deg`}, {scale: sc}],
     };
   });
-  const simUnderStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      panX.value,
-      [-SCREEN_W, -SCREEN_W * 0.15, 0, SCREEN_W * 0.15, SCREEN_W],
-      [1, 0.6, 0, 0.6, 1],
-      Extrapolation.CLAMP,
-    ),
+  // Simulate: next page (visible when swiping left)
+  const simNextUnderStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(panX.value, [-SCREEN_W, -SCREEN_W * 0.1, 0], [1, 0.7, 0], Extrapolation.CLAMP),
+  }));
+  // Simulate: prev page (visible when swiping right)
+  const simPrevUnderStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(panX.value, [0, SCREEN_W * 0.1, SCREEN_W], [0, 0.7, 1], Extrapolation.CLAMP),
   }));
 
   const renderPage = useCallback(
@@ -451,47 +440,27 @@ function PagedReader({
     return (
       <GestureDetector gesture={composed}>
         <Animated.View style={[styles.flex, {backgroundColor: bgColor}]}>
+          {/* Layer 0: prev page underneath (visible when swiping right to go back) */}
           {prevPage != null && (
-            <View
-              style={[styles.coverUnder, {backgroundColor: bgColor}]}
+            <Animated.View
+              style={[styles.coverUnder, {backgroundColor: bgColor}, coverPrevUnderStyle]}
               pointerEvents="none">
               {renderPage(prevPage, pageIndex - 1 === 0, pageIndex - 1)}
-            </View>
+            </Animated.View>
           )}
-          {nextPage != null && (
-            <View
-              style={[styles.coverUnder, {backgroundColor: bgColor}]}
-              pointerEvents="none">
-              {renderPage(nextPage, false, pageIndex + 1)}
-            </View>
-          )}
+          {/* Layer 1: current page (slides right when going back) */}
           <Animated.View
-            style={[
-              styles.coverOverlay,
-              {backgroundColor: bgColor},
-              coverCurStyle,
-            ]}>
+            style={[styles.coverOverlay, {backgroundColor: bgColor}, coverCurStyle]}>
             {renderPage(currentPage, pageIndex === 0, pageIndex)}
           </Animated.View>
+          {/* Layer 2: next page (slides in from right when going forward) */}
           {nextPage != null && (
             <Animated.View
-              style={[
-                styles.coverOverlay,
-                {backgroundColor: bgColor},
-                coverNextStyle,
-              ]}
+              style={[styles.coverOverlay, {backgroundColor: bgColor}, coverNextStyle]}
               pointerEvents="none">
               {renderPage(nextPage, false, pageIndex + 1)}
             </Animated.View>
           )}
-          <Animated.View
-            style={[styles.coverEdgeShadow, coverShadowStyle, {left: 0}]}
-            pointerEvents="none"
-          />
-          <Animated.View
-            style={[styles.coverEdgeShadow, coverNextShadowStyle, {left: 0}]}
-            pointerEvents="none"
-          />
         </Animated.View>
       </GestureDetector>
     );
@@ -501,28 +470,23 @@ function PagedReader({
     return (
       <GestureDetector gesture={composed}>
         <Animated.View style={[styles.flex, {backgroundColor: bgColor}]}>
+          {/* Next page underneath (visible when swiping left) */}
           {nextPage != null && (
             <Animated.View
-              style={[
-                styles.coverUnder,
-                {backgroundColor: bgColor},
-                simUnderStyle,
-              ]}
+              style={[styles.coverUnder, {backgroundColor: bgColor}, simNextUnderStyle]}
               pointerEvents="none">
               {renderPage(nextPage, false, pageIndex + 1)}
             </Animated.View>
           )}
+          {/* Prev page underneath (visible when swiping right) */}
           {prevPage != null && (
             <Animated.View
-              style={[
-                styles.coverUnder,
-                {backgroundColor: bgColor},
-                simUnderStyle,
-              ]}
+              style={[styles.coverUnder, {backgroundColor: bgColor}, simPrevUnderStyle]}
               pointerEvents="none">
               {renderPage(prevPage, pageIndex - 1 === 0, pageIndex - 1)}
             </Animated.View>
           )}
+          {/* Current page with 3D flip */}
           <Animated.View
             style={[styles.flex, {backgroundColor: bgColor}, simCurStyle]}>
             {renderPage(currentPage, pageIndex === 0, pageIndex)}
@@ -650,29 +614,6 @@ export default function ReaderScreen() {
         if (!text && !isLibraryUrl && srcUrl) {
           try { text = await fetchProxyContent(srcUrl, chapters[idx].url); } catch {}
         }
-        if (!text && bookName) {
-          try {
-            const altSources = await changeSourceSearch(bookName, book?.author || paramBookAuthor || '', 5);
-            for (const alt of altSources) {
-              if (alt.origin === srcUrl) continue;
-              try {
-                const altToc = await fetchProxyToc(alt.origin, alt.bookUrl);
-                if (altToc.length > 0) {
-                  const altIdx = Math.min(idx, altToc.length - 1);
-                  const altText = await fetchProxyContent(alt.origin, altToc[altIdx].url);
-                  if (altText) {
-                    text = altText;
-                    const newChapters = altToc.map((ch, i) => ({title: ch.title, url: ch.url, index: i}));
-                    setChapters(newChapters);
-                    dynamicSourceRef.current = alt.origin;
-                    dynamicBookRef.current = alt.bookUrl;
-                    break;
-                  }
-                }
-              } catch {}
-            }
-          } catch {}
-        }
         setContent(text || '内容为空');
         setChapterTitle(chapters[idx]?.title || '');
         setCurrentIdx(idx);
@@ -680,8 +621,13 @@ export default function ReaderScreen() {
         if (book) updateProgress(book.id, idx);
         scrollRef.current?.scrollTo({y: 0, animated: false});
 
-        if (idx + 1 < chapters.length && srcUrl && !isLibraryUrl && !localSrc) {
-          prefetchProxyContent(srcUrl, chapters[idx + 1].url);
+        // Prefetch next 2 chapters
+        if (srcUrl && !isLibraryUrl && !localSrc) {
+          for (let n = 1; n <= 2; n++) {
+            if (idx + n < chapters.length) {
+              prefetchProxyContent(srcUrl, chapters[idx + n].url);
+            }
+          }
         }
       } catch (e: any) {
         setContent('加载失败: ' + e.message);
@@ -689,8 +635,10 @@ export default function ReaderScreen() {
       }
       setLoading(false);
     },
-    [sources, chapters, book, bookName, paramSourceUrl, paramBookAuthor, updateProgress, isLibraryUrl],
+    [sources, chapters, book, paramSourceUrl, updateProgress, isLibraryUrl],
   );
+
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     const runId = ++initIdRef.current;
@@ -700,6 +648,7 @@ export default function ReaderScreen() {
       const localSrc = srcUrl ? sources.find(s => s.bookSourceUrl === srcUrl) : undefined;
       if (!isLibraryUrl && !localSrc && !srcUrl) return;
       setLoading(true);
+      const errors: string[] = [];
       try {
         let toc: Chapter[] = [];
         let usedOrigin = srcUrl;
@@ -720,13 +669,17 @@ export default function ReaderScreen() {
               ruleEngine.getToc(localSrc, bUrl),
               new Promise<Chapter[]>((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000)),
             ]);
-          } catch {}
+          } catch (e: any) {
+            errors.push('本地源目录: ' + (e?.message || '失败'));
+          }
         }
         if (!isLibraryUrl && !localSrc && srcUrl && toc.length === 0) {
           try {
             const proxyChapters = await fetchProxyToc(srcUrl, bUrl);
             toc = proxyChapters.map((ch, i) => ({title: ch.title, url: ch.url, index: i}));
-          } catch {}
+          } catch (e: any) {
+            errors.push('代理目录: ' + (e?.message || '失败'));
+          }
         }
 
         if (runId !== initIdRef.current) return;
@@ -747,7 +700,10 @@ export default function ReaderScreen() {
                 }
               } catch {}
             }
-          } catch {}
+            if (toc.length === 0) errors.push('换源(' + candidates.length + '个)均无目录');
+          } catch (e: any) {
+            errors.push('换源搜索: ' + (e?.message || '失败'));
+          }
         }
 
         if (runId !== initIdRef.current) return;
@@ -802,11 +758,14 @@ export default function ReaderScreen() {
           setChapterTitle(toc[idx].title);
           setCurrentIdx(idx);
 
-          if (idx + 1 < toc.length && usedOrigin && !isLibraryUrl && !localSrc) {
-            prefetchProxyContent(usedOrigin, toc[idx + 1].url);
+          if (usedOrigin && !isLibraryUrl && !localSrc) {
+            for (let n = 1; n <= 2; n++) {
+              if (idx + n < toc.length) prefetchProxyContent(usedOrigin, toc[idx + n].url);
+            }
           }
         } else {
-          setContent('目录为空，无法加载章节');
+          const detail = errors.length > 0 ? '\n' + errors.join('\n') : '';
+          setContent('目录加载失败，点击底部重试' + detail);
           setChapterTitle('提示');
         }
       } catch (e: any) {
@@ -818,7 +777,7 @@ export default function ReaderScreen() {
     }
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookUrl, chapterIndex, isLibraryUrl, paramSourceUrl]);
+  }, [bookUrl, chapterIndex, isLibraryUrl, paramSourceUrl, retryCount]);
 
   const goPrev = () => {
     if (currentIdx > 0) loadChapter(currentIdx - 1);
@@ -879,6 +838,17 @@ export default function ReaderScreen() {
           <Text style={[styles.loadingHint, {color: textColor, opacity: 0.6}]}>
             {chapters.length === 0 ? '加载目录…' : '加载正文…'}
           </Text>
+        </View>
+      ) : chapters.length === 0 && !isLibraryUrl ? (
+        <View style={styles.center}>
+          <Text style={[styles.loadingHint, {color: textColor, marginBottom: 16, textAlign: 'center', paddingHorizontal: 30}]}>
+            {content || '目录加载失败'}
+          </Text>
+          <TouchableOpacity
+            style={[styles.navBtn, {paddingHorizontal: 28, paddingVertical: 10}]}
+            onPress={() => setRetryCount(c => c + 1)}>
+            <Text style={styles.navBtnText}>重新加载</Text>
+          </TouchableOpacity>
         </View>
       ) : isScrollMode ? (
         /* ── 滚动模式 ── */
