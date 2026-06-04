@@ -78,8 +78,20 @@ app.use('/api/', (req, res, next) => {
   next();
 });
 
-// 30 分钟清一次老数据
+// 30 分钟清一次老数据 + 自动重试 not_found 书
 setInterval(() => db.cleanupOldData(), 30 * 60 * 1000).unref?.();
+
+// 每 6 小时自动处理 pending 的书 (含自动重试的)
+setInterval(async () => {
+  const pending = db.nextPendingBook();
+  if (!pending) return;
+  logger.info('auto-download: found pending books, starting batch');
+  try {
+    await bookDownloader.processParallel(db, 10, 2, 4);
+  } catch (e) {
+    logger.error('auto-download failed', {msg: e.message});
+  }
+}, 6 * 3600 * 1000).unref?.();
 
 // 启动定时任务
 const backupCtl = scheduleDailyBackup(db);
@@ -991,19 +1003,31 @@ app.get('/api/search/proxy', rateLimitSources, async (req, res) => {
   const keyword = (req.query.keyword || req.query.key || '').trim();
   if (!keyword) return res.status(400).json({ ok: false, msg: 'keyword required' });
   if (keyword.length > 100) return res.status(400).json({ ok: false, msg: 'keyword too long' });
+
+  const cacheKey = 'search:' + crypto.createHash('md5').update(keyword).digest('hex');
+  const cached = db.proxyCacheGet(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', 'public, max-age=60');
+    res.set('X-Cache', 'HIT');
+    return res.type('json').send(cached);
+  }
+
   try {
     const platform = req.platform || 'ios';
     const sources = db.listEnabledSourcesJson(platform)
       .filter(s => s.searchUrl && s.bookSourceUrl !== (process.env.PUBLIC_URL || 'https://www.wxsw.app'));
     const result = await proxySearch.proxySearch(sources, keyword);
-    res.set('Cache-Control', 'public, max-age=60');
-    res.json({
+    const body = JSON.stringify({
       ok: true,
       count: result.books.length,
       fromCache: result.fromCache,
       sourceCount: result.sourceCount,
       books: result.books,
     });
+    db.proxyCacheSet(cacheKey, 'search', body, 3600 * 1000);
+    res.set('Cache-Control', 'public, max-age=60');
+    res.set('X-Cache', 'MISS');
+    res.type('json').send(body);
   } catch (e) {
     logger.error('proxy search failed', { keyword, msg: e.message });
     res.status(500).json({ ok: false, msg: 'search failed' });
@@ -1018,7 +1042,9 @@ app.get('/api/search/changesource', rateLimitSources, async (req, res) => {
     const platform = req.platform || 'ios';
     const sources = db.listEnabledSourcesJson(platform)
       .filter(s => s.searchUrl && s.bookSourceUrl !== (process.env.PUBLIC_URL || 'https://www.wxsw.app'));
-    const result = await proxySearch.changeSourceSearch(sources, name, author);
+    const limitParam = parseInt(req.query.limit, 10);
+    const opts = limitParam > 0 ? { limit: limitParam } : {};
+    const result = await proxySearch.changeSourceSearch(sources, name, author, opts);
     res.set('Cache-Control', 'public, max-age=60');
     res.json({
       ok: true,
@@ -1030,6 +1056,104 @@ app.get('/api/search/changesource', rateLimitSources, async (req, res) => {
   } catch (e) {
     logger.error('changesource search failed', { name, author, msg: e.message });
     res.status(500).json({ ok: false, msg: 'search failed' });
+  }
+});
+
+// 起点封面查询 (对齐 iOS QidianBook.lookupQidianCover)
+app.get('/api/cover', async (req, res) => {
+  const name = (req.query.name || '').trim();
+  const author = (req.query.author || '').trim();
+  if (!name) return res.status(400).json({ ok: false, msg: 'name required' });
+
+  const cacheKey = 'cover:' + crypto.createHash('md5').update(name + '|' + author).digest('hex');
+  const cached = db.proxyCacheGet(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.type('json').send(cached);
+  }
+
+  try {
+    const searchTerm = author ? `${name} ${author}` : name;
+    const encoded = encodeURIComponent(searchTerm);
+    const resp = await fetch(`https://m.qidian.com/soushu/${encoded}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+      },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!resp.ok) throw new Error('qidian ' + resp.status);
+    const html = await resp.text();
+    const bidMatch = html.match(/"bid"\s*:\s*(\d+)/);
+    if (bidMatch) {
+      const coverUrl = `https://bookcover.yuewen.com/qdbimg/349573/${bidMatch[1]}/300`;
+      const body = JSON.stringify({ ok: true, coverUrl });
+      db.proxyCacheSet(cacheKey, 'cover', body, 7 * 86400 * 1000);
+      res.set('Cache-Control', 'public, max-age=86400');
+      return res.type('json').send(body);
+    }
+    const body = JSON.stringify({ ok: true, coverUrl: null });
+    db.proxyCacheSet(cacheKey, 'cover', body, 86400 * 1000);
+    res.json({ ok: true, coverUrl: null });
+  } catch (e) {
+    res.json({ ok: true, coverUrl: null });
+  }
+});
+
+app.get('/api/search/toc', rateLimitSources, async (req, res) => {
+  const origin = (req.query.origin || '').trim();
+  const bookUrl = (req.query.bookUrl || '').trim();
+  if (!origin || !bookUrl) return res.status(400).json({ ok: false, msg: 'origin and bookUrl required' });
+
+  const cacheKey = 'toc:' + crypto.createHash('md5').update(origin + '|' + bookUrl).digest('hex');
+  const cached = db.proxyCacheGet(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', 'public, max-age=120');
+    res.set('X-Cache', 'HIT');
+    return res.type('json').send(cached);
+  }
+
+  try {
+    const platform = req.platform || 'ios';
+    const source = db.listEnabledSourcesJson(platform).find(s => s.bookSourceUrl === origin);
+    if (!source) return res.status(404).json({ ok: false, msg: 'source not found' });
+    const chapters = await legadoEngine.fetchToc(source, bookUrl);
+    const body = JSON.stringify({ ok: true, count: chapters.length, chapters });
+    db.proxyCacheSet(cacheKey, 'toc', body, 2 * 3600 * 1000);
+    res.set('Cache-Control', 'public, max-age=120');
+    res.set('X-Cache', 'MISS');
+    res.type('json').send(body);
+  } catch (e) {
+    logger.error('proxy toc failed', { origin, bookUrl, msg: e.message });
+    res.status(500).json({ ok: false, msg: 'toc fetch failed' });
+  }
+});
+
+app.get('/api/search/content', rateLimitSources, async (req, res) => {
+  const origin = (req.query.origin || '').trim();
+  const chapterUrl = (req.query.chapterUrl || '').trim();
+  if (!origin || !chapterUrl) return res.status(400).json({ ok: false, msg: 'origin and chapterUrl required' });
+
+  const cacheKey = 'cnt:' + crypto.createHash('md5').update(origin + '|' + chapterUrl).digest('hex');
+  const cached = db.proxyCacheGet(cacheKey);
+  if (cached) {
+    res.set('Cache-Control', 'public, max-age=300');
+    res.set('X-Cache', 'HIT');
+    return res.type('json').send(cached);
+  }
+
+  try {
+    const platform = req.platform || 'ios';
+    const source = db.listEnabledSourcesJson(platform).find(s => s.bookSourceUrl === origin);
+    if (!source) return res.status(404).json({ ok: false, msg: 'source not found' });
+    const content = await legadoEngine.fetchContent(source, chapterUrl);
+    const body = JSON.stringify({ ok: true, content });
+    db.proxyCacheSet(cacheKey, 'content', body, 24 * 3600 * 1000);
+    res.set('Cache-Control', 'public, max-age=300');
+    res.set('X-Cache', 'MISS');
+    res.type('json').send(body);
+  } catch (e) {
+    logger.error('proxy content failed', { origin, chapterUrl, msg: e.message });
+    res.status(500).json({ ok: false, msg: 'content fetch failed' });
   }
 });
 

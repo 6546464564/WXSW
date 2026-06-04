@@ -37,6 +37,15 @@ function loadCompatibleSources(db) {
       sources.push(src);
     } catch { /* skip malformed */ }
   }
+
+  // 支持通过环境变量限制下载源 (逗号分隔的 bookSourceUrl)
+  const filter = process.env.DL_SOURCE_FILTER;
+  if (filter) {
+    const allowed = filter.split(',').map(s => s.trim());
+    const filtered = sources.filter(s => allowed.includes(s.bookSourceUrl));
+    if (filtered.length > 0) return filtered;
+    console.warn('[bookDownloader] DL_SOURCE_FILTER set but no matching sources found, using all');
+  }
   return sources;
 }
 
@@ -130,33 +139,76 @@ async function downloadBook(db, bookRow, sources, chapterThreads = CHAPTER_CONCU
   const { id, title, author } = bookRow;
   console.log(`\n📖 [${id}] ${title} — ${author}`);
 
-  db.updateCachedBookStatus(id, 'searching');
+  let source, bookUrl;
 
-  const found = await searchBookInSources(sources, title, author);
-  if (!found) {
-    console.log(`  ❌ Not found in any source`);
-    db.updateCachedBookStatus(id, 'not_found', 'No source has this book');
-    return false;
+  // 优先使用已绑定的源 (上次成功下载的源)
+  if (bookRow.source_url && bookRow.source_book_url) {
+    const bound = sources.find(s => s.bookSourceUrl === bookRow.source_url);
+    if (bound) {
+      console.log(`  🔗 Using bound source: ${bound.bookSourceName}`);
+      source = bound;
+      bookUrl = bookRow.source_book_url;
+    } else {
+      console.log(`  ⚠️ Bound source ${bookRow.source_url} not available, re-searching...`);
+    }
   }
 
-  const { source, book } = found;
-  console.log(`  ✅ Found: ${source.bookSourceName} → ${book.bookUrl}`);
+  // 没有绑定源或绑定源不可用 → 搜索
+  if (!source) {
+    db.updateCachedBookStatus(id, 'searching');
+    const found = await searchBookInSources(sources, title, author);
+    if (!found) {
+      console.log(`  ❌ Not found in any source`);
+      db.updateCachedBookStatus(id, 'not_found', 'No source has this book');
+      return false;
+    }
+    source = found.source;
+    bookUrl = found.book.bookUrl;
+    console.log(`  ✅ Found: ${source.bookSourceName} → ${bookUrl}`);
+    db.updateCachedBookSource(id, {
+      sourceUrl: source.bookSourceUrl,
+      sourceBookUrl: bookUrl,
+      coverUrl: found.book.coverUrl,
+      intro: found.book.intro,
+    });
+  }
 
-  db.updateCachedBookSource(id, {
-    sourceUrl: source.bookSourceUrl,
-    sourceBookUrl: book.bookUrl,
-    coverUrl: book.coverUrl,
-    intro: book.intro,
-  });
   db.updateCachedBookStatus(id, 'downloading');
 
   let chapters;
   try {
-    chapters = await engine.fetchToc(source, book.bookUrl);
+    chapters = await engine.fetchToc(source, bookUrl);
   } catch (e) {
-    console.log(`  ❌ TOC failed:`, e.message);
-    db.updateCachedBookStatus(id, 'error', `TOC: ${e.message}`);
-    return false;
+    // 绑定源获取 TOC 失败时, 尝试重新搜索
+    if (bookRow.source_url && bookRow.source_book_url) {
+      console.log(`  ⚠️ Bound source TOC failed, re-searching...`);
+      const found = await searchBookInSources(sources, title, author);
+      if (found) {
+        source = found.source;
+        bookUrl = found.book.bookUrl;
+        db.updateCachedBookSource(id, {
+          sourceUrl: source.bookSourceUrl,
+          sourceBookUrl: bookUrl,
+          coverUrl: found.book.coverUrl,
+          intro: found.book.intro,
+        });
+        try {
+          chapters = await engine.fetchToc(source, bookUrl);
+        } catch (e2) {
+          console.log(`  ❌ TOC failed after re-search:`, e2.message);
+          db.updateCachedBookStatus(id, 'error', `TOC: ${e2.message}`);
+          return false;
+        }
+      } else {
+        console.log(`  ❌ TOC failed and re-search found nothing:`, e.message);
+        db.updateCachedBookStatus(id, 'error', `TOC: ${e.message}`);
+        return false;
+      }
+    } else {
+      console.log(`  ❌ TOC failed:`, e.message);
+      db.updateCachedBookStatus(id, 'error', `TOC: ${e.message}`);
+      return false;
+    }
   }
 
   if (!chapters.length) {

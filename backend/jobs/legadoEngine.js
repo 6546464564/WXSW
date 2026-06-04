@@ -23,9 +23,47 @@
 //   java.put/get, java.ajax, java.md5Encode, java.aesBase64DecodeToString 等
 
 const cheerio = require('cheerio');
+const crypto = require('crypto');
 const { URL } = require('url');
 const legadoJava = require('./legadoJava');
 const { JSONPath } = require('jsonpath-plus');
+
+const QIMAO_SIGN_KEY = 'd3dGiJc651gSQ8w1';
+const QIMAO_HEADERS_TEMPLATE = {
+  'app-version': '51110', 'platform': 'android', 'reg': '0',
+  'AUTHORIZATION': '', 'application-id': 'com.****.reader',
+  'net-env': '1', 'channel': 'unknown', 'qm-params': '',
+};
+
+function qimaoMd5Sign(params) {
+  const sorted = Object.keys(params).sort().map(k => k + '=' + params[k]).join('');
+  return crypto.createHash('md5').update(sorted + QIMAO_SIGN_KEY).digest('hex');
+}
+
+function qimaoBuildUrl(base, params) {
+  params.sign = qimaoMd5Sign(params);
+  const u = new URL(base);
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  return u.href;
+}
+
+function qimaoHeaders() {
+  const h = { ...QIMAO_HEADERS_TEMPLATE };
+  h.sign = qimaoMd5Sign(h);
+  h.headers = JSON.stringify({ headers: h });
+  return h;
+}
+
+function isQimaoUrl(url) {
+  return typeof url === 'string' && (url.includes('wtzw.com') || url.includes('qimao'));
+}
+
+function smartBuildUrl(base, params) {
+  if (isQimaoUrl(base)) return qimaoBuildUrl(base, params || {});
+  const u = new URL(base);
+  for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v);
+  return u.href;
+}
 
 const UA = 'Mozilla/5.0 (Linux; Android 12; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36';
 
@@ -52,19 +90,30 @@ class BlockedError extends Error {
 }
 
 async function httpGet(url, { headers = {}, timeout = 15000 } = {}) {
-  const opts = {
+  const baseOpts = {
     headers: { 'User-Agent': UA, ...headers },
     redirect: 'follow',
     signal: AbortSignal.timeout(timeout),
   };
-  if (_proxyDispatcher) opts.dispatcher = _proxyDispatcher;
-  const resp = await fetch(url, opts);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
-  const text = await resp.text();
-  if (text.length < 1000 && (text.includes('google.com') || text.includes('captcha') || text.includes('challenge'))) {
-    throw new BlockedError(url);
+
+  async function doFetch(opts) {
+    const resp = await fetch(url, opts);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
+    const text = await resp.text();
+    if (text.length < 1000 && (text.includes('google.com') || text.includes('captcha') || text.includes('challenge'))) {
+      throw new BlockedError(url);
+    }
+    return text;
   }
-  return text;
+
+  if (_proxyDispatcher) {
+    try {
+      return await doFetch({ ...baseOpts, dispatcher: _proxyDispatcher });
+    } catch {
+      return await doFetch(baseOpts);
+    }
+  }
+  return await doFetch(baseOpts);
 }
 
 function resolveUrl(base, relative) {
@@ -201,17 +250,15 @@ function evalListRule($, rule) {
 
 // ─── JS + JSONPath 规则处理 ───
 
-function processJsRule(rule, result, baseUrl, javaApi, sourceApi) {
+function processJsRule(rule, result, baseUrl, javaApi, sourceApi, rawSource) {
   if (!rule) return result;
   let output = result;
 
-  // 处理 <js>...</js> 块
   const jsMatch = rule.match(/<js>([\s\S]*?)<\/js>/);
   if (jsMatch) {
     output = legadoJava.evalJsBlock(jsMatch[1], {
-      result: output, baseUrl, java: javaApi, source: sourceApi,
+      result: output, baseUrl, java: javaApi, source: sourceApi, _source: rawSource,
     });
-    // <js> 之后可能跟 JSONPath 如 $.book[*]
     const afterJs = rule.slice(rule.indexOf('</js>') + 5).trim();
     if (afterJs) {
       output = processPostJsRule(afterJs, output, javaApi);
@@ -219,24 +266,20 @@ function processJsRule(rule, result, baseUrl, javaApi, sourceApi) {
     return output;
   }
 
-  // 处理 @js:expr (内联)
   if (rule.includes('@js:')) {
     const parts = rule.split('@js:');
     const prePart = parts[0].trim();
     const jsExpr = parts[1].trim();
-
-    // 先提取前半部分 (可能是 JSONPath)
     if (prePart) {
       output = extractByPath(prePart, output);
     }
-    // 执行 JS
     output = legadoJava.evalJsInline(jsExpr, output, {
-      java: javaApi, source: sourceApi,
+      java: javaApi, source: sourceApi, _source: rawSource,
+      baseUrl, BASE: rawSource?.bookSourceUrl,
     });
     return output;
   }
 
-  // 纯 JSONPath
   if (rule.startsWith('$.') || rule.startsWith('$[')) {
     return extractByPath(rule, output);
   }
@@ -282,17 +325,35 @@ async function searchBook(source, keyword) {
   const javaApi = legadoJava.createJavaApi();
   const sourceApi = legadoJava.createSourceApi(source);
 
-  // 构造搜索 URL (支持模板)
   let searchUrl = source.searchUrl || '';
-  searchUrl = searchUrl.replace(/\{\{key\}\}/g, encodeURIComponent(keyword));
-  if (hasTemplate(searchUrl)) {
-    searchUrl = legadoJava.evalTemplate(searchUrl, { java: javaApi, source: sourceApi, keyword });
-  }
   if (!searchUrl) throw new Error('source has no searchUrl');
 
-  const fullUrl = resolveUrl(source.bookSourceUrl, searchUrl);
+  let fullUrl;
 
-  // 构造请求头 (支持 JS header)
+  if (searchUrl.startsWith('@js:')) {
+    const jsExpr = searchUrl.slice(4).trim();
+    const vm = require('vm');
+    const sandbox = legadoJava.createFullSandbox({
+      key: keyword, page: 1,
+      BASE: source.bookSourceUrl,
+      java: javaApi, source: sourceApi,
+      buildUrl: smartBuildUrl,
+    });
+    vm.createContext(sandbox);
+    legadoJava.injectJsLib(sandbox, source);
+    try {
+      fullUrl = String(vm.runInContext(jsExpr, sandbox, { timeout: 5000 }));
+    } catch (e) {
+      throw new Error(`@js searchUrl eval failed: ${e.message}`);
+    }
+  } else {
+    searchUrl = searchUrl.replace(/\{\{key\}\}/g, encodeURIComponent(keyword));
+    if (hasTemplate(searchUrl)) {
+      searchUrl = legadoJava.evalTemplate(searchUrl, { java: javaApi, source: sourceApi, keyword });
+    }
+    fullUrl = resolveUrl(source.bookSourceUrl, searchUrl);
+  }
+
   const extraHeaders = source.header ? legadoJava.buildWanxiangHeaders(source, javaApi) : {};
 
   const responseText = await httpGet(fullUrl, { headers: extraHeaders });
@@ -301,7 +362,7 @@ async function searchBook(source, keyword) {
 
   // JS 规则路径
   if (isJsRule(rules.bookList)) {
-    const processed = processJsRule(rules.bookList, responseText, fullUrl, javaApi, sourceApi);
+    const processed = processJsRule(rules.bookList, responseText, fullUrl, javaApi, sourceApi, source);
     const items = Array.isArray(processed) ? processed : [processed];
     const books = [];
     for (const item of items) {
@@ -316,7 +377,9 @@ async function searchBook(source, keyword) {
       if (rules.bookUrl) {
         const itemStr = typeof item === 'string' ? item : JSON.stringify(item);
         javaApi._setResult(itemStr);
-        if (hasTemplate(rules.bookUrl)) {
+        if (rules.bookUrl.includes('@js:')) {
+          bookUrl = String(processJsRule(rules.bookUrl, itemStr, fullUrl, javaApi, sourceApi, source) || '');
+        } else if (hasTemplate(rules.bookUrl)) {
           bookUrl = legadoJava.evalTemplate(rules.bookUrl, {
             java: javaApi, source: sourceApi, keyword, result: item,
           });
@@ -325,12 +388,26 @@ async function searchBook(source, keyword) {
         }
       }
 
-      const coverUrl = rules.coverUrl
-        ? (hasTemplate(rules.coverUrl)
-          ? legadoJava.evalTemplate(rules.coverUrl, { java: javaApi, source: sourceApi, result: item })
-          : extractSingleByPath(rules.coverUrl, item))
-        : '';
-      const intro = rules.intro ? extractSingleByPath(rules.intro, item) : '';
+      let coverUrl = '';
+      if (rules.coverUrl) {
+        if (rules.coverUrl.includes('@js:')) {
+          const itemStr = typeof item === 'string' ? item : JSON.stringify(item);
+          coverUrl = String(processJsRule(rules.coverUrl, itemStr, fullUrl, javaApi, sourceApi, source) || '');
+        } else if (hasTemplate(rules.coverUrl)) {
+          coverUrl = legadoJava.evalTemplate(rules.coverUrl, { java: javaApi, source: sourceApi, result: item });
+        } else {
+          coverUrl = extractSingleByPath(rules.coverUrl, item);
+        }
+      }
+      let intro = '';
+      if (rules.intro) {
+        if (rules.intro.includes('@js:')) {
+          const itemStr = typeof item === 'string' ? item : JSON.stringify(item);
+          intro = String(processJsRule(rules.intro, itemStr, fullUrl, javaApi, sourceApi, source) || '');
+        } else {
+          intro = extractSingleByPath(rules.intro, item);
+        }
+      }
 
       books.push({ name, author, bookUrl: resolveUrl(fullUrl, bookUrl), coverUrl, intro });
     }
@@ -358,7 +435,7 @@ async function searchBook(source, keyword) {
 
 async function resolveBookInfo(source, bookUrl) {
   const rules = source.ruleBookInfo || {};
-  if (!rules.init) return { tocUrl: bookUrl };
+  if (!rules.init && !rules.tocUrl) return { tocUrl: bookUrl };
 
   const javaApi = legadoJava.createJavaApi();
   const sourceApi = legadoJava.createSourceApi(source);
@@ -368,14 +445,15 @@ async function resolveBookInfo(source, bookUrl) {
 
   const vm = require('vm');
   const bookObj = { getVariable: () => '0' };
-  const sandbox = {
+  const sandbox = legadoJava.createFullSandbox({
     result: responseText,
     baseUrl: bookUrl,
     java: javaApi,
     source: sourceApi,
     book: bookObj,
     decode: legadoJava.wanxiangDecode,
-    Math, JSON, parseInt, parseFloat, String, Number, Array, Object, Date, RegExp,
+    BASE: source.bookSourceUrl,
+    buildUrl: smartBuildUrl,
     console: { log: () => {}, warn: () => {} },
     eval: function (code) {
       if (typeof code === 'string' && (code.includes('JavaImporter') || code.includes('Packages.'))) {
@@ -395,15 +473,19 @@ async function resolveBookInfo(source, bookUrl) {
       },
     },
     intToByte(i) { const b = i & 0xFF; return b >= 128 ? -(256 - b) : b; },
-  };
+  });
   vm.createContext(sandbox);
+  legadoJava.injectJsLib(sandbox, source);
 
-  const initCode = rules.init.replace(/<js>([\s\S]*?)<\/js>/, '$1').replace(/^@js:\s*/s, '');
-  try {
-    vm.runInContext(initCode, sandbox, { timeout: 15000 });
-  } catch (e) {
-    console.warn('[resolveBookInfo] init failed:', e.message);
-    return { tocUrl: bookUrl };
+  if (rules.init) {
+    const initCode = rules.init.replace(/<js>([\s\S]*?)<\/js>/, '$1').replace(/^@js:\s*/s, '');
+    try {
+      const initResult = vm.runInContext(initCode, sandbox, { timeout: 15000 });
+      if (initResult !== undefined) sandbox.result = initResult;
+    } catch (e) {
+      console.warn('[resolveBookInfo] init failed:', e.message);
+      return { tocUrl: bookUrl };
+    }
   }
 
   let bookInfo = sandbox.result;
@@ -412,9 +494,19 @@ async function resolveBookInfo(source, bookUrl) {
   }
 
   let tocUrl = bookUrl;
-  if (rules.tocUrl && typeof bookInfo === 'object') {
-    const tocPath = rules.tocUrl.replace(/^\$\./, '');
-    tocUrl = bookInfo[tocPath] || bookUrl;
+  if (rules.tocUrl) {
+    if (rules.tocUrl.startsWith('@js:') || rules.tocUrl.includes('<js>')) {
+      try {
+        const tocExpr = rules.tocUrl.replace(/<js>([\s\S]*?)<\/js>/, '$1').replace(/^@js:\s*/s, '');
+        const resolved = vm.runInContext(tocExpr, sandbox, { timeout: 5000 });
+        if (resolved) tocUrl = String(resolved);
+      } catch (e) {
+        console.warn('[resolveBookInfo] tocUrl JS failed:', e.message);
+      }
+    } else if (rules.tocUrl.startsWith('$.') && typeof bookInfo === 'object') {
+      const tocPath = rules.tocUrl.replace(/^\$\./, '');
+      tocUrl = bookInfo[tocPath] || bookUrl;
+    }
   }
 
   return { tocUrl, bookInfo };
@@ -432,14 +524,35 @@ async function fetchToc(source, bookUrl) {
 
   // JS 规则
   if (isJsRule(rules.chapterList)) {
-    const processed = processJsRule(rules.chapterList, responseText, bookUrl, javaApi, sourceApi);
+    const processed = processJsRule(rules.chapterList, responseText, tocUrl, javaApi, sourceApi, source);
     const items = Array.isArray(processed) ? processed : [];
     return items.map(item => {
       if (!item || typeof item !== 'object') return null;
-      const title = item[rules.chapterName || 'name'] || item.title || item.name || '';
-      const url = item[rules.chapterUrl || 'path'] || item.url || item.path || '';
+
+      let title = '';
+      const nameRule = rules.chapterName || '$.name';
+      if (nameRule.startsWith('$.')) {
+        title = extractSingleByPath(nameRule, item);
+      } else {
+        title = item[nameRule] || '';
+      }
+      if (!title) title = item.title || item.name || '';
+
+      let url = '';
+      const urlRule = rules.chapterUrl || '$.url';
+      if (urlRule.includes('@js:') || urlRule.includes('<js>')) {
+        const itemStr = typeof item === 'string' ? item : JSON.stringify(item);
+        javaApi._setResult(itemStr);
+        url = String(processJsRule(urlRule, itemStr, tocUrl, javaApi, sourceApi, source) || '');
+      } else if (urlRule.startsWith('$.')) {
+        url = extractSingleByPath(urlRule, item);
+      } else {
+        url = item[urlRule] || '';
+      }
+      if (!url) url = item.url || item.path || '';
+
       if (!title || !url) return null;
-      return { title: String(title), url: resolveUrl(bookUrl, String(url)) };
+      return { title: String(title), url: resolveUrl(tocUrl, String(url)) };
     }).filter(Boolean);
   }
 
@@ -480,7 +593,7 @@ async function fetchContent(source, chapterUrl) {
 
   // JS 规则 (@js: 内联)
   if (isJsRule(contentRule)) {
-    let content = processJsRule(contentRule, responseText, chapterUrl, javaApi, sourceApi);
+    let content = processJsRule(contentRule, responseText, chapterUrl, javaApi, sourceApi, source);
     if (typeof content === 'object') content = JSON.stringify(content);
     content = String(content || '');
     if (content.includes('<')) {

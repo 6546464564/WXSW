@@ -22,8 +22,12 @@ function normalizeKey(str) {
   return str.replace(/[\s\u3000]/g, '').toLowerCase();
 }
 
+function cleanAuthor(author) {
+  return author.replace(/^作者[：:]\s*/i, '').trim();
+}
+
 function dedupeKey(name, author) {
-  return normalizeKey(name) + '::' + normalizeKey(author);
+  return normalizeKey(name) + '::' + normalizeKey(cleanAuthor(author));
 }
 
 async function searchOneSource(source, keyword) {
@@ -35,7 +39,7 @@ async function searchOneSource(source, keyword) {
       origin: source.bookSourceUrl,
       originName: source.bookSourceName || source.bookSourceUrl,
       name: b.name || '',
-      author: b.author || '',
+      author: cleanAuthor(b.author || ''),
       bookUrl: b.bookUrl || '',
       coverUrl: b.coverUrl || '',
       intro: b.intro || '',
@@ -115,16 +119,23 @@ function sortByRelevance(books, keyword) {
     if (tierA !== tierB) return tierA - tierB;
     const srcA = 1 + (a.mergedSourceURLs?.length || 0);
     const srcB = 1 + (b.mergedSourceURLs?.length || 0);
-    return srcB - srcA;
+    if (srcA !== srcB) return srcB - srcA;
+    // 有简介/封面的排前面
+    const infoA = (a.intro ? 1 : 0) + (a.coverUrl ? 1 : 0);
+    const infoB = (b.intro ? 1 : 0) + (b.coverUrl ? 1 : 0);
+    return infoB - infoA;
   });
 }
 
 function relevanceTier(book, kw) {
-  const name = (book.name || '').toLowerCase();
-  const author = (book.author || '').toLowerCase();
-  if (name === kw || author === kw) return 0;
-  if (name.includes(kw) || author.includes(kw)) return 1;
-  return 2;
+  const name = (book.name || '').toLowerCase().replace(/\s+/g, '');
+  const author = (book.author || '').toLowerCase().replace(/^作者[：:]/, '').replace(/\s+/g, '');
+  if (name === kw) return 0;          // 书名完全匹配
+  if (author === kw) return 1;        // 作者完全匹配
+  if (name.startsWith(kw)) return 2;  // 书名前缀匹配
+  if (name.includes(kw)) return 3;    // 书名包含
+  if (author.includes(kw)) return 4;  // 作者包含
+  return 5;
 }
 
 const changeSourceCache = new Map();
@@ -136,29 +147,65 @@ setInterval(() => {
   }
 }, 60_000);
 
-async function changeSourceSearch(sources, name, author) {
+async function changeSourceSearch(sources, name, author, { limit } = {}) {
   const cacheKey = normalizeKey(name) + '::' + normalizeKey(author);
   const cached = changeSourceCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return { candidates: cached.candidates, fromCache: true, sourceCount: cached.sourceCount };
+    const out = limit ? cached.candidates.slice(0, limit) : cached.candidates;
+    return { candidates: out, fromCache: true, sourceCount: cached.sourceCount };
+  }
+
+  // Fast path: check proxySearch cache for instant match
+  const proxyCached = searchCache.get(normalizeKey(name));
+  if (proxyCached && Date.now() - proxyCached.ts < CACHE_TTL_MS) {
+    const n1 = name.trim();
+    const a1 = author.trim();
+    const hits = [];
+    const seenOrigins = new Set();
+    for (const b of proxyCached.books) {
+      if ((b.name || '').trim() !== n1) continue;
+      if (a1 && (b.author || '').trim() && (b.author || '').trim() !== a1) continue;
+      if (seenOrigins.has(b.origin)) continue;
+      seenOrigins.add(b.origin);
+      hits.push(b);
+      // Expand merged sources as separate candidates
+      if (b.mergedSourceURLs) {
+        for (let i = 0; i < b.mergedSourceURLs.length; i++) {
+          const mOrigin = b.mergedSourceURLs[i];
+          if (!seenOrigins.has(mOrigin)) {
+            seenOrigins.add(mOrigin);
+            hits.push({ ...b, origin: mOrigin, originName: b.mergedSourceNames?.[i] || mOrigin });
+          }
+        }
+      }
+    }
+    if (hits.length > 0) {
+      changeSourceCache.set(cacheKey, { candidates: hits, ts: Date.now(), sourceCount: sources.length });
+      const out = limit ? hits.slice(0, limit) : hits;
+      return { candidates: out, fromCache: true, sourceCount: sources.length };
+    }
   }
 
   const n1 = name.trim();
   const a1 = author.trim();
   const candidates = [];
   const seenOrigins = new Set();
+  const wantEarly = limit === 1;
 
   const queue = [...sources];
   let running = 0;
   let idx = 0;
+  let earlyDone = false;
 
   await new Promise(resolve => {
     function next() {
+      if (earlyDone) { if (running === 0) resolve(); return; }
       while (running < SEARCH_CONCURRENCY && idx < queue.length) {
         const source = queue[idx++];
         running++;
         searchOneSource(source, n1).then(books => {
           for (const b of books) {
+            if (earlyDone) break;
             const n2 = (b.name || '').trim();
             const a2 = (b.author || '').trim();
             if (n2 !== n1) continue;
@@ -166,6 +213,7 @@ async function changeSourceSearch(sources, name, author) {
             if (seenOrigins.has(b.origin)) continue;
             seenOrigins.add(b.origin);
             candidates.push(b);
+            if (wantEarly) { earlyDone = true; break; }
           }
           running--;
           next();
@@ -176,8 +224,11 @@ async function changeSourceSearch(sources, name, author) {
     next();
   });
 
-  changeSourceCache.set(cacheKey, { candidates, ts: Date.now(), sourceCount: sources.length });
-  return { candidates, fromCache: false, sourceCount: sources.length };
+  if (!wantEarly || candidates.length === 0) {
+    changeSourceCache.set(cacheKey, { candidates, ts: Date.now(), sourceCount: sources.length });
+  }
+  const out = limit ? candidates.slice(0, limit) : candidates;
+  return { candidates: out, fromCache: false, sourceCount: sources.length };
 }
 
 module.exports = { proxySearch, searchCache, changeSourceSearch };

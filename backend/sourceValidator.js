@@ -115,11 +115,11 @@ function validateShape(src) {
     push('warn', 'bookSourceType', '应为 0(文本) / 1(音频) / 2(图片) / 3(文件), 当前为 ' + src.bookSourceType);
   }
 
-  // 2. header 字段必须是合法 JSON 字符串
+  // 2. header 字段必须是合法 JSON 字符串 (或 @js: 动态生成)
   if (src.header) {
     if (typeof src.header !== 'string') {
       push('warn', 'header', '应为 JSON 字符串');
-    } else {
+    } else if (!src.header.trimStart().startsWith('@js:')) {
       try {
         const parsed = JSON.parse(src.header);
         if (!parsed || typeof parsed !== 'object') {
@@ -131,11 +131,12 @@ function validateShape(src) {
     }
   }
 
-  // 3. searchUrl: 含 {{key}} 模板才算可搜
+  // 3. searchUrl: 含 {{key}} 模板或 @js: 动态构造才算可搜
   if (src.searchUrl) {
     if (typeof src.searchUrl !== 'string') {
       push('warn', 'searchUrl', '应为字符串');
-    } else if (!/\{\{key\}\}|\{\{page\}\}/.test(src.searchUrl)) {
+    } else if (!src.searchUrl.trimStart().startsWith('@js:') &&
+               !/\{\{key\}\}|\{\{page\}\}|\{\{.*key.*\}\}/.test(src.searchUrl)) {
       push('warn', 'searchUrl', '没有 {{key}} 占位符, 该源无法被搜索');
     }
   } else {
@@ -212,10 +213,13 @@ function scanJsContent(value, path, push) {
   if (value == null) return;
   if (typeof value === 'string') {
     if (value.length < 8) return;
+    const trimmed = value.trimStart();
+    const isLegadoJs = trimmed.startsWith('@js:') || trimmed.startsWith('<js>');
     for (const p of DANGEROUS_JS_PATTERNS) {
       if (p.re.test(value)) {
-        push(p.sev, 'js:' + (path || '_root'), 'JS 静态扫描: ' + p.msg);
-        // 同一字段只报最严重一次, 防止 issues 列表爆炸
+        // @js: 字段里的 eval/Function 是 legado 书源常见反爬手段，降为 info
+        const sev = (isLegadoJs && p.sev === 'warn') ? 'info' : p.sev;
+        push(sev, 'js:' + (path || '_root'), 'JS 静态扫描: ' + p.msg);
         return;
       }
     }

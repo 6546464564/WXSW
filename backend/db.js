@@ -145,6 +145,14 @@ function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_promo_usage_code ON promo_usage(code);
     CREATE INDEX IF NOT EXISTS idx_promo_usage_device ON promo_usage(device_id);
+    CREATE TABLE IF NOT EXISTS proxy_cache (
+      cache_key TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      data TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_proxy_cache_expires ON proxy_cache(expires_at);
   `);
 
   migrateAddColumnIfMissing('admin_session', 'ip', 'TEXT');
@@ -226,12 +234,43 @@ function cleanupOldData() {
     .run(Date.now() - 30 * 86400 * 1000);
   db.prepare('DELETE FROM source_error_events WHERE ts < ?')
     .run(Date.now() - 30 * 86400 * 1000);
+  proxyCacheCleanup();
+
+  // not_found / error 书籍 3 天后自动重试
+  const retryCutoff = Date.now() - 3 * 86400 * 1000;
+  const retried = db.prepare(
+    "UPDATE cached_books SET status = 'pending', error_msg = NULL, updated_at = ? WHERE status IN ('not_found','error') AND updated_at < ?"
+  ).run(Date.now(), retryCutoff);
+  if (retried.changes > 0) {
+    console.log(`[cleanup] retried ${retried.changes} not_found/error books`);
+  }
 }
 
 // ─── 初始化 ─────────────────────────────────────────────────
 
 init();
 runMigrations();
+
+// ─── Proxy Cache ──────────────────────────────────────────────
+const _pcGet = db.prepare('SELECT data FROM proxy_cache WHERE cache_key = ? AND expires_at > ?');
+const _pcSet = db.prepare('INSERT OR REPLACE INTO proxy_cache (cache_key, kind, data, created_at, expires_at) VALUES (?, ?, ?, ?, ?)');
+const _pcClean = db.prepare('DELETE FROM proxy_cache WHERE expires_at < ?');
+const _pcStats = db.prepare('SELECT kind, COUNT(*) as cnt FROM proxy_cache WHERE expires_at > ? GROUP BY kind');
+
+function proxyCacheGet(key) {
+  const row = _pcGet.get(key, Date.now());
+  return row ? row.data : null;
+}
+function proxyCacheSet(key, kind, data, ttlMs) {
+  const now = Date.now();
+  _pcSet.run(key, kind, data, now, now + ttlMs);
+}
+function proxyCacheCleanup() {
+  return _pcClean.run(Date.now()).changes;
+}
+function proxyCacheStats() {
+  return _pcStats.all(Date.now());
+}
 
 // 加载所有 models 并注入 db
 const sourcesModel       = require('./models/sources');
@@ -392,6 +431,8 @@ module.exports = {
   listCachedChapters: bookCacheModel.listChapters,
   pendingCachedChapters: bookCacheModel.pendingChapters,
   getCacheStats: bookCacheModel.getCacheStats,
+  // proxy cache
+  proxyCacheGet, proxyCacheSet, proxyCacheCleanup, proxyCacheStats,
   // cleanup
   cleanupOldData,
   // raw db instance

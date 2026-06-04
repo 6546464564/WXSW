@@ -2,6 +2,7 @@
 .DS_Store
 
 # ─── 全局 build / 缓存 ───────────────────────────────────
+__pycache__/
 build/
 /build
 node_modules/

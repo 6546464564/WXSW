@@ -184,7 +184,140 @@ function wanxiangDecode(base64Str) {
 }
 
 /**
- * 解析万象书屋源的请求 header
+ * Rhino/Java API 兼容层 — 让 jsLib 中的 Java 互操作代码在 Node VM 中运行
+ */
+function createJavaShims() {
+  const _crypto = crypto;
+
+  function toBuffer(v) {
+    if (Buffer.isBuffer(v)) return v;
+    if (v instanceof Int8Array || v instanceof Uint8Array) return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
+    if (typeof v === 'string') return Buffer.from(v, 'utf-8');
+    return Buffer.from(v);
+  }
+
+  const javaLang = {
+    System: { currentTimeMillis: () => Date.now(), arraycopy(src, sp, dst, dp, len) { toBuffer(src).copy(toBuffer(dst), dp, sp, sp + len); } },
+    String: function (v) {
+      const s = typeof v === 'string' ? v : (Buffer.isBuffer(v) || v instanceof Uint8Array || v instanceof Int8Array ? Buffer.from(v.buffer || v, v.byteOffset, v.byteLength).toString('utf-8') : String(v));
+      return { toString() { return s; }, getBytes(enc) { return Buffer.from(s, enc === 'UTF-8' ? 'utf-8' : enc); } };
+    },
+    Integer: { toHexString: n => (n >>> 0).toString(16), parseInt: (s, r) => parseInt(s, r) },
+    Byte: { TYPE: 'byte' },
+    reflect: { Array: { newInstance(_type, len) { return Buffer.alloc(len); } } },
+  };
+
+  const javaxCrypto = {
+    Mac: {
+      getInstance(alg) {
+        let _key = null;
+        const algMap = { HmacSHA256: 'sha256', HmacSHA1: 'sha1', HmacMD5: 'md5' };
+        return {
+          init(ks) { _key = ks.getEncoded ? ks.getEncoded() : toBuffer(ks); },
+          doFinal(data) {
+            const hmac = _crypto.createHmac(algMap[alg] || 'sha256', toBuffer(_key));
+            hmac.update(toBuffer(data));
+            const buf = hmac.digest();
+            const arr = new Int8Array(buf.length);
+            for (let i = 0; i < buf.length; i++) arr[i] = buf[i] > 127 ? buf[i] - 256 : buf[i];
+            return arr;
+          },
+        };
+      },
+    },
+    Cipher: {
+      DECRYPT_MODE: 2, ENCRYPT_MODE: 1,
+      getInstance(transform) {
+        let _mode, _keyBuf, _ivBuf;
+        return {
+          init(mode, ks, ivSpec) {
+            _mode = mode;
+            _keyBuf = ks.getEncoded ? toBuffer(ks.getEncoded()) : toBuffer(ks);
+            _ivBuf = ivSpec && ivSpec.getIV ? toBuffer(ivSpec.getIV()) : toBuffer(ivSpec);
+          },
+          doFinal(data) {
+            const alg = `aes-${_keyBuf.length * 8}-cbc`;
+            if (_mode === 2) {
+              const d = _crypto.createDecipheriv(alg, _keyBuf, _ivBuf);
+              return Buffer.concat([d.update(toBuffer(data)), d.final()]);
+            }
+            const e = _crypto.createCipheriv(alg, _keyBuf, _ivBuf);
+            return Buffer.concat([e.update(toBuffer(data)), e.final()]);
+          },
+        };
+      },
+    },
+    spec: {
+      SecretKeySpec: function (key, _alg) { const k = toBuffer(key); this.getEncoded = () => k; },
+      IvParameterSpec: function (iv) { const v = toBuffer(iv); this.getIV = () => v; },
+    },
+  };
+
+  const javaUtil = {
+    UUID: { randomUUID() { return { toString() { return _crypto.randomUUID(); } }; } },
+  };
+
+  return {
+    java: { lang: javaLang, util: javaUtil },
+    javax: { crypto: javaxCrypto },
+  };
+}
+
+/**
+ * 向 VM sandbox 注入 jsLib 函数
+ */
+function injectJsLib(sandbox, source) {
+  const jsLib = source.jsLib || '';
+  if (!jsLib) return;
+  const vm = require('vm');
+  try {
+    vm.runInContext(jsLib, sandbox, { timeout: 5000 });
+  } catch (e) {
+    console.warn('[legadoJava] jsLib eval failed:', e.message);
+  }
+}
+
+/**
+ * 创建带 Java shims 的完整 VM sandbox
+ * extras.java (Legado helper API) 与 Java 包层级 (java.lang/java.util) 合并到同一对象
+ */
+const QIMAO_SIGN_KEY = 'd3dGiJc651gSQ8w1';
+
+function qimaoMd5Sign(params) {
+  const crypto = require('crypto');
+  const sorted = Object.keys(params).sort().map(k => k + '=' + params[k]).join('');
+  return crypto.createHash('md5').update(sorted + QIMAO_SIGN_KEY).digest('hex');
+}
+
+function defaultBuildUrl(base, params) {
+  const { URL } = require('url');
+  if (typeof base === 'string' && base.includes('wtzw.com') && params) {
+    params.sign = qimaoMd5Sign(params);
+  }
+  const u = new URL(base);
+  for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v);
+  return u.href;
+}
+
+function createFullSandbox(extras) {
+  const shims = createJavaShims();
+  const merged = {
+    ...shims,
+    Math, JSON, parseInt, parseFloat, String, Number, Array, Object, Date, RegExp,
+    encodeURIComponent, decodeURIComponent,
+    Buffer, Int8Array, Uint8Array,
+    console: { log: () => {}, warn: () => {} },
+    buildUrl: defaultBuildUrl,
+    ...extras,
+  };
+  if (extras && extras.java) {
+    merged.java = { ...shims.java, ...extras.java };
+  }
+  return merged;
+}
+
+/**
+ * 解析书源请求 header (支持 @js: 和 jsLib)
  */
 function buildWanxiangHeaders(source, javaApi) {
   const headerRule = source.header || '';
@@ -193,13 +326,12 @@ function buildWanxiangHeaders(source, javaApi) {
   const jsCode = headerRule.replace(/^@js:\s*/s, '').trim();
   try {
     const vm = require('vm');
-    const sandbox = {
+    const sandbox = createFullSandbox({
       java: javaApi,
       source: createSourceApi(source),
-      Math, JSON, parseInt, parseFloat, String, Number, Array, Object, Date, RegExp,
-      console: { log: () => {}, warn: () => {} },
-    };
+    });
     vm.createContext(sandbox);
+    injectJsLib(sandbox, source);
     const result = vm.runInContext(jsCode, sandbox, { timeout: 5000 });
     if (typeof result === 'string') return JSON.parse(result);
     if (typeof result === 'object') return result;
@@ -214,33 +346,22 @@ function buildWanxiangHeaders(source, javaApi) {
  */
 function evalJsBlock(jsCode, context) {
   const vm = require('vm');
-  const sandbox = {
+  const sandbox = createFullSandbox({
     result: context.result || '',
     baseUrl: context.baseUrl || '',
     java: context.java,
     source: context.source,
-    // 万象书屋源特有的 decode 函数
     decode: wanxiangDecode,
-    // 标准全局
-    Math, JSON, parseInt, parseFloat, String, Number, Array, Object, Date, RegExp,
     console: { log: (...a) => console.log('[legado-js]', ...a), warn: () => {} },
-    // 拦截 eval: bookSourceComment 包含 Java/Rhino 代码, 无法在 Node VM 中运行.
-    // 静默跳过, 因为关键函数 (decode 等) 已由原生实现提供.
     eval: function (code) {
       if (typeof code === 'string' && (code.includes('JavaImporter') || code.includes('Packages.'))) {
         return undefined;
       }
-      // 允许其他普通 JS eval
       try { return Function('"use strict"; return (' + code + ')')(); }
       catch { return undefined; }
     },
-    // Java shims (Rhino 兼容)
-    JavaImporter: function () {
-      this.importPackage = () => {};
-      return this;
-    },
+    JavaImporter: function () { this.importPackage = () => {}; return this; },
     Packages: new Proxy({}, { get: () => new Proxy({}, { get: () => function () {} }) }),
-    // Java Arrays shim (万象书屋源 decode 依赖)
     Arrays: {
       copyOfRange(arr, from, to) {
         if (arr instanceof Int8Array || arr instanceof Uint8Array || Buffer.isBuffer(arr)) {
@@ -250,19 +371,10 @@ function evalJsBlock(jsCode, context) {
         return arr;
       },
     },
-    // Java crypto shims
-    SecretKeySpec: function (key) { this.key = key; this.getEncoded = () => key; },
-    IvParameterSpec: function (iv) { this.iv = iv; this.getIV = () => iv; },
-    Cipher: {
-      getInstance() { return { init() {}, doFinal(data) { return data; } }; },
-    },
-    // 万象书屋源 decode 里用的 intToByte
-    intToByte(i) {
-      const b = i & 0xFF;
-      return b >= 128 ? -(256 - b) : b;
-    },
-  };
+    intToByte(i) { const b = i & 0xFF; return b >= 128 ? -(256 - b) : b; },
+  });
   vm.createContext(sandbox);
+  if (context._source) injectJsLib(sandbox, context._source);
 
   try {
     const lastExpr = vm.runInContext(jsCode, sandbox, { timeout: 10000 });
@@ -279,15 +391,16 @@ function evalJsBlock(jsCode, context) {
  */
 function evalJsInline(expr, result, context) {
   const vm = require('vm');
-  const sandbox = {
+  const sandbox = createFullSandbox({
     result: result || '',
+    baseUrl: context.baseUrl || '',
+    BASE: context.BASE || '',
     java: context.java,
     source: context.source,
     decode: wanxiangDecode,
-    Math, JSON, parseInt, parseFloat, String, Number, Array, Object, Date, RegExp,
-    console: { log: () => {}, warn: () => {} },
-  };
+  });
   vm.createContext(sandbox);
+  if (context._source) injectJsLib(sandbox, context._source);
   try {
     return vm.runInContext(expr, sandbox, { timeout: 5000 });
   } catch (e) {
@@ -351,4 +464,6 @@ module.exports = {
   evalJsInline,
   evalTemplate,
   evalJsonPath,
+  createFullSandbox,
+  injectJsLib,
 };
