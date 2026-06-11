@@ -56,6 +56,9 @@ yarn-error.log
 # Bundle artifact
 *.jsbundle
 
+# rctpushy credentials
+.update
+
 # Ruby / CocoaPods
 **/Pods/
 /vendor/bundle/
@@ -73,3 +76,6 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# react-native-update
+.pushy

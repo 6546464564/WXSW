@@ -445,6 +445,7 @@ async function resolveBookInfo(source, bookUrl) {
 
   const vm = require('vm');
   const bookObj = { getVariable: () => '0' };
+  let _sandbox;
   const sandbox = legadoJava.createFullSandbox({
     result: responseText,
     baseUrl: bookUrl,
@@ -456,24 +457,11 @@ async function resolveBookInfo(source, bookUrl) {
     buildUrl: smartBuildUrl,
     console: { log: () => {}, warn: () => {} },
     eval: function (code) {
-      if (typeof code === 'string' && (code.includes('JavaImporter') || code.includes('Packages.'))) {
-        return undefined;
-      }
-      try { return Function('"use strict"; return (' + code + ')')(); }
+      try { return vm.runInContext(String(code), _sandbox, { timeout: 10000 }); }
       catch { return undefined; }
     },
-    JavaImporter: function () { this.importPackage = () => {}; return this; },
-    Packages: new Proxy({}, { get: () => new Proxy({}, { get: () => function () {} }) }),
-    Arrays: {
-      copyOfRange(arr, from, to) {
-        if (arr instanceof Int8Array || arr instanceof Uint8Array || Buffer.isBuffer(arr)) {
-          return Buffer.from(arr.buffer || arr, arr.byteOffset + from, to - from);
-        }
-        return Array.isArray(arr) ? arr.slice(from, to) : arr;
-      },
-    },
-    intToByte(i) { const b = i & 0xFF; return b >= 128 ? -(256 - b) : b; },
   });
+  _sandbox = sandbox;
   vm.createContext(sandbox);
   legadoJava.injectJsLib(sandbox, source);
 

@@ -5,9 +5,9 @@
  * CustomTabBar: 白色卡片 + 顶部细线 + 选中棕金 pill
  */
 
-import React, {useRef, useEffect} from 'react';
+import React from 'react';
 import {View, Text, TouchableOpacity, StyleSheet, Platform} from 'react-native';
-import {NavigationContainer, DefaultTheme, DarkTheme, createNavigationContainerRef} from '@react-navigation/native';
+import {NavigationContainer, DefaultTheme, DarkTheme} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -136,30 +136,8 @@ function MainTabs() {
   );
 }
 
-const navRef = createNavigationContainerRef<RootStackParamList>();
-
-const __DEBUG_AUTO_NAV__ = false;
-
 export default function Navigation() {
   const colors = useThemeColors();
-  const didAutoNav = useRef(false);
-
-  useEffect(() => {
-    if (!__DEBUG_AUTO_NAV__ || didAutoNav.current) return;
-    const timer = setTimeout(() => {
-      if (navRef.isReady() && !didAutoNav.current) {
-        didAutoNav.current = true;
-        navRef.navigate('Reader', {
-          bookUrl: 'https://h5.h5bookyyds.com/d-aDUuaDVib29reXlkcy5jb20=/book/1095806',
-          chapterIndex: 0,
-          sourceUrl: 'https://h5.h5bookyyds.com',
-          bookName: '以一龙之力打倒整个世界！',
-          bookAuthor: '',
-        });
-      }
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
 
   const navTheme = colors.isDark
     ? {
@@ -172,7 +150,7 @@ export default function Navigation() {
       };
 
   return (
-    <NavigationContainer ref={navRef} theme={navTheme}>
+    <NavigationContainer theme={navTheme}>
       <Stack.Navigator screenOptions={{headerShown: false}}>
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen

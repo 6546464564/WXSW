@@ -160,6 +160,7 @@ export interface BookInfo {
   tocUrl?: string;
   lastChapter?: string;
   wordCount?: string;
+  updateTime?: string;
 }
 
 export interface Chapter {

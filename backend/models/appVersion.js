@@ -17,8 +17,18 @@ function init(database) {
 
 function getAppVersion() {
   const row = db.prepare('SELECT * FROM app_versions WHERE id = 1').get();
-  if (!row) return { latest_code: 0, latest_name: '', min_required_code: 0, changelog: '', apk_url: '', market_url: '', updated_at: 0 };
+  if (!row) return { latest_code: 0, latest_name: '', min_required_code: 0, changelog: '', apk_url: '', market_url: '', extra_json: '', updated_at: 0 };
   return row;
+}
+
+function getExtraConfig() {
+  const row = db.prepare('SELECT extra_json FROM app_versions WHERE id = 1').get();
+  try { return JSON.parse(row?.extra_json || '{}'); } catch { return {}; }
+}
+
+function saveExtraConfig(obj) {
+  db.prepare('UPDATE app_versions SET extra_json = ?, updated_at = ? WHERE id = 1')
+    .run(JSON.stringify(obj), Date.now());
 }
 
 function saveAppVersion(o) {
@@ -93,5 +103,6 @@ function deleteAnnouncement(id) {
 module.exports = {
   init,
   getAppVersion, saveAppVersion,
+  getExtraConfig, saveExtraConfig,
   listActiveAnnouncements, listAllAnnouncements, upsertAnnouncement, deleteAnnouncement,
 };

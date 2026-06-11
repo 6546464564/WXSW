@@ -533,8 +533,8 @@ export default function ReaderScreen() {
   const contentRevision = useRef(0);
 
   const book = books.find(b => b.bookUrl === bookUrl);
-  const dynamicSourceRef = useRef<string | undefined>();
-  const dynamicBookRef = useRef<string | undefined>();
+  const dynamicSourceRef = useRef<string | undefined>(undefined);
+  const dynamicBookRef = useRef<string | undefined>(undefined);
   const bookName = book?.name || paramBookName || '';
   const initIdRef = useRef(0);
 

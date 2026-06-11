@@ -88,7 +88,7 @@ export async function clearContentCache(): Promise<void> {
       k => k.startsWith(PREFIX_CONTENT) || k.startsWith(PREFIX_TOC),
     );
     if (cacheKeys.length > 0) {
-      await AsyncStorage.multiRemove(cacheKeys);
+      await (AsyncStorage as any).multiRemove(cacheKeys);
     }
   } catch {}
 }

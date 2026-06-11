@@ -1,0 +1,39 @@
+app_identifier "com.wxsw.guanyezhi"
+username "njjhn8877@icloud.com"
+team_id "6UX5G5838X"
+
+submit_for_review false
+automatic_release true
+skip_binary_upload true
+overwrite_screenshots true
+
+force true
+
+price_tier 0
+
+app_rating_config_path "./fastlane/rating.json"
+
+primary_category "LIFESTYLE"
+secondary_category "UTILITIES"
+
+name({ "zh-Hans" => "观叶志" })
+subtitle({ "zh-Hans" => "植物观察日志 · 记录身边绿意" })
+
+privacy_url({ "zh-Hans" => "https://telegra.ph/观叶志---隐私政策-06-10" })
+support_url({ "zh-Hans" => "https://telegra.ph/观叶志---技术支持-06-10" })
+
+description({
+  "zh-Hans" => "观叶志是一款专为植物爱好者打造的观察日志工具。\n\n主要功能：\n• 植物观察记录 — 随时随地记录你发现的植物，支持拍照和文字描述\n• 植物图鉴 — 收录常见植物参考资料，按季节和场景分类查看\n• 养护指南 — 提供浇水、光照、施肥等实用养护建议\n• 观察日历 — 按日期回顾你的观察历程\n• 数据统计 — 查看你的观察总结和成长轨迹\n\n特色：\n✓ 完全离线使用，无需网络\n✓ 无需注册登录\n✓ 简洁清新的界面设计\n✓ 数据存储在本地，保护你的隐私\n\n无论你是园艺新手还是资深植物爱好者，观叶志都能帮你记录和分享身边的绿色风景。"
+})
+
+keywords({
+  "zh-Hans" => "植物,观察,日志,图鉴,养护,园艺,花草,记录,自然,绿植"
+})
+
+promotional_text({
+  "zh-Hans" => "用心记录每一片叶子的故事，观叶志伴你发现身边绿意之美。"
+})
+
+copyright "2026 观叶志"
+
+screenshots_path "./fastlane/screenshots"

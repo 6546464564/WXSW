@@ -7,7 +7,8 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "postinstall": "npx patch-package"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.1.1",
@@ -21,11 +22,13 @@
     "react": "19.2.3",
     "react-native": "0.85.3",
     "react-native-gesture-handler": "^3.0.0",
+    "react-native-image-picker": "^8.2.1",
     "react-native-linear-gradient": "^2.8.3",
     "react-native-nitro-modules": "^0.35.9",
     "react-native-reanimated": "^4.4.1",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.25.2",
+    "react-native-update": "^10.40.2",
     "react-native-vector-icons": "^10.3.0",
     "react-native-worklets": "^0.9.1",
     "zustand": "^5.0.14"
@@ -50,6 +53,7 @@
     "@types/react-test-renderer": "^19.1.0",
     "eslint": "^8.19.0",
     "jest": "^29.6.3",
+    "patch-package": "^8.0.1",
     "prettier": "2.8.8",
     "react-test-renderer": "19.2.3",
     "tsx": "^4.22.4",

@@ -1,0 +1,17 @@
+{
+  "id": "6775421568",
+  "slug": "zouzou",
+  "trackName": "奏奏读字幕",
+  "artistName": "福丽 黄",
+  "primaryGenreName": "Utilities",
+  "genres": [
+    "工具"
+  ],
+  "version": "1.0.1",
+  "fileSizeBytes": "78153728",
+  "minimumOsVersion": "15.1",
+  "description": "做视频字幕、配音用。读稿测每分钟字数，看节奏密度；两份稿子可对比；排练计时、场记便利贴辅助拍摄。不自动翻译，不上传团队云盘。让你录课、短视频前知道字会不会念太快，哪里要删几句。",
+  "screenshotUrls": [],
+  "ipadScreenshotUrls": [],
+  "artworkUrl512": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/12/2e/e2/122ee238-98cf-5e12-6860-df56ae1229c8/AppIcon-0-0-1x_U007epad-0-1-85-220.png/512x512bb.jpg"
+}

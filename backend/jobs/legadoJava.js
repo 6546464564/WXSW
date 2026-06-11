@@ -186,21 +186,22 @@ function wanxiangDecode(base64Str) {
 /**
  * Rhino/Java API 兼容层 — 让 jsLib 中的 Java 互操作代码在 Node VM 中运行
  */
+
+function toBuffer(v) {
+  if (Buffer.isBuffer(v)) return v;
+  if (v instanceof Int8Array || v instanceof Uint8Array) return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
+  if (typeof v === 'string') return Buffer.from(v, 'utf-8');
+  return Buffer.from(v);
+}
+
 function createJavaShims() {
   const _crypto = crypto;
-
-  function toBuffer(v) {
-    if (Buffer.isBuffer(v)) return v;
-    if (v instanceof Int8Array || v instanceof Uint8Array) return Buffer.from(v.buffer, v.byteOffset, v.byteLength);
-    if (typeof v === 'string') return Buffer.from(v, 'utf-8');
-    return Buffer.from(v);
-  }
 
   const javaLang = {
     System: { currentTimeMillis: () => Date.now(), arraycopy(src, sp, dst, dp, len) { toBuffer(src).copy(toBuffer(dst), dp, sp, sp + len); } },
     String: function (v) {
       const s = typeof v === 'string' ? v : (Buffer.isBuffer(v) || v instanceof Uint8Array || v instanceof Int8Array ? Buffer.from(v.buffer || v, v.byteOffset, v.byteLength).toString('utf-8') : String(v));
-      return { toString() { return s; }, getBytes(enc) { return Buffer.from(s, enc === 'UTF-8' ? 'utf-8' : enc); } };
+      return { toString() { return s; }, length() { return s.length; }, getBytes(enc) { return Buffer.from(s, enc === 'UTF-8' ? 'utf-8' : enc || 'utf-8'); }, substring(a, b) { return s.substring(a, b); } };
     },
     Integer: { toHexString: n => (n >>> 0).toString(16), parseInt: (s, r) => parseInt(s, r) },
     Byte: { TYPE: 'byte' },
@@ -253,15 +254,72 @@ function createJavaShims() {
     },
   };
 
+  const javaArrays = {
+    copyOfRange(arr, from, to) {
+      if (arr instanceof Int8Array || arr instanceof Uint8Array || Buffer.isBuffer(arr)) {
+        return Buffer.from(arr.buffer || arr, arr.byteOffset + from, to - from);
+      }
+      if (Array.isArray(arr)) return arr.slice(from, to);
+      return arr;
+    },
+  };
+
   const javaUtil = {
     UUID: { randomUUID() { return { toString() { return _crypto.randomUUID(); } }; } },
+    Arrays: javaArrays,
   };
 
   return {
     java: { lang: javaLang, util: javaUtil },
     javax: { crypto: javaxCrypto },
+    _javaArrays: javaArrays,
   };
 }
+
+/**
+ * Build a Packages hierarchy from Java shims so that
+ * JavaImporter(Packages.javax.crypto, Packages.javax.crypto.spec, ...) works.
+ */
+function createPackages(shims) {
+  return {
+    java: {
+      lang: shims.java.lang,
+      util: shims.java.util,
+      io: {},
+    },
+    javax: {
+      crypto: {
+        ...shims.javax.crypto,
+        spec: shims.javax.crypto.spec,
+      },
+    },
+  };
+}
+
+/**
+ * JavaImporter shim: collects all own-enumerable properties from passed
+ * package objects so that `with(jI) { Cipher }` resolves correctly.
+ */
+function JavaImporterShim(...packages) {
+  for (const pkg of packages) {
+    if (pkg && typeof pkg === 'object') {
+      for (const [key, value] of Object.entries(pkg)) {
+        this[key] = value;
+      }
+    }
+  }
+  this.importPackage = function (...morePkgs) {
+    for (const pkg of morePkgs) {
+      if (pkg && typeof pkg === 'object') {
+        for (const [key, value] of Object.entries(pkg)) {
+          this[key] = value;
+        }
+      }
+    }
+  };
+}
+
+function intToByte(i) { const b = i & 0xFF; return b >= 128 ? -(256 - b) : b; }
 
 /**
  * 向 VM sandbox 注入 jsLib 函数
@@ -301,6 +359,7 @@ function defaultBuildUrl(base, params) {
 
 function createFullSandbox(extras) {
   const shims = createJavaShims();
+  const packages = createPackages(shims);
   const merged = {
     ...shims,
     Math, JSON, parseInt, parseFloat, String, Number, Array, Object, Date, RegExp,
@@ -308,6 +367,13 @@ function createFullSandbox(extras) {
     Buffer, Int8Array, Uint8Array,
     console: { log: () => {}, warn: () => {} },
     buildUrl: defaultBuildUrl,
+    Packages: packages,
+    JavaImporter: JavaImporterShim,
+    Arrays: shims._javaArrays,
+    intToByte,
+    SecretKeySpec: shims.javax.crypto.spec.SecretKeySpec,
+    IvParameterSpec: shims.javax.crypto.spec.IvParameterSpec,
+    Cipher: shims.javax.crypto.Cipher,
     ...extras,
   };
   if (extras && extras.java) {
@@ -346,6 +412,7 @@ function buildWanxiangHeaders(source, javaApi) {
  */
 function evalJsBlock(jsCode, context) {
   const vm = require('vm');
+  let _sandbox;
   const sandbox = createFullSandbox({
     result: context.result || '',
     baseUrl: context.baseUrl || '',
@@ -354,25 +421,11 @@ function evalJsBlock(jsCode, context) {
     decode: wanxiangDecode,
     console: { log: (...a) => console.log('[legado-js]', ...a), warn: () => {} },
     eval: function (code) {
-      if (typeof code === 'string' && (code.includes('JavaImporter') || code.includes('Packages.'))) {
-        return undefined;
-      }
-      try { return Function('"use strict"; return (' + code + ')')(); }
+      try { return vm.runInContext(String(code), _sandbox, { timeout: 10000 }); }
       catch { return undefined; }
     },
-    JavaImporter: function () { this.importPackage = () => {}; return this; },
-    Packages: new Proxy({}, { get: () => new Proxy({}, { get: () => function () {} }) }),
-    Arrays: {
-      copyOfRange(arr, from, to) {
-        if (arr instanceof Int8Array || arr instanceof Uint8Array || Buffer.isBuffer(arr)) {
-          return Buffer.from(arr.buffer || arr, arr.byteOffset + from, to - from);
-        }
-        if (Array.isArray(arr)) return arr.slice(from, to);
-        return arr;
-      },
-    },
-    intToByte(i) { const b = i & 0xFF; return b >= 128 ? -(256 - b) : b; },
   });
+  _sandbox = sandbox;
   vm.createContext(sandbox);
   if (context._source) injectJsLib(sandbox, context._source);
 

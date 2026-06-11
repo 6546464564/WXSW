@@ -1,0 +1,16 @@
+{
+  "trackName": "生字停留",
+  "artistName": "汇慧 杨",
+  "primaryGenreName": "Utilities",
+  "genres": [
+    "工具"
+  ],
+  "version": "1.0.1",
+  "fileSizeBytes": "211900416",
+  "minimumOsVersion": "15.1",
+  "description": "生字停留 是一款专注汉字学习与复习的中文练习工具，通过生字卡片、练写记录和填空训练，帮助用户逐步巩固常见汉字的认读与书写能力。应用支持字库管理、错字统计与每日复习安排，可根据练习情况持续回顾容易出错的内容。适合利用通勤、课余或睡前碎片时间进行练习。内容仅作为学习辅助参考，不替代学校教材或正式教学课程。",
+  "screenshotUrls": [],
+  "ipadScreenshotUrls": [],
+  "artworkUrl512": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/54/6c/c1/546cc150-5fe4-63b7-01a7-76058814127a/AppIcon-0-0-1x_U007epad-0-1-85-220.png/512x512bb.jpg",
+  "id": "6775470380"
+}

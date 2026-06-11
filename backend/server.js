@@ -272,13 +272,16 @@ app.get('/metrics', (req, res) => {
 app.get('/api/version-check', (req, res) => {
   const code = parseInt(req.query.code, 10) || 0;
   const v = db.getAppVersion();
-  res.json({
+  const extra = db.getExtraConfig();
+  const resp = {
     latestCode: v.latest_code, latestName: v.latest_name,
     minRequiredCode: v.min_required_code,
     forceUpgrade: code > 0 && v.min_required_code > 0 && code < v.min_required_code,
     needUpgrade: code > 0 && v.latest_code > 0 && code < v.latest_code,
     changelog: v.changelog || '', apkUrl: v.apk_url || '', marketUrl: v.market_url || ''
-  });
+  };
+  if (extra.min_os) resp.min_os = extra.min_os;
+  res.json(resp);
 });
 
 app.get('/api/announcement', (req, res) => {
@@ -628,6 +631,18 @@ app.post('/api/admin/password', loginRateLimit, requireAdmin, async (req, res) =
 app.get('/api/admin/me', (req, res) => {
   const tok = req.cookies && req.cookies.adm;
   res.json({ ok: db.isValidSession(tok, req.get('User-Agent') || '') });
+});
+
+// --- admin 应用配置 ---
+app.get('/api/admin/app-extra', requireAdmin, (req, res) => {
+  res.json(db.getExtraConfig());
+});
+app.post('/api/admin/app-extra', requireAdmin, (req, res) => {
+  const { min_os } = req.body || {};
+  const cur = db.getExtraConfig();
+  if (min_os !== undefined) cur.min_os = String(min_os || '');
+  db.saveExtraConfig(cur);
+  res.json({ ok: true });
 });
 
 // --- admin 书源管理 ---

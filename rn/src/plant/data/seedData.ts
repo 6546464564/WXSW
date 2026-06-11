@@ -1,0 +1,48 @@
+import type {Observation} from '../types';
+
+export const DEMO_OBSERVATIONS: Observation[] = [
+  {
+    id: 'demo-1',
+    plantName: '银杏',
+    referenceId: 'ginkgo',
+    imageAsset: 'ginkgo',
+    location: '城东滨河步道',
+    habitat: '公园',
+    season: '夏季',
+    note: '叶片浓绿，树冠饱满。记录叶形为扇形，叶缘完整无虫咬。',
+    date: '2026-06-08',
+  },
+  {
+    id: 'demo-2',
+    plantName: '桂花',
+    referenceId: 'osmanthus',
+    imageAsset: 'osmanthus',
+    location: '社区小花园',
+    habitat: '公园',
+    season: '夏季',
+    note: '叶面深绿，新梢生长中。记录叶序与枝条分布。',
+    date: '2026-06-05',
+  },
+  {
+    id: 'demo-3',
+    plantName: '景天科多肉',
+    referenceId: 'succulent',
+    imageAsset: 'succulent',
+    location: '自家北向阳台',
+    habitat: '阳台',
+    season: '夏季',
+    note: '距上次浇水第五日，叶片略软。决定延后浇水，观察叶色恢复。',
+    date: '2026-06-02',
+  },
+  {
+    id: 'demo-4',
+    plantName: '三叶草',
+    referenceId: 'clover',
+    imageAsset: 'clover',
+    location: '学校操场边缘',
+    habitat: '校园',
+    season: '春季',
+    note: '草坪三出复叶整齐，发现一株四叶个体，已标记位置下次再看。',
+    date: '2026-05-28',
+  },
+];

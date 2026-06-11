@@ -22,6 +22,7 @@ export interface ProxySearchBook {
   intro?: string;
   kind?: string;
   lastChapter?: string;
+  wordCount?: string;
   mergedSourceURLs?: string[];
   mergedSourceNames?: string[];
 }

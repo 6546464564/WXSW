@@ -30,5 +30,15 @@ target 'WanxiangLite' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+    installer.pods_project.targets.each do |target|
+      next unless target.respond_to?(:product_type)
+      target.build_configurations.each do |config|
+        config.build_settings['DEVELOPMENT_TEAM'] = '6UX5G5838X'
+        if target.product_type == 'com.apple.product-type.bundle'
+          config.build_settings['CODE_SIGNING_ALLOWED'] = 'YES'
+          config.build_settings.delete('CODE_SIGN_IDENTITY')
+        end
+      end
+    end
   end
 end

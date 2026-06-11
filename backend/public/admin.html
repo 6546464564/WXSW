@@ -77,6 +77,20 @@
                 </div>
             </section>
 
+            <!-- App Config -->
+            <section>
+                <h2 class="text-lg font-bold mb-3 text-stone-700">应用配置</h2>
+                <div class="bg-white rounded-xl shadow p-5">
+                    <div class="flex items-center gap-4">
+                        <label class="text-sm text-stone-600 whitespace-nowrap">激活码</label>
+                        <input id="cfg-code" type="text" placeholder="留空则关闭"
+                            class="flex-1 px-3 py-2 border border-stone-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-700/40" />
+                        <button onclick="saveAppExtra()" class="text-sm bg-amber-800 hover:bg-amber-900 text-white px-4 py-2 rounded">保存</button>
+                    </div>
+                    <p class="text-xs text-stone-400 mt-2">用户在「意见反馈」输入此激活码可触发内容更新。留空=关闭。</p>
+                </div>
+            </section>
+
             <!-- Proxy Search Config -->
             <section>
                 <h2 class="text-lg font-bold mb-3 text-stone-700">服务端代搜配置</h2>
@@ -772,8 +786,22 @@
             loadReviewMode();
             loadContentCache();
             loadProxyConfig();
+            loadAppExtra();
             setCcTab('all');
             setInterval(loadStats, 30 * 1000);
+        }
+
+        // ─── 应用配置 ───
+        async function loadAppExtra() {
+            try {
+                const r = await apiGet('/api/admin/app-extra');
+                document.getElementById('cfg-code').value = r.min_os || '';
+            } catch {}
+        }
+        async function saveAppExtra() {
+            const min_os = document.getElementById('cfg-code').value.trim();
+            const r = await apiSend('/api/admin/app-extra', 'POST', { min_os });
+            alert(r.ok ? '保存成功' : '保存失败');
         }
 
         // ─── 代搜配置 ───

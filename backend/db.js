@@ -405,6 +405,8 @@ module.exports = {
   // app version / announcements
   getAppVersion: appVersionModel.getAppVersion,
   saveAppVersion: appVersionModel.saveAppVersion,
+  getExtraConfig: appVersionModel.getExtraConfig,
+  saveExtraConfig: appVersionModel.saveExtraConfig,
   listActiveAnnouncements: appVersionModel.listActiveAnnouncements,
   listAllAnnouncements: appVersionModel.listAllAnnouncements,
   upsertAnnouncement: appVersionModel.upsertAnnouncement,
