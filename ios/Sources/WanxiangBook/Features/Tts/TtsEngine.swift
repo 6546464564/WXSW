@@ -256,9 +256,15 @@ public final class TtsEngine: NSObject, ObservableObject {
         //   2. 中文增强音 (premium / enhanced quality, 听感最自然)
         //   3. 中文 default (compact, 系统预装)
         //   4. 任何 zh-* voice
+        // 万象书屋 (评审 fix): fallback 必须优先普通话 zh-CN — 之前直接取第一个 premium/
+        // enhanced 中文音, 部分设备上会是 zh-HK/zh-TW 方言 (选错语音); 且 premium/enhanced
+        // 可能未下载, 合成器可能静音, 所以同语言内还要显式退到 default compact voice.
         let allChinese = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh") }
-        if let premium = allChinese.first(where: { $0.quality == .premium }) { return premium }
-        if let enhanced = allChinese.first(where: { $0.quality == .enhanced }) { return enhanced }
+        let zhCN = allChinese.filter { $0.language == "zh-CN" }
+        let preferred = zhCN.isEmpty ? allChinese : zhCN
+        if let premium = preferred.first(where: { $0.quality == .premium }) { return premium }
+        if let enhanced = preferred.first(where: { $0.quality == .enhanced }) { return enhanced }
+        if let compact = preferred.first(where: { $0.quality == .default }) { return compact }
         if let v = AVSpeechSynthesisVoice(language: "zh-CN") {
             return v
         }

@@ -9,7 +9,9 @@ import io.legado.app.exception.EmptyFileException
 import io.legado.app.help.DefaultData
 import io.legado.app.help.book.isLocalModified
 import io.legado.app.utils.EncodingDetect
+import io.legado.app.utils.InterruptibleCharSequence
 import io.legado.app.utils.MD5Utils
+import io.legado.app.utils.RegexInterruptedException
 import io.legado.app.utils.StringUtils
 import io.legado.app.utils.Utf8BomUtils
 import java.io.FileNotFoundException
@@ -18,6 +20,10 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 import kotlin.math.min
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withTimeoutOrNull
 
 class TextFile(private var book: Book) {
 
@@ -25,6 +31,8 @@ class TextFile(private var book: Book) {
     companion object {
         private val padRegex = "^[\\n\\s]+".toRegex()
         private const val txtBufferSize = 8 * 1024 * 1024
+        // 万象书屋 (基底 fix): TXT 目录规则匹配超时 (ReDoS 保护), 见 getTocRule
+        private const val TOC_RULE_TIMEOUT_MS = 2000L
         private var textFile: TextFile? = null
 
         @Synchronized
@@ -108,7 +116,12 @@ class TextFile(private var book: Book) {
         if (txtBuffer == null || start > bufferEnd || end < bufferStart) {
             LocalBook.getBookInputStream(book).use { bis ->
                 bufferStart = txtBufferSize * (start / txtBufferSize)
-                txtBuffer = ByteArray(min(txtBufferSize, bis.available() - bufferStart.toInt()))
+                // 万象书屋 (基底 fix): SAF content:// 流的 available() 可能返回 0 或不准确,
+                // 减 bufferStart 后可能为负 → NegativeArraySizeException. available<=0 时按
+                // 满 buffer 读 (content:// 流常见返回 0, 读满再靠 EOF 判断), 否则取实际剩余.
+                val avail = if (bis.available() <= 0) txtBufferSize
+                    else (bis.available() - bufferStart.toInt()).coerceAtLeast(0)
+                txtBuffer = ByteArray(min(txtBufferSize, avail))
                 bufferEnd = bufferStart + txtBuffer!!.size
                 bis.skip(bufferStart)
                 bis.read(txtBuffer)
@@ -185,7 +198,9 @@ class TextFile(private var book: Book) {
                 //当前Block下使过的String的指针
                 var seekPos = 0
                 //进行正则匹配
-                val matcher: Matcher = pattern.matcher(blockContent)
+                // 万象书屋 (基底 fix): 目录正则可能含 ReDoS 模式, 用 InterruptibleCharSequence
+                // 包装使匹配可响应线程中断 (配合外层协程取消 / runInterruptible).
+                val matcher: Matcher = pattern.matcher(InterruptibleCharSequence(blockContent))
                 //如果存在相应章节
                 while (matcher.find()) { //获取匹配到的字符在字符串中的起始位置
                     val chapterStart = matcher.start()
@@ -444,14 +459,19 @@ class TextFile(private var book: Book) {
                 AppLog.put("TXT目录规则正则语法错误:${tocRule.name}\n$e", e)
                 continue
             }
-            val matcher = pattern.matcher(content)
-            var start = 0
-            var num = 0
-            while (matcher.find()) {
-                if (start == 0 || matcher.start() - start > 1000) {
-                    num++
-                    start = matcher.end()
+            // 万象书屋 (基底 fix): 用户/内置目录规则对整本书头部内容匹配无超时保护,
+            // 恶意/病态正则 (`(a+)+` 之类) 可把目录解析卡死. 参照 AnalyzeRule 的 ReDoS
+            // 方案: runInterruptible + InterruptibleCharSequence + 2s 超时, 超时跳过该规则.
+            val num = runBlocking {
+                withTimeoutOrNull(TOC_RULE_TIMEOUT_MS) {
+                    runInterruptible(Dispatchers.Default) {
+                        countMatches(pattern, content)
+                    }
                 }
+            }
+            if (num == null) {
+                AppLog.put("TXT目录规则匹配超时(ReDoS), 已跳过:${tocRule.name}")
+                continue
             }
             if (num >= maxNum) {
                 maxNum = num
@@ -459,6 +479,23 @@ class TextFile(private var book: Book) {
             }
         }
         return tocPattern
+    }
+
+    /**
+     * 万象书屋 (基底 fix): 原 getTocRule 内联的 while(matcher.find()) 不支持中断.
+     * 提取为独立函数, 配合 InterruptibleCharSequence 让 ReDoS 回溯可被 runInterruptible 打断.
+     */
+    private fun countMatches(pattern: Pattern, content: String): Int {
+        val matcher = pattern.matcher(InterruptibleCharSequence(content))
+        var start = 0
+        var num = 0
+        while (matcher.find()) {
+            if (start == 0 || matcher.start() - start > 1000) {
+                num++
+                start = matcher.end()
+            }
+        }
+        return num
     }
 
     /**

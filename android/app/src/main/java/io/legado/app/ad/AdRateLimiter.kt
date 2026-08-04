@@ -30,7 +30,10 @@ object AdRateLimiter {
 
     // 万象书屋: 本次冷启动累计已读章节数. 内存计数, 进程重启清零.
     private val chaptersOpenedThisSession = java.util.concurrent.atomic.AtomicInteger(0)
+    // 万象书屋 (基底 fix): 章节去重 set 只在进程重启时清空, 重度读者单会话可累积数万 key.
+    // 超上限直接清空 (纯内存去重, 清了只是下一章重新计数, 无功能损失), 限制内存增长.
     private val seenChapterKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private const val SEEN_CHAPTER_KEYS_MAX = 10000
 
     // 万象书屋: 连续广告加载失败次数. 防止广告 SDK 配置问题 (例如 YLH 报 107030 包名错误)
     // 让用户彻底卡死. 达到阈值时自动给一个短期解锁让用户继续读.
@@ -52,6 +55,10 @@ object AdRateLimiter {
      */
     fun markChapterOpened(uniqueKey: String) {
         if (seenChapterKeys.add(uniqueKey)) {
+            if (seenChapterKeys.size > SEEN_CHAPTER_KEYS_MAX) {
+                // 万象书屋 (基底 fix): 防无界增长 — 超上限清空重来, 只影响"去重"精度, 不影响付费墙逻辑
+                seenChapterKeys.clear()
+            }
             chaptersOpenedThisSession.incrementAndGet()
         }
     }

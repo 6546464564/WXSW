@@ -69,13 +69,13 @@ function listEnabledSourcesJson(platform = null, opts = {}) {
   }
 
   const cached = cachedEnabledByPlatform.get(key);
-  if (cached) return cached;
+  if (cached) return cached.map(s => ({ ...s }));
   const rows = key === '__all__'
     ? stmtListEnabledJson.all()
     : stmtListEnabledJsonByPlatform.all(key);
   const list = rows.map(r => JSON.parse(r.json));
   cachedEnabledByPlatform.set(key, list);
-  return list;
+  return list.map(s => ({ ...s }));
 }
 
 function getEnabledSourcesEtag(platform = null, opts = {}) {
@@ -134,18 +134,14 @@ function upsertSource(srcJson) {
 
 function bulkUpsert(arr) {
   const tx = db.transaction((items) => {
-    let created = 0, updated = 0, skipped = 0;
-    const errors = [];
+    let created = 0, updated = 0;
     for (const it of items) {
-      try {
-        const r = upsertSource(it);
-        if (r.action === 'created') created++; else updated++;
-      } catch (e) {
-        skipped++;
-        errors.push({ url: (it && it.bookSourceUrl) || '(unknown)', error: e.message });
-      }
+      // 单条校验失败直接抛错 → better-sqlite3 自动回滚整个事务,
+      // 保证「整批含非法 URL 时一条都不落库」(与 API 测试契约一致).
+      const r = upsertSource(it);
+      if (r.action === 'created') created++; else updated++;
     }
-    return { created, updated, skipped, errors: errors.slice(0, 20) };
+    return { created, updated };
   });
   return tx(arr);
 }

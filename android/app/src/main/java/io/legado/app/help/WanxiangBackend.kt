@@ -7,7 +7,7 @@ import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSource
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.help.http.newCallStrResponse
-import io.legado.app.help.http.okHttpClient
+import io.legado.app.help.http.wanxiangSecureOkHttpClient
 import io.legado.app.utils.GSON
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.fromJsonArray
@@ -129,7 +129,7 @@ object WanxiangBackend {
             return runCatching {
                 val body = """{"device_id":"$deviceId"}""".toRequestBody("application/json".toMediaType())
                 val urlStr = "$url/api/device/register" + if (reissue) "?reissue=1" else ""
-                val resp = okHttpClient.newCallStrResponse(retry = 0) {
+                val resp = wanxiangSecureOkHttpClient.newCallStrResponse(retry = 0) {
                     url(urlStr)
                     header("X-Platform", PLATFORM)
                     post(body)
@@ -214,7 +214,7 @@ object WanxiangBackend {
         val url = baseUrl ?: return@withContext false
         val body = """{"device_id":"$deviceId"}""".toRequestBody("application/json".toMediaType())
         val resp = runCatching {
-            okHttpClient.newCallStrResponse(retry = 0) {
+            wanxiangSecureOkHttpClient.newCallStrResponse(retry = 0) {
                 url("$url/api/device/register?reissue=1")
                 header("X-Platform", PLATFORM)
                 post(body)
@@ -249,6 +249,15 @@ object WanxiangBackend {
     @Volatile
     private var refreshInflight: Boolean = false
 
+    // 万象书屋: 源同步失败退避. 后端 /api/sources 挂掉时, etag 漂移通知 (每个心跳周期 4 分钟)
+    // 和切前台兜底都会立刻重试, 之前会形成"每次心跳都打一次失败请求"的循环.
+    // 失败后指数退避 (60s → 120s → … 封顶 30 分钟), 成功即重置.
+    @Volatile
+    private var sourcesSyncBackoffMs: Long = 0L
+
+    @Volatile
+    private var nextSourcesSyncAllowedAt: Long = 0L
+
     /**
      * 由全局 OkHttp 响应拦截器调. 任何带 backend host 的响应都会顺路捎回 etag header.
      * 不阻塞调用方; etag 一致直接跳过, 不一致才起 coroutine 后台 sync.
@@ -262,14 +271,20 @@ object WanxiangBackend {
         if (remoteEtag == lastKnownSourcesEtag) return
         // 防并发: 已经在跑了不重复
         if (refreshInflight) return
+        // 退避中不重试 (上一轮失败后的指数退避窗口内直接跳过)
+        if (System.currentTimeMillis() < nextSourcesSyncAllowedAt) return
         refreshInflight = true
         Coroutine.async {
             runCatching {
                 LogUtils.d(TAG, "etag drift (local=$lastKnownSourcesEtag server=$remoteEtag), refreshing sources")
                 fetchAndApplySources(url)
                 lastKnownSourcesEtag = remoteEtag
+                // 成功: 重置退避
+                sourcesSyncBackoffMs = 0L
+                nextSourcesSyncAllowedAt = 0L
             }.onFailure {
                 LogUtils.d(TAG, "etag-driven refresh failed: ${it.message}")
+                backoffSourcesSync()
             }
         }.onFinally {
             refreshInflight = false
@@ -285,13 +300,32 @@ object WanxiangBackend {
         // 等 start() 至少跑过一次 (lastKnownSourcesEtag 非空) 才走前台兜底, 避免冷启 onStart 抢跑
         if (lastKnownSourcesEtag == null) return
         if (refreshInflight) return
+        // 退避中不重试 (上一轮失败后的指数退避窗口内直接跳过)
+        if (System.currentTimeMillis() < nextSourcesSyncAllowedAt) return
         refreshInflight = true
         Coroutine.async {
             runCatching { fetchAndApplySources(url) }
-                .onFailure { LogUtils.d(TAG, "foreground refresh failed: ${it.message}") }
+                .onSuccess {
+                    sourcesSyncBackoffMs = 0L
+                    nextSourcesSyncAllowedAt = 0L
+                }
+                .onFailure {
+                    LogUtils.d(TAG, "foreground refresh failed: ${it.message}")
+                    backoffSourcesSync()
+                }
         }.onFinally {
             refreshInflight = false
         }
+    }
+
+    /** 万象书屋: 源同步失败退避 — 指数翻倍, 封顶 30 分钟 */
+    private fun backoffSourcesSync() {
+        sourcesSyncBackoffMs = if (sourcesSyncBackoffMs == 0L) {
+            60_000L
+        } else {
+            (sourcesSyncBackoffMs * 2).coerceAtMost(30 * 60 * 1000L)
+        }
+        nextSourcesSyncAllowedAt = System.currentTimeMillis() + sourcesSyncBackoffMs
     }
 
     private suspend fun fetchAndApplySources(url: String) = withContext(Dispatchers.IO) {
@@ -301,7 +335,7 @@ object WanxiangBackend {
         val tok = deviceToken
         LogUtils.d(TAG, "fetchSources: consented=$consented, tokenLen=${tok?.length ?: 0}")
         val cachedEtag = lastKnownSourcesEtag
-        val resp = okHttpClient.newCallStrResponse(retry = 1) {
+        val resp = wanxiangSecureOkHttpClient.newCallStrResponse(retry = 1) {
             url("$url/api/sources")
             header("X-Platform", PLATFORM)
             if (consented) header("X-Device-Id", deviceId)
@@ -401,7 +435,7 @@ object WanxiangBackend {
             return@withContext
         }
         val body = """{"device_id":"$deviceId"}""".toRequestBody("application/json".toMediaType())
-        okHttpClient.newCallStrResponse(retry = 0) {
+        wanxiangSecureOkHttpClient.newCallStrResponse(retry = 0) {
             url("$url/api/ping")
             header("X-Platform", PLATFORM)
             header("X-Device-Id", deviceId)
@@ -440,7 +474,7 @@ object WanxiangBackend {
                     append("\"appVer\":").append(jsonStr(BuildConfig.VERSION_NAME))
                     append('}')
                 }
-                okHttpClient.newCallStrResponse(retry = 0) {
+                wanxiangSecureOkHttpClient.newCallStrResponse(retry = 0) {
                     url("$url/api/ad-event")
                     header("X-Platform", PLATFORM)
                     header("X-Device-Id", deviceId)
@@ -490,7 +524,7 @@ object WanxiangBackend {
                     append("\"appVer\":").append(jsonStr(BuildConfig.VERSION_NAME))
                     append('}')
                 }
-                okHttpClient.newCallStrResponse(retry = 0) {
+                wanxiangSecureOkHttpClient.newCallStrResponse(retry = 0) {
                     url("$url/api/source-error")
                     header("X-Platform", PLATFORM)
                     header("X-Device-Id", deviceId)
@@ -531,7 +565,7 @@ object WanxiangBackend {
                 append("\"appVer\":").append(jsonStr(BuildConfig.VERSION_NAME))
                 append('}')
             }
-            val resp = okHttpClient.newCallStrResponse(retry = 0) {
+            val resp = wanxiangSecureOkHttpClient.newCallStrResponse(retry = 0) {
                 url("$url/api/feedback")
                 header("X-Platform", PLATFORM)
                 header("X-Device-Id", deviceId)
@@ -569,7 +603,7 @@ object WanxiangBackend {
         val url = baseUrl ?: return@withContext emptyList()
         val encoded = java.net.URLEncoder.encode(keyword, "UTF-8")
         val resp = runCatching {
-            okHttpClient.newCallStrResponse(retry = 1) {
+            wanxiangSecureOkHttpClient.newCallStrResponse(retry = 1) {
                 url("$url/api/cache/search?keyword=$encoded")
                 header("X-Platform", PLATFORM)
                 header("X-Device-Id", deviceId)
@@ -600,7 +634,7 @@ object WanxiangBackend {
     suspend fun fetchLibraryChapters(bookId: Int): List<LibraryChapter> = withContext(Dispatchers.IO) {
         val url = baseUrl ?: return@withContext emptyList()
         val resp = runCatching {
-            okHttpClient.newCallStrResponse(retry = 1) {
+            wanxiangSecureOkHttpClient.newCallStrResponse(retry = 1) {
                 url("$url/api/cache/books/$bookId/chapters")
                 header("X-Platform", PLATFORM)
                 header("X-Device-Id", deviceId)
@@ -627,7 +661,7 @@ object WanxiangBackend {
     suspend fun fetchLibraryContent(bookId: Int, chapterIdx: Int): String? = withContext(Dispatchers.IO) {
         val url = baseUrl ?: return@withContext null
         val resp = runCatching {
-            okHttpClient.newCallStrResponse(retry = 1) {
+            wanxiangSecureOkHttpClient.newCallStrResponse(retry = 1) {
                 url("$url/api/cache/books/$bookId/chapters/$chapterIdx")
                 header("X-Platform", PLATFORM)
                 header("X-Device-Id", deviceId)

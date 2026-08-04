@@ -45,6 +45,7 @@ import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 import java.util.zip.ZipFile
 import kotlin.coroutines.coroutineContext
@@ -211,9 +212,19 @@ object BookHelp {
         content: String,
         concurrency: Int = AppConfig.threadCount
     ) = coroutineScope {
+        // 万象书屋 (基底 fix): saveImage 内部只逐张 AppLog.put 失败日志, 用户无感知.
+        // 这里汇总本章失败数, 失败超过 0 张时追加一条汇总日志方便排查 (纯增量, 不改签名).
+        val failCount = AtomicInteger(0)
         flowImages(bookChapter, content).onEachParallel(concurrency) { mSrc ->
-            saveImage(bookSource, book, mSrc, bookChapter)
+            kotlin.runCatching {
+                saveImage(bookSource, book, mSrc, bookChapter)
+            }.onFailure {
+                failCount.incrementAndGet()
+            }
         }.collect()
+        if (failCount.get() > 0) {
+            AppLog.put("${book.name} ${bookChapter.title} 本章 ${failCount.get()} 张图片下载失败, 正文中已留空")
+        }
     }
 
     suspend fun saveImage(

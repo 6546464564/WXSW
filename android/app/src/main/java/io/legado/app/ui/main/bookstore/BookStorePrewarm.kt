@@ -19,11 +19,11 @@ object BookStorePrewarm {
 
     /** 频道 → (ranks, timestamp) — 跟 iOS BookStoreViewModel.channelRankCache 对齐 */
     val channelRankCache =
-        mutableMapOf<QidianRepository.Channel, Pair<Map<QidianRepository.RankType, List<QidianBook>>, Long>>()
+        java.util.concurrent.ConcurrentHashMap<QidianRepository.Channel, Pair<Map<QidianRepository.RankType, List<QidianBook>>, Long>>()
 
     /** 频道 → 扩展榜 (换一批 50 本池) — 跟 iOS BookStoreViewModel.channelExtendedCache 对齐 */
     private val channelExtendedCache =
-        BookStoreExtendedRanksDiskCache.load().toMutableMap()
+        java.util.concurrent.ConcurrentHashMap(BookStoreExtendedRanksDiskCache.load())
 
     fun getExtendedCache(channel: QidianRepository.Channel): Map<QidianRepository.RankType, List<QidianBook>> =
         channelExtendedCache[channel].orEmpty()
@@ -40,7 +40,7 @@ object BookStorePrewarm {
     }
 
     /** RankDetail 进程级 cache — key: "rank:MALE:Yuepiao" | "finish:Female"; TTL 1 天 */
-    val rankDetailCache = mutableMapOf<String, Pair<List<QidianBook>, Long>>()
+    val rankDetailCache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<QidianBook>, Long>>()
 
     fun rankCacheKey(mode: String, channel: QidianRepository.Channel, type: QidianRepository.RankType? = null): String {
         return if (mode == "finish") "finish:${channel.name}" else "rank:${channel.name}:${type?.name}"

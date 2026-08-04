@@ -234,7 +234,7 @@ open class ChangeBookSourceViewModel(application: Application) : BaseViewModel(a
                 }
             }.onStart {
                 searchStateData.postValue(true)
-            }.mapParallel(threadCount) {
+            }.mapParallel(min(threadCount, AppConst.MAX_THREAD)) {
                 try {
                     withTimeout(60000L) {
                         search(it)
@@ -383,7 +383,7 @@ open class ChangeBookSourceViewModel(application: Application) : BaseViewModel(a
                 }
             }.onStart {
                 searchStateData.postValue(true)
-            }.mapParallelSafe(threadCount) {
+            }.mapParallelSafe(min(threadCount, AppConst.MAX_THREAD)) {
                 val source = appDb.bookSourceDao.getBookSource(it.origin)!!
                 withTimeout(60000L) {
                     loadBookInfo(source, it.toBook())

@@ -18,8 +18,10 @@ RestartSec=5
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=SECURE_COOKIE=1
-# 首次启动会用此密码初始化管理员;之后改了就忽略,可以删
-Environment=ADMIN_INITIAL_PASSWORD=wanxiang2026
+# 生产环境必须设置 DEVICE_TOKEN_SECRET (未设置将拒绝启动)
+# 首次启动用此密码初始化管理员; 之后改了就忽略, 可以删.
+# 请通过 systemctl edit wanxiang 注入真实密码, 勿在仓库中写死.
+# Environment=ADMIN_INITIAL_PASSWORD=<随机强密码>
 StandardOutput=journal
 StandardError=journal
 

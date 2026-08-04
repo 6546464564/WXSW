@@ -206,7 +206,11 @@ public final class SourceHealthChecker: ObservableObject {
 
             func addNextSource() {
                 guard !aborted, let source = iter.next() else { return }
+                #if os(iOS) || os(tvOS) || os(watchOS)
                 let avail = UInt64(os_proc_available_memory())
+                #else
+                let avail: UInt64 = UInt64.max
+                #endif
                 if avail > 0 && avail < memSafetyBytes {
                     NSLog("[WX-MEM] SourceHealthChecker: 可用内存 %lluMB < 500MB, 中止本轮", avail / 1_048_576)
                     aborted = true

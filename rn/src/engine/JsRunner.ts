@@ -10,7 +10,10 @@
  * - source 对象 (getKey/getName/getVariable/…)
  * - getElements/getElement/getString/getStringList/setContent
  * - queryTTF/replaceFont/webView stub
+ *
+ * 注: 本文件用 `new Function` 动态执行书源 JS, 是引擎核心机制, 豁免 no-new-func 规则.
  */
+/* eslint-disable no-new-func */
 
 import axios from 'axios';
 import CryptoJS from 'crypto-js';
@@ -448,7 +451,7 @@ function createJavaBridge(scope: JSScope) {
     },
 
     // ── HTTP ──
-    ajax(urlOrOptions: any): string {
+    ajax(_urlOrOptions: any): string {
       console.warn('[JsRunner] java.ajax() sync not supported in RN');
       return '';
     },
@@ -469,7 +472,7 @@ function createJavaBridge(scope: JSScope) {
       }
     },
 
-    head(urlStr: string, _headers?: any): any {
+    head(_urlStr: string, _headers?: any): any {
       return {
         body: () => '',
         code: () => 0,
@@ -493,7 +496,7 @@ function createJavaBridge(scope: JSScope) {
       }
     },
 
-    getStrResponse(url: string, _headersAny?: any): any {
+    getStrResponse(_url: string, _headersAny?: any): any {
       return {
         body: () => '',
         code: () => 0,
@@ -966,7 +969,7 @@ function createJavaBridge(scope: JSScope) {
 
     startBrowser(_url: string, _keyword: string) {},
 
-    startBrowserAwait(urlAny: any, keywordAny?: any): any {
+    startBrowserAwait(_urlAny: any, _keywordAny?: any): any {
       return {
         body: () => '',
         code: () => 0,

@@ -269,50 +269,70 @@ public actor BookshelfRepository {
     }
 
     /// 万象书屋: 换源时改 book_url 主键 + 同步刷其它字段
-    /// 万象书屋 (bug 4 fix): DELETE + INSERT 必须在事务里, 否则中途崩溃会丢数据
+    /// 万象书屋 (bug 4 fix): DELETE + INSERT 必须在事务里, 否则中途崩溃会丢数据.
+    /// 失败时 ROLLBACK 并抛错, 避免遗留未提交事务污染后续操作.
     public func changeBookUrl(oldUrl: String, newBook: ShelfBook) async throws {
         try await DB.shared.openIfNeeded()
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         try await DB.shared.execQuery { handle in
-            sqlite3_exec(handle, "BEGIN TRANSACTION", nil, nil, nil)
-            // 1. 删旧
-            var del: OpaquePointer?
-            sqlite3_prepare_v2(handle, "DELETE FROM books WHERE book_url=?", -1, &del, nil)
-            sqlite3_bind_text(del, 1, oldUrl, -1, SQLITE_TRANSIENT)
-            sqlite3_step(del)
-            sqlite3_finalize(del)
-            // 2. 插新 (跟 add 用相同字段集, 22 字段)
-            var ins: OpaquePointer?
-            sqlite3_prepare_v2(handle, """
-                INSERT INTO books(
-                  book_url, tocUrl, origin, originName, name, author, kind, coverUrl,
-                  intro, type, group_id, totalChapterNum, durChapterIndex, durChapterPos,
-                  durChapterTime, latestChapterTitle, latestChapterTime, lastCheckTime,
-                  canUpdate, order_idx, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?)
-            """, -1, &ins, nil)
-            sqlite3_bind_text (ins,  1, newBook.bookUrl, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_optstr(ins, 2, newBook.tocUrl)
-            sqlite3_bind_text (ins,  3, newBook.origin, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text (ins,  4, newBook.originName, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text (ins,  5, newBook.name, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_text (ins,  6, newBook.author, -1, SQLITE_TRANSIENT)
-            sqlite3_bind_optstr(ins, 7, newBook.kind)
-            sqlite3_bind_optstr(ins, 8, newBook.coverUrl)
-            sqlite3_bind_optstr(ins, 9, newBook.intro)
-            sqlite3_bind_int  (ins, 10, Int32(newBook.groupId))
-            sqlite3_bind_int  (ins, 11, Int32(newBook.totalChapterNum))
-            sqlite3_bind_int  (ins, 12, Int32(newBook.durChapterIndex))
-            sqlite3_bind_int  (ins, 13, Int32(newBook.durChapterPos))
-            sqlite3_bind_int64(ins, 14, newBook.durChapterTime)
-            sqlite3_bind_optstr(ins, 15, newBook.latestChapterTitle)
-            sqlite3_bind_int64(ins, 16, newBook.latestChapterTime)
-            sqlite3_bind_int  (ins, 17, Int32(newBook.orderIdx))
-            sqlite3_bind_int64(ins, 18, now)
-            sqlite3_bind_int64(ins, 19, now)
-            sqlite3_step(ins)
-            sqlite3_finalize(ins)
-            sqlite3_exec(handle, "COMMIT", nil, nil, nil)
+            guard sqlite3_exec(handle, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else {
+                throw DBError.stepFailed(0, "BEGIN TRANSACTION failed")
+            }
+            do {
+                // 1. 删旧
+                var del: OpaquePointer?
+                defer { sqlite3_finalize(del) }
+                guard sqlite3_prepare_v2(handle, "DELETE FROM books WHERE book_url=?", -1, &del, nil) == SQLITE_OK,
+                      sqlite3_step(del) == SQLITE_DONE else {
+                    throw DBError.stepFailed(0, "DELETE old book failed")
+                }
+                // 2. 插新 (跟 add 用相同字段集, 22 字段)
+                var ins: OpaquePointer?
+                defer { sqlite3_finalize(ins) }
+                let prepared = sqlite3_prepare_v2(handle, """
+                    INSERT INTO books(
+                      book_url, tocUrl, origin, originName, name, author, kind, coverUrl,
+                      intro, type, group_id, totalChapterNum, durChapterIndex, durChapterPos,
+                      durChapterTime, latestChapterTitle, latestChapterTime, lastCheckTime,
+                      canUpdate, order_idx, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?)
+                """, -1, &ins, nil)
+                guard prepared == SQLITE_OK else {
+                    throw DBError.prepareFailed(prepared, "INSERT new book prepare failed")
+                }
+                sqlite3_bind_text (ins,  1, newBook.bookUrl, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_optstr(ins, 2, newBook.tocUrl)
+                sqlite3_bind_text (ins,  3, newBook.origin, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text (ins,  4, newBook.originName, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text (ins,  5, newBook.name, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text (ins,  6, newBook.author, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_optstr(ins, 7, newBook.kind)
+                sqlite3_bind_optstr(ins, 8, newBook.coverUrl)
+                sqlite3_bind_optstr(ins, 9, newBook.intro)
+                sqlite3_bind_int  (ins, 10, Int32(newBook.groupId))
+                sqlite3_bind_int  (ins, 11, Int32(newBook.totalChapterNum))
+                sqlite3_bind_int  (ins, 12, Int32(newBook.durChapterIndex))
+                sqlite3_bind_int  (ins, 13, Int32(newBook.durChapterPos))
+                sqlite3_bind_int64(ins, 14, newBook.durChapterTime)
+                sqlite3_bind_optstr(ins, 15, newBook.latestChapterTitle)
+                sqlite3_bind_int64(ins, 16, newBook.latestChapterTime)
+                sqlite3_bind_int  (ins, 17, Int32(newBook.orderIdx))
+                sqlite3_bind_int64(ins, 18, now)
+                sqlite3_bind_int64(ins, 19, now)
+                guard sqlite3_step(ins) == SQLITE_DONE else {
+                    throw DBError.stepFailed(0, "INSERT new book failed")
+                }
+                sqlite3_finalize(del)
+                del = nil
+                sqlite3_finalize(ins)
+                ins = nil
+                guard sqlite3_exec(handle, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+                    throw DBError.stepFailed(0, "COMMIT failed")
+                }
+            } catch {
+                sqlite3_exec(handle, "ROLLBACK", nil, nil, nil)
+                throw error
+            }
         }
     }
 

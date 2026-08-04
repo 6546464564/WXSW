@@ -92,11 +92,18 @@ class AnalyzeByJSoup(doc: Any) {
 
                 val temp: ArrayList<String>? =
                     if (sourceRule.isCss) {
+                        // 万象书屋 (基底 fix): 规则形如 `@CSS:.list` 无 `@属性` 后缀时
+                        // lastIndexOf('@')==-1, substring(0,-1) 抛 StringIndexOutOfBoundsException.
+                        // 此时整段都是 selector, 属性缺省取 text.
                         val lastIndex = ruleStrX.lastIndexOf('@')
-                        getResultLast(
-                            element.select(ruleStrX.substring(0, lastIndex)),
-                            ruleStrX.substring(lastIndex + 1)
-                        )
+                        if (lastIndex < 0) {
+                            getResultLast(element.select(ruleStrX), "text")
+                        } else {
+                            getResultLast(
+                                element.select(ruleStrX.substring(0, lastIndex)),
+                                ruleStrX.substring(lastIndex + 1)
+                            )
+                        }
                     } else {
                         getResultList(ruleStrX)
                     }
@@ -406,6 +413,14 @@ class AnalyzeByJSoup(doc: Any) {
         private fun findIndexSet(rule: String) {
 
             val rus = rule.trim { it <= ' ' }
+
+            // 万象书屋 (基底 fix): 空索引规则 `div[!]` / `[!]` 之类会让下面 rus.last() 抛
+            // NoSuchElementException. 空规则视作无索引 (整段是 jsoup 选择器).
+            if (rus.isEmpty()) {
+                split = ' '
+                beforeRule = rule
+                return
+            }
 
             var len = rus.length
             var curInt: Int? //当前数字

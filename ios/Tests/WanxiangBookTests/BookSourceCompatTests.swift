@@ -108,6 +108,17 @@ final class BookSourceCompatTests: XCTestCase {
     }
 
     func test_h5book_search() async throws {
+        // 万象书屋: h5book 站点为外部依赖, 504/不可达时跳过而非失败,
+        // 避免外部服务故障导致 CI/本机测试红.
+        if let probeUrl = URL(string: "https://h5.h5bookyyds.com/api/search/list?keyword=probe") {
+            var req = URLRequest(url: probeUrl)
+            req.timeoutInterval = 8
+            if let (_, resp) = try? await URLSession.shared.data(for: req),
+               let http = resp as? HTTPURLResponse,
+               http.statusCode >= 500 {
+                throw XCTSkip("h5book 站点当前不可用 (HTTP \(http.statusCode))")
+            }
+        }
         let jsLib = """
         var HMAC_KEY='1234567890123456';var BASE='https://h5.h5bookyyds.com';function genHeaders(){var ts=''+java.lang.System.currentTimeMillis();var nonce=java.util.UUID.randomUUID().toString().replace(/-/g,'').substring(0,32);var ks=new javax.crypto.spec.SecretKeySpec(java.lang.String(HMAC_KEY).getBytes('UTF-8'),'HmacSHA256');var mac=javax.crypto.Mac.getInstance('HmacSHA256');mac.init(ks);var sb=mac.doFinal(java.lang.String(ts+'.'+nonce).getBytes('UTF-8'));var sig='';for(var i=0;i<sb.length;i++){var b=sb[i]&0xFF;sig+=(b<16?'0':'')+java.lang.Integer.toHexString(b);}return{'x-timestamp':ts,'x-nonce':nonce,'x-signature':sig};}function decrypt(hex){hex=(''+hex).trim();var len=hex.length/2;var d=java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE,len);for(var i=0;i<len;i++){var v=java.lang.Integer.parseInt(hex.substring(i*2,i*2+2),16);d[i]=v>127?v-256:v;}var kb=java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE,32);for(var i=0;i<32;i++){var x=((d[48+i]&0xFF)^(d[i]&0xFF));kb[i]=x>127?x-256:x;}var iv=java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE,16);for(var i=0;i<16;i++){var x=((d[80+i]&0xFF)^(d[32+i]&0xFF));iv[i]=x>127?x-256:x;}var cl=len-96;var cb=java.lang.reflect.Array.newInstance(java.lang.Byte.TYPE,cl);java.lang.System.arraycopy(d,96,cb,0,cl);var cipher=javax.crypto.Cipher.getInstance('AES/CBC/PKCS5Padding');cipher.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(kb,'AES'),new javax.crypto.spec.IvParameterSpec(iv));return''+new java.lang.String(cipher.doFinal(cb),'UTF-8');}
         """

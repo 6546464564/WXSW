@@ -24,7 +24,8 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 3000,
         LOG_LEVEL: 'info',
-        PROXY_URL: 'http://jt1037546079:iu7mhk9u@tn10021.jiliuip.com:12866'
+        // 代理账号密码通过环境变量注入, 勿写死在仓库中
+        PROXY_URL: process.env.PROXY_URL || ''
       },
       error_file: './logs/err.log',
       out_file: './logs/out.log',

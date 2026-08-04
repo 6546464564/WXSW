@@ -121,7 +121,7 @@ class ChangeCoverViewModel(application: Application) : BaseViewModel(application
                 }
             }.onStart {
                 searchStateData.postValue(true)
-            }.mapParallelSafe(threadCount) {
+            }.mapParallelSafe(min(threadCount, AppConst.MAX_THREAD)) {
                 withTimeout(60000L) {
                     search(it)
                 }

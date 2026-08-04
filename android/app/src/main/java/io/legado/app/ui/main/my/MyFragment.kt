@@ -107,6 +107,14 @@ class MyFragment() : BaseFragment(R.layout.fragment_my_config), MainFragmentInte
             binding.btnUnlockCardExtend.isEnabled = true
             binding.btnUnlockCardExtend.setOnClickListener {
                 val act = activity ?: return@setOnClickListener
+                // 万象书屋 (限流修复): 点击时二次校验冷却. 按钮禁用依赖 1-5s 刷新周期,
+                // 用户在"刚看完一次广告 + 下一次刷新禁用按钮之前"再点一下, 会绕过
+                // canShowRewardedAdNow 进入第二次广告 → 同一冷却窗口内发两次奖.
+                // 与 ReadBookActivity.triggerExtendUnlockAd 的点击时校验对齐.
+                if (!AdRateLimiter.canShowRewardedAdNow(rwd.cooldownSec)) {
+                    refreshUnlockCard()
+                    return@setOnClickListener
+                }
                 AdManager.loadAndShowRewarded(act,
                     onSkipped = { /* 静默 */ },
                     onRewarded = {

@@ -32,7 +32,7 @@ import {
   RankingGroup,
   Channel,
 } from '../../api/bookstore';
-import {useThemeColors, type ThemeColors, Spacing, FontSize, Radius} from '../../app/theme';
+import {useThemeColors, type ThemeColors, Radius} from '../../app/theme';
 import {RootStackParamList} from '../../app/Navigation';
 import {useBookshelfStore} from '../../store/bookshelfStore';
 
@@ -67,6 +67,8 @@ export default function BookStoreScreen() {
   const [swapPages, setSwapPages] = useState<number[]>([0, 0, 0]);
   const navigation = useNavigation<Nav>();
   const loadedChannels = useRef<Set<Channel>>(new Set());
+  // 书城请求序号：快速切换频道/刷新时，旧响应不得覆盖新数据
+  const loadSeqRef = useRef(0);
   const shelfBooks = useBookshelfStore(s => s.books);
   const shelfKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -79,18 +81,22 @@ export default function BookStoreScreen() {
 
   const load = useCallback(
     async (force = false) => {
+      const seq = ++loadSeqRef.current;
       if (!force && !loading) setLoading(true);
       setFailed(false);
       try {
         if (force) clearMirrorCache();
         const data = await fetchBookStoreData(channel);
+        if (seq !== loadSeqRef.current) return;
         setHeroBook(data.heroBook);
         setRankings(data.rankings);
         setAllBooks(data.allBooks);
         loadedChannels.current.add(channel);
       } catch {
+        if (seq !== loadSeqRef.current) return;
         setFailed(true);
       }
+      if (seq !== loadSeqRef.current) return;
       setLoading(false);
       setRefreshing(false);
     },

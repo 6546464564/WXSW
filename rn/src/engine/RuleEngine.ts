@@ -31,7 +31,7 @@ import {
 import {splitTop, parseSingle} from './LegadoRuleParser';
 import {queryCss, queryCssFirst} from './parsers/CssParser';
 import {queryJsonPath, queryJsonPathFirst} from './parsers/JsonPathParser';
-import {queryRegex, applyReplaceRules} from './parsers/RegexParser';
+import {applyReplaceRules} from './parsers/RegexParser';
 import {evaluateJs} from './JsRunner';
 
 const MAX_RECURSION_DEPTH = 16;

@@ -4,8 +4,9 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.legado.app.BuildConfig
 import io.legado.app.help.http.newCallStrResponse
-import io.legado.app.help.http.okHttpClient
+import io.legado.app.help.http.wanxiangSecureOkHttpClient
 import io.legado.app.utils.LogUtils
+import kotlinx.coroutines.async
 import splitties.init.appCtx
 import java.io.File
 
@@ -38,6 +39,15 @@ object WanxiangBookstoreMirror {
     @Volatile
     private var cachedEtag: String? = null
 
+    // 万象书屋: 单飞状态 — 同一时间只允许一个 mirror 拉取任务在跑.
+    // 启动期 WanxiangBackend.start 的 prefetch 与 BookStorePrewarm.prewarm 会并发调 fetch,
+    // 加上 QidianRepository 各方法 / 书城下拉刷新也会触发, 之前会出现多个并发 HTTP 拉取
+    // 同时写 cachedPayload/cachedEtag/磁盘文件 (丢数据 / 重复拉取). 现在重复触发复用同一个
+    // 在跑任务的结果.
+    private val singleFlightMutex = kotlinx.coroutines.sync.Mutex()
+    @Volatile
+    private var inFlightFetch: kotlinx.coroutines.Deferred<JsonObject?>? = null
+
     private val diskFile: File
         get() = File(appCtx.filesDir, "bookstore_mirror.json")
 
@@ -61,23 +71,44 @@ object WanxiangBookstoreMirror {
         ) {
             return cachedPayload
         }
-        val url = "$base$PATH"
-        for (attempt in 0..1) {
-            when (val outcome = fetchOnce(url, allowTokenReissue = attempt == 0)) {
-                is Outcome.Ok -> return outcome.payload
-                is Outcome.Definitive -> {
-                    LogUtils.d(TAG, outcome.reason)
-                    return staleDiskPayloadIfFresh(outcome.reason)
-                }
-                is Outcome.Transient -> {
-                    if (attempt == 0) {
-                        LogUtils.d(TAG, "transient ${outcome.reason}, retry...")
-                    }
+    val url = "$base$PATH"
+    // 单飞: 已有任务在跑则直接等它的结果, 不重复发 HTTP.
+    singleFlightMutex.lock()
+    val running = inFlightFetch
+    if (running != null) {
+        singleFlightMutex.unlock()
+        return running.await()
+    }
+    val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
+        .async { doFetch(url) }
+    inFlightFetch = job
+    singleFlightMutex.unlock()
+    return try {
+        job.await()
+    } finally {
+        // 只有创建者才清 inFlightFetch, 避免把后进来的任务的引用误清
+        if (inFlightFetch === job) inFlightFetch = null
+    }
+}
+
+/** 万象书屋: 纯网络拉取逻辑, 由 fetch 单飞保护 */
+private suspend fun doFetch(url: String): JsonObject? {
+    for (attempt in 0..1) {
+        when (val outcome = fetchOnce(url, allowTokenReissue = attempt == 0)) {
+            is Outcome.Ok -> return outcome.payload
+            is Outcome.Definitive -> {
+                LogUtils.d(TAG, outcome.reason)
+                return staleDiskPayloadIfFresh(outcome.reason)
+            }
+            is Outcome.Transient -> {
+                if (attempt == 0) {
+                    LogUtils.d(TAG, "transient ${outcome.reason}, retry...")
                 }
             }
         }
-        return staleDiskPayloadIfFresh("network exhausted")
     }
+    return staleDiskPayloadIfFresh("network exhausted")
+}
 
     private sealed class Outcome {
         data class Ok(val payload: JsonObject) : Outcome()
@@ -87,7 +118,7 @@ object WanxiangBookstoreMirror {
 
     private suspend fun fetchOnce(url: String, allowTokenReissue: Boolean = true): Outcome {
         return try {
-            val resp = okHttpClient.newCallStrResponse(retry = 0) {
+            val resp = wanxiangSecureOkHttpClient.newCallStrResponse(retry = 0) {
                 url(url)
                 header("Accept", "application/json")
                 header("X-Platform", PLATFORM)

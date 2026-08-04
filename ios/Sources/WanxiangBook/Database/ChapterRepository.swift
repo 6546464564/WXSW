@@ -265,6 +265,26 @@ public actor ChapterRepository {
         }
     }
 
+    /// 万象书屋 (M2.8 fix): 只清指定章节索引的正文。范围下载 force 重试时用，
+    /// 避免误清范围外已下载的章节正文。
+    public func clearContent(bookUrl: String, chapterIndexes: [Int]) async throws {
+        guard !chapterIndexes.isEmpty else { return }
+        try await DB.shared.openIfNeeded()
+        try await DB.shared.execQuery { handle in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_prepare_v2(handle,
+                "UPDATE book_chapters SET content = NULL WHERE book_url = ? AND chapter_index = ?",
+                -1, &stmt, nil)
+            for idx in chapterIndexes {
+                sqlite3_bind_text(stmt, 1, bookUrl, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_int(stmt, 2, Int32(idx))
+                _ = sqlite3_step(stmt)
+                sqlite3_reset(stmt)
+            }
+        }
+    }
+
     /// 万象书屋: 换源时彻底清掉旧 toc + 内容
     public func clearAllForBook(bookUrl: String) async throws {
         try await DB.shared.openIfNeeded()

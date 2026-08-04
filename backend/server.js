@@ -79,7 +79,9 @@ app.use('/api/', (req, res, next) => {
 });
 
 // 30 分钟清一次老数据 + 自动重试 not_found 书
-setInterval(() => db.cleanupOldData(), 30 * 60 * 1000).unref?.();
+setInterval(() => {
+  try { db.cleanupOldData(); } catch (e) { logger.error('cleanupOldData failed', { msg: e.message }); }
+}, 30 * 60 * 1000).unref?.();
 
 // 每 6 小时自动处理 pending 的书 (含自动重试的)
 setInterval(async () => {
@@ -177,7 +179,10 @@ function totpGenerateUri(label, issuer, secret) {
 // 设备 token HMAC
 const DEVICE_TOKEN_SECRET = process.env.DEVICE_TOKEN_SECRET ||
   'dev-only-CHANGE-IN-PRODUCTION-please-' + (require('os').hostname());
-if (DEVICE_TOKEN_SECRET.startsWith('dev-only-')) {
+if (process.env.NODE_ENV === 'production' && DEVICE_TOKEN_SECRET.startsWith('dev-only-')) {
+  console.error('[security] FATAL: DEVICE_TOKEN_SECRET must be set in production, refusing to start');
+  process.exit(1);
+} else if (DEVICE_TOKEN_SECRET.startsWith('dev-only-')) {
   console.warn('[security] DEVICE_TOKEN_SECRET not set, using insecure dev fallback');
 }
 function computeDeviceTokenHash(deviceId, installTs) {
@@ -217,7 +222,8 @@ app.get('/api/health', (req, res) => {
     db.__db.prepare('SELECT 1').get();
     checks.db = { ok: true, latency_ms: Date.now() - t0 };
   } catch (e) {
-    checks.db = { ok: false, error: e.message };
+    checks.db = { ok: false, error: 'db check failed' };
+    logger.error('health db check failed', { msg: e.message });
     allOk = false;
   }
   const mem = process.memoryUsage();
@@ -239,7 +245,18 @@ app.get('/api/health', (req, res) => {
 });
 
 // --- Prometheus metrics ---
+// 保护: 配置 METRICS_TOKEN 则需 Bearer token; 否则仅允许本机访问
 app.get('/metrics', (req, res) => {
+  const token = process.env.METRICS_TOKEN;
+  if (token) {
+    const auth = req.get('Authorization') || '';
+    if (auth !== `Bearer ${token}`) return res.status(401).json({ ok: false, msg: 'unauthorized' });
+  } else {
+    const ip = req.ip || '';
+    if (!/^127\.|^::1$|^::ffff:127\./.test(ip)) {
+      return res.status(403).json({ ok: false, msg: 'metrics only accessible from localhost (set METRICS_TOKEN to allow remote)' });
+    }
+  }
   const lines = [];
   const mem = process.memoryUsage();
   function metric(name, help, type, value, labels = '') {
@@ -280,7 +297,7 @@ app.get('/api/version-check', (req, res) => {
     needUpgrade: code > 0 && v.latest_code > 0 && code < v.latest_code,
     changelog: v.changelog || '', apkUrl: v.apk_url || '', marketUrl: v.market_url || ''
   };
-  if (extra.min_os) resp.min_os = extra.min_os;
+  if (extra.min_os && db.kvGet('review_mode') !== '1') resp.min_os = extra.min_os;
   res.json(resp);
 });
 
@@ -563,8 +580,9 @@ app.post('/api/promo/attempt', blockBlacklistedDevice, (req, res) => {
 app.post('/api/promo/usage', blockBlacklistedDevice, (req, res) => {
   const { code, agent_name, device_id, device_model, system_version } = req.body || {};
   if (!code || !device_id) return res.status(400).json({ ok: false, msg: 'code & device_id required' });
-  const ok = db.recordPromoUsage({ code, agentName: agent_name, deviceId: device_id, deviceModel: device_model, systemVersion: system_version, ip: req.ip });
-  res.json({ ok });
+  const result = db.recordPromoUsage({ code, agentName: agent_name, deviceId: device_id, deviceModel: device_model, systemVersion: system_version, ip: req.ip });
+  if (!result.ok) return res.status(400).json(result);
+  res.json({ ok: true });
 });
 
 // ═══════════════════ 管理 API ═══════════════════
@@ -631,6 +649,24 @@ app.post('/api/admin/password', loginRateLimit, requireAdmin, async (req, res) =
 app.get('/api/admin/me', (req, res) => {
   const tok = req.cookies && req.cookies.adm;
   res.json({ ok: db.isValidSession(tok, req.get('User-Agent') || '') });
+});
+
+// --- admin 多用户管理 (模型函数已存在, 补齐路由) ---
+app.get('/api/admin/users', requireAdmin, (req, res) => {
+  res.json({ ok: true, users: db.listAdminUsers() });
+});
+app.post('/api/admin/users', requireAdmin, requireRole(['super']), async (req, res) => {
+  try {
+    const { username, password, role } = req.body || {};
+    await db.createAdminUser({ username, password, role, creator: req.admin.username });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ ok: false, msg: e.message });
+  }
+});
+app.delete('/api/admin/users/:username', requireAdmin, requireRole(['super']), (req, res) => {
+  db.deleteAdminUser(req.params.username);
+  res.json({ ok: true });
 });
 
 // --- admin 应用配置 ---
@@ -916,12 +952,12 @@ app.post('/api/admin/promo/codes', requireAdmin, requireRole(['super', 'operator
 });
 app.put('/api/admin/promo/codes/:code', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const ok = db.updatePromoCode(req.params.code, req.body || {});
-  if (ok)
+  if (!ok) return res.status(404).json({ ok: false, msg: '推广码不存在' });
   res.json({ ok });
 });
 app.delete('/api/admin/promo/codes/:code', requireAdmin, requireRole(['super', 'operator']), (req, res) => {
   const ok = db.deletePromoCode(req.params.code);
-  if (ok)
+  if (!ok) return res.status(404).json({ ok: false, msg: '推广码不存在' });
   res.json({ ok });
 });
 app.get('/api/admin/promo/stats', requireAdmin, (req, res) => res.json({ ok: true, ...db.promoOverview() }));
@@ -1502,7 +1538,8 @@ app.get('/', (req, res) => res.redirect('/admin'));
 app.use((err, req, res, next) => {
   const status = err.status || (err.type === 'entity.parse.failed' ? 400 : 500);
   logger.error('request error', { method: req.method, url: req.url, status, msg: err.message });
-  res.status(status).json({ ok: false, msg: err.message || 'server error' });
+  // 对外不泄露内部错误细节（SQL 报错/堆栈等）
+  res.status(status).json({ ok: false, msg: status >= 500 ? 'server error' : err.message });
 });
 
 // ═══════════════════ 启动 ═══════════════════

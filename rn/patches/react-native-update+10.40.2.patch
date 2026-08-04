@@ -54,7 +54,7 @@ diff --git a/node_modules/react-native-update/ios/RCTPushy/RCTPushy.mm b/node_mo
 similarity index 64%
 rename from node_modules/react-native-update/ios/RCTPushy/RCTPushy.mm
 rename to node_modules/react-native-update/ios/RCTBundleProvider/RCTBundleProvider.mm
-index 55f5598..43885b4 100644
+index 55f5598..09b0d73 100644
 --- a/node_modules/react-native-update/ios/RCTPushy/RCTPushy.mm
 +++ b/node_modules/react-native-update/ios/RCTBundleProvider/RCTBundleProvider.mm
 @@ -1,5 +1,5 @@
@@ -857,7 +857,13 @@ index 55f5598..43885b4 100644
  }
  
  + (NSURL *)binaryBundleURL
-@@ -801,7 +801,7 @@ + (NSString *)buildTime
+@@ -795,18 +795,14 @@ + (NSString *)packageVersion
+ 
+ + (NSString *)buildTime
+ {
+-#if DEBUG
+-    return @"0";
+-#else
      static NSString *buildTime;
      static dispatch_once_t onceToken;
      dispatch_once(&onceToken, ^{
@@ -866,6 +872,12 @@ index 55f5598..43885b4 100644
        buildTime = [[NSString stringWithContentsOfFile:buildTimePath encoding:NSUTF8StringEncoding error:nil]
                   stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]];
      });
+-    return buildTime;
+-#endif
++    return buildTime ?: @"0";
+ }
+ 
+ #ifdef RCT_NEW_ARCH_ENABLED
 diff --git a/node_modules/react-native-update/ios/RCTPushy/RCTPushyDownloader.h b/node_modules/react-native-update/ios/RCTBundleProvider/RCTBundleProviderDownloader.h
 similarity index 83%
 rename from node_modules/react-native-update/ios/RCTPushy/RCTPushyDownloader.h
@@ -929,11 +941,11 @@ index 8b9cb43..809e2d0 100644
                                                      NSLocalizedDescriptionKey: @"invalid download url",
 diff --git a/node_modules/react-native-update/ios/bp_build_time.txt b/node_modules/react-native-update/ios/bp_build_time.txt
 new file mode 100644
-index 0000000..a47bfab
+index 0000000..6442ea2
 --- /dev/null
 +++ b/node_modules/react-native-update/ios/bp_build_time.txt
 @@ -0,0 +1 @@
-+1781138618
++1781092455
 diff --git a/node_modules/react-native-update/ios/pushy_build_time.txt b/node_modules/react-native-update/ios/pushy_build_time.txt
 deleted file mode 100644
 index a1cea0b..0000000
@@ -942,7 +954,7 @@ index a1cea0b..0000000
 @@ -1 +0,0 @@
 -1680488830
 diff --git a/node_modules/react-native-update/react-native-update.podspec b/node_modules/react-native-update/react-native-update.podspec
-index ef72d11..ecd7f5c 100644
+index ef72d11..210aa5f 100644
 --- a/node_modules/react-native-update/react-native-update.podspec
 +++ b/node_modules/react-native-update/react-native-update.podspec
 @@ -95,8 +95,8 @@ Pod::Spec.new do |s|
@@ -952,7 +964,7 @@ index ef72d11..ecd7f5c 100644
 -  s.resource = 'ios/pushy_build_time.txt'
 -  s.script_phase = { :name => 'Generate build time', :script => "set -x;date +%s > \"#{podspec_dir}/ios/pushy_build_time.txt\"", :execution_position => :before_compile }
 +  s.resource = 'ios/bp_build_time.txt'
-+  s.script_phase = { :name => 'Generate build time', :script => "set -x;date +%s > \"#{podspec_dir}/ios/bp_build_time.txt\"", :execution_position => :before_compile }
++  s.script_phase = { :name => 'Generate build time', :script => "echo 'Skipping build time generation (using fixed value)'", :execution_position => :before_compile }
  
    s.dependency 'React'
    s.dependency "React-Core"
@@ -986,8 +998,101 @@ index 094d85c..56335ef 100644
  
 -export default TurboModuleRegistry.get<Spec>('Pushy') as Spec | null;
 +export default TurboModuleRegistry.get<Spec>('BundleProvider') as Spec | null;
+diff --git a/node_modules/react-native-update/src/client.ts b/node_modules/react-native-update/src/client.ts
+index b984907..85e9f1e 100644
+--- a/node_modules/react-native-update/src/client.ts
++++ b/node_modules/react-native-update/src/client.ts
+@@ -63,6 +63,11 @@ const cloneServerConfig = (server: UpdateServerConfig): UpdateServerConfig => ({
+   queryUrls: server.queryUrls ? [...server.queryUrls] : undefined,
+ });
+ 
++// iOS native module was renamed to BundleProvider (emits RCTBPDownloadProgress);
++// Android/harmony still emit RCTPushyDownloadProgress.
++const downloadProgressEvent =
++  Platform.OS === 'ios' ? 'RCTBPDownloadProgress' : 'RCTPushyDownloadProgress';
++
+ const excludeConfiguredEndpoints = (
+   endpoints: string[],
+   configuredEndpoints: string[],
+@@ -373,7 +378,7 @@ export class Pushy {
+       cInfo,
+       ...extra,
+     };
+-    if (__DEV__) {
++    if (__DEV__ && !this.options.debug) {
+       delete fetchBody.buildTime;
+     }
+     const stringifyBody = JSON.stringify(fetchBody);
+@@ -442,6 +447,9 @@ export class Pushy {
+       description = '',
+       metaInfo,
+     } = updateInfo;
++    const updateUrls = (updateInfo as any).updateUrls || ((updateInfo as any).updateUrl ? [(updateInfo as any).updateUrl] : undefined);
++    const pdiffUrls = (updateInfo as any).pdiffUrls || ((updateInfo as any).pdiffUrl ? [(updateInfo as any).pdiffUrl] : undefined);
++    const diffUrls = (updateInfo as any).diffUrls || ((updateInfo as any).diffUrl ? [(updateInfo as any).diffUrl] : undefined);
+     if (
+       this.options.beforeDownloadUpdate &&
+       (await this.options.beforeDownloadUpdate(updateInfo)) === false
+@@ -478,7 +486,7 @@ export class Pushy {
+       } else {
+         sharedState.progressHandlers[hash] =
+           pushyNativeEventEmitter.addListener(
+-            'RCTPushyDownloadProgress',
++            downloadProgressEvent,
+             progressData => {
+               if (progressData.hash === hash) {
+                 onDownloadProgress(progressData);
+@@ -496,8 +504,8 @@ export class Pushy {
+     });
+     let lastError: any;
+     const errorMessages: string[] = [];
+-    const diffUrl = await testUrls(joinUrls(paths, diff));
+-    if (diffUrl && !__DEV__) {
++    const diffUrl = await testUrls(joinUrls(paths, diff) || diffUrls);
++    if (diffUrl && (!__DEV__ || this.options.debug)) {
+       log('downloading diff');
+       try {
+         await PushyModule.downloadPatchFromPpk({
+@@ -516,8 +524,8 @@ export class Pushy {
+       }
+     }
+     if (!succeeded) {
+-      const pdiffUrl = await testUrls(joinUrls(paths, pdiff));
+-      if (pdiffUrl && !__DEV__) {
++      const pdiffUrl = await testUrls(joinUrls(paths, pdiff) || pdiffUrls);
++      if (pdiffUrl && (!__DEV__ || this.options.debug)) {
+         log('downloading pdiff');
+         try {
+           await PushyModule.downloadPatchFromPackage({
+@@ -536,7 +544,7 @@ export class Pushy {
+       }
+     }
+     if (!succeeded) {
+-      const fullUrl = await testUrls(joinUrls(paths, full));
++      const fullUrl = await testUrls(joinUrls(paths, full) || updateUrls);
+       if (fullUrl) {
+         log('downloading full patch');
+         try {
+@@ -553,7 +561,7 @@ export class Pushy {
+           lastError = Error(errorMessage);
+           log(errorMessage);
+         }
+-      } else if (__DEV__) {
++      } else if (__DEV__ && !this.options.debug) {
+         log(this.t('dev_incremental_update_disabled'));
+         succeeded = 'full';
+       }
+@@ -640,7 +648,7 @@ export class Pushy {
+       }
+       sharedState.progressHandlers[progressKey] =
+         pushyNativeEventEmitter.addListener(
+-          'RCTPushyDownloadProgress',
++          downloadProgressEvent,
+           (progressData: ProgressData) => {
+             if (progressData.hash === progressKey) {
+               onDownloadProgress(progressData);
 diff --git a/node_modules/react-native-update/src/core.ts b/node_modules/react-native-update/src/core.ts
-index ec5d141..b60cce7 100644
+index ec5d141..84fd103 100644
 --- a/node_modules/react-native-update/src/core.ts
 +++ b/node_modules/react-native-update/src/core.ts
 @@ -15,7 +15,7 @@ export const PushyModule =
@@ -995,7 +1100,7 @@ index ec5d141..b60cce7 100644
      : isTurboModuleEnabled
      ? require('./NativePushy').default
 -    : NativeModules.Pushy;
-+    : NativeModules.BundleProvider;
++    : (NativeModules.BundleProvider || NativeModules.Pushy);
  
  export const UpdateModule = PushyModule;
  

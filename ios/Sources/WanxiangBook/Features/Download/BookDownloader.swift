@@ -227,7 +227,13 @@ public final class BookDownloader: ObservableObject {
         jobs[book.bookUrl] = job
 
         if force {
-            try? await ChapterRepository.shared.clearContent(bookUrl: book.bookUrl)
+            // 范围下载时只清范围内的章节，避免误清范围外已下载的正文 (DownloadCenter 重试用 force+range)
+            if let range = range {
+                let indexes = chapters.map(\.chapterIndex)
+                try? await ChapterRepository.shared.clearContent(bookUrl: book.bookUrl, chapterIndexes: indexes)
+            } else {
+                try? await ChapterRepository.shared.clearContent(bookUrl: book.bookUrl)
+            }
         }
 
         // 3. 检测哪些章节已 cache → skip (force 时全量重拉, 修复「每章只有一页」的残缺缓存)

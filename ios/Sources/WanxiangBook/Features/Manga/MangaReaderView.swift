@@ -16,6 +16,9 @@ public struct MangaReaderView: View {
     @AppStorage("wanxiang.manga.layout") private var layoutRaw: Int = 0
     @State private var menuVisible = false
     @State private var currentIndex = 0
+    /// 万象书屋: slider 拖拽后待滚动到的页码 (仅竖排模式用). 横排 TabView(selection:)
+    /// 自带联动, 竖排 ScrollView 需要手动 scrollTo, 否则拖动 slider 只改数字不翻页.
+    @State private var pendingScrollIndex: Int? = nil
     @Environment(\.dismiss) private var dismiss
 
     enum Layout: Int { case vertical = 0, horizontal = 1 }
@@ -55,12 +58,22 @@ public struct MangaReaderView: View {
     }
 
     private var verticalScroll: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(Array(imageUrls.enumerated()), id: \.offset) { i, url in
-                    MangaImageView(url: url)
-                        .onAppear { currentIndex = i }
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(imageUrls.enumerated()), id: \.offset) { i, url in
+                        MangaImageView(url: url)
+                            .id(i)
+                            .onAppear { currentIndex = i }
+                    }
                 }
+            }
+            // 万象书屋: 竖排模式 slider 拖拽 → 滚动到目标页. 否则 currentIndex 只改
+            // "x / N" 计数, 实际显示页不动 (横排 TabView(selection:) 已联动, 不需此分支).
+            .onChange(of: pendingScrollIndex) { target in
+                guard let target else { return }
+                pendingScrollIndex = nil
+                withAnimation { proxy.scrollTo(target, anchor: .top) }
             }
         }
         .onTapGesture { withAnimation { menuVisible.toggle() } }
@@ -106,7 +119,11 @@ public struct MangaReaderView: View {
                     .foregroundStyle(.white)
                 Slider(value: Binding(
                     get: { Double(currentIndex) },
-                    set: { currentIndex = Int($0) }
+                    set: { newValue in
+                        let target = Int(newValue)
+                        currentIndex = target
+                        if layout == .vertical { pendingScrollIndex = target }
+                    }
                 ), in: 0...Double(max(0, imageUrls.count - 1)), step: 1)
                 .tint(WanxiangColors.primary)
             }

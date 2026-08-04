@@ -172,6 +172,12 @@ public struct PaginationEngine {
                         let pageText = (attrString.string as NSString).substring(with: pageRange)
                         let isNewPara = startIdx == 0 || (attrString.string as NSString).substring(with: NSRange(location: Int(startIdx) - 1, length: 1)) == "\n"
                         slices.append((text: pageText, charOffset: Int(startIdx), wasteH: wasteH, lineCount: ctLines.count, startsNewPara: isNewPara))
+                    } else {
+                        // 万象书屋 (评审 fix): SuggestFrameSize 返回 0 (超大单字等病态排版) —
+                        // 仍占位 1 字符页, 否则该字符被静默丢弃、后续页 charOffset 断档.
+                        let oneRange = NSRange(location: startIdx, length: 1)
+                        let oneText = (attrString.string as NSString).substring(with: oneRange)
+                        slices.append((text: oneText, charOffset: Int(startIdx), wasteH: 0, lineCount: 0, startsNewPara: false))
                     }
                     startIdx += advance
                     continue

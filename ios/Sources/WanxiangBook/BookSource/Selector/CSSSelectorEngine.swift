@@ -19,35 +19,61 @@ import SwiftSoup
 
 /// 不阻塞 Swift cooperative thread pool 的异步信号量。
 /// 等待者 suspend（让出线程）而非 block（占住线程）。
+/// 支持取消：等待任务被取消时挂起的 continuation 会被恢复并返回 false，避免挂起泄漏。
 final class AsyncSemaphore: @unchecked Sendable {
     private let lock = NSLock()
     private var count: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [WaiterEntry] = []
+
+    private struct WaiterEntry {
+        let token: WaiterToken
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    /// 关联一个等待任务的取消标记。取消处理器与注册闭包通过它互斥地决定"谁来恢复"。
+    private final class WaiterToken: @unchecked Sendable {
+        var finished = false
+    }
 
     init(value: Int) { self.count = value }
 
-    func wait() async {
-        lock.lock()
-        if count > 0 {
-            count -= 1
-            lock.unlock()
-            return
-        }
-        lock.unlock()
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+    /// 等待直到可用。返回 true 表示成功获取，false 表示任务被取消。
+    @discardableResult
+    func wait() async -> Bool {
+        if Task.isCancelled { return false }
+        let token = WaiterToken()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                lock.lock()
+                if count > 0 {
+                    count -= 1
+                    token.finished = true
+                    lock.unlock()
+                    cont.resume(returning: true)
+                } else if Task.isCancelled {
+                    token.finished = true
+                    lock.unlock()
+                    cont.resume(returning: false)
+                } else {
+                    waiters.append(WaiterEntry(token: token, continuation: cont))
+                    lock.unlock()
+                }
+            }
+        } onCancel: {
             lock.lock()
-            if count > 0 {
-                count -= 1
+            if !token.finished,
+               let idx = waiters.firstIndex(where: { $0.token === token }) {
+                let entry = waiters.remove(at: idx)
+                token.finished = true
                 lock.unlock()
-                cont.resume()
+                entry.continuation.resume(returning: false)
             } else {
-                waiters.append(cont)
                 lock.unlock()
             }
         }
     }
 
-    /// 带超时的 wait。返回 true 表示获取成功，false 表示超时。
+    /// 带超时的 wait。返回 true 表示获取成功，false 表示超时或取消。
     func waitWithTimeout(seconds: Double) async -> Bool {
         lock.lock()
         if count > 0 {
@@ -60,7 +86,6 @@ final class AsyncSemaphore: @unchecked Sendable {
         let acquired = await withTaskGroup(of: Bool.self) { group -> Bool in
             group.addTask {
                 await self.wait()
-                return true
             }
             group.addTask {
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
@@ -68,12 +93,6 @@ final class AsyncSemaphore: @unchecked Sendable {
             }
             let first = await group.next()!
             group.cancelAll()
-            if first == false {
-                // 超时：不需要 signal（没拿到锁）
-                // 但需要从 waiters 里移除挂起的 continuation
-                // 这里用简化处理：直接 signal 一次让排队的 waiter 拿到
-                // （因为我们的 wait task 还在队列里，signal 后它会 resume 但被 cancel）
-            }
             return first
         }
         return acquired
@@ -81,10 +100,11 @@ final class AsyncSemaphore: @unchecked Sendable {
 
     func signal() {
         lock.lock()
-        if let waiter = waiters.first {
+        if let entry = waiters.first {
             waiters.removeFirst()
+            entry.token.finished = true
             lock.unlock()
-            waiter.resume()
+            entry.continuation.resume(returning: true)
         } else {
             count += 1
             lock.unlock()

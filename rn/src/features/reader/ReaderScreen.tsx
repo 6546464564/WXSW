@@ -537,6 +537,8 @@ export default function ReaderScreen() {
   const dynamicBookRef = useRef<string | undefined>(undefined);
   const bookName = book?.name || paramBookName || '';
   const initIdRef = useRef(0);
+  // 章节正文请求序号：快速切换章节时只允许最新一次请求写 state
+  const chapterReqIdRef = useRef(0);
 
   useEffect(() => {
     const timer = setInterval(() => setTimeStr(formatTime()), 30000);
@@ -598,6 +600,7 @@ export default function ReaderScreen() {
       const srcUrl = dynamicSourceRef.current || paramSourceUrl || book?.sourceUrl;
       const localSrc = srcUrl ? sources.find(s => s.bookSourceUrl === srcUrl) : undefined;
       if (!isLibraryUrl && !localSrc && !srcUrl) return;
+      const reqId = ++chapterReqIdRef.current;
       setLoading(true);
       try {
         let text = '';
@@ -614,6 +617,8 @@ export default function ReaderScreen() {
         if (!text && !isLibraryUrl && srcUrl) {
           try { text = await fetchProxyContent(srcUrl, chapters[idx].url); } catch {}
         }
+        // 旧请求（被更新的切换打断）不再写 state，防止旧章节覆盖新内容
+        if (reqId !== chapterReqIdRef.current) return;
         setContent(text || '内容为空');
         setChapterTitle(chapters[idx]?.title || '');
         setCurrentIdx(idx);
@@ -630,10 +635,11 @@ export default function ReaderScreen() {
           }
         }
       } catch (e: any) {
+        if (reqId !== chapterReqIdRef.current) return;
         setContent('加载失败: ' + e.message);
         setChapterTitle('错误');
       }
-      setLoading(false);
+      if (reqId === chapterReqIdRef.current) setLoading(false);
     },
     [sources, chapters, book, paramSourceUrl, updateProgress, isLibraryUrl],
   );
@@ -646,7 +652,11 @@ export default function ReaderScreen() {
       const srcUrl = paramSourceUrl || book?.sourceUrl;
       const bUrl = bookUrl;
       const localSrc = srcUrl ? sources.find(s => s.bookSourceUrl === srcUrl) : undefined;
-      if (!isLibraryUrl && !localSrc && !srcUrl) return;
+      if (!isLibraryUrl && !localSrc && !srcUrl) {
+        // 书源不可解析（书不在本地源、也没有代理源 URL）时若带着 loading=true 返回会永久卡 spinner
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       const errors: string[] = [];
       try {

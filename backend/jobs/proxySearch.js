@@ -10,11 +10,17 @@ const PER_SOURCE_TIMEOUT_MS = 12000;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 const searchCache = new Map();
+const SEARCH_CACHE_MAX = 500;
 
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of searchCache) {
     if (now - entry.ts > CACHE_TTL_MS) searchCache.delete(key);
+  }
+  if (searchCache.size > SEARCH_CACHE_MAX) {
+    // 溢出时按最旧优先淘汰
+    const sorted = [...searchCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+    for (const [k] of sorted.slice(0, sorted.length - SEARCH_CACHE_MAX)) searchCache.delete(k);
   }
 }, 60_000);
 
@@ -139,11 +145,16 @@ function relevanceTier(book, kw) {
 }
 
 const changeSourceCache = new Map();
+const CHANGE_SOURCE_CACHE_MAX = 300;
 
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of changeSourceCache) {
     if (now - entry.ts > CACHE_TTL_MS) changeSourceCache.delete(key);
+  }
+  if (changeSourceCache.size > CHANGE_SOURCE_CACHE_MAX) {
+    const sorted = [...changeSourceCache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+    for (const [k] of sorted.slice(0, sorted.length - CHANGE_SOURCE_CACHE_MAX)) changeSourceCache.delete(k);
   }
 }, 60_000);
 

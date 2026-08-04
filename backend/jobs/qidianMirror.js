@@ -204,6 +204,7 @@ async function httpGet(url, extraHeaders = {}, retries = 2) {
           ...extraHeaders,
         },
         redirect: 'follow',
+        signal: AbortSignal.timeout(15000),
       };
       if (dispatcher) opts.dispatcher = dispatcher;
       const resp = await fetch(url, opts);
@@ -284,6 +285,7 @@ async function fetchMajaxRankPage(majaxPath, gender, pageNum, csrf, ssrPath) {
       'Accept': 'application/json, text/plain, */*',
       'Cookie': `_csrfToken=${csrf}`,
     },
+    signal: AbortSignal.timeout(15000),
   };
   if (dispatcher) opts.dispatcher = dispatcher;
   const r = await fetch(url, opts);

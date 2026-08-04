@@ -69,6 +69,8 @@ backend/*.db
 backend/*.db-journal
 backend/*.db-wal
 backend/*.db-shm
+backend/*.sqlite
+backend/*.sqlite-journal
 
 # ─── Android 签名 / 私钥 (绝不能进 git!!!) ───────────────
 # 历史教训: 早期 wanxiang.keystore 曾被 commit + 弱密码 'wanxiang',
@@ -83,6 +85,14 @@ keystore/*.jks
 
 # 万象书屋: 联调辅助脚本 (Cursor 生成, 不入仓库)
 install-and-run.sh
+
+# ─── dev/ 开发辅助 (采集脚本产物 / 自动化测试运行产物, 不入库) ──
+dev/data/*.json
+dev/data/*.txt
+dev/tests/*.jsonl
+dev/tests/.sim_lock
+dev/tests/evolution_memory.json
+dev/tests/__pycache__/
 
 # 万象书屋: xcodegen 临时备份文件
 ios/project.yml.bak

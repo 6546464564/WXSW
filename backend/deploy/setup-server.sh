@@ -3,12 +3,22 @@
 # 万象书屋 - 新服务器一键部署脚本
 # 目标: Ubuntu/Debian 服务器, Docker + Nginx 方案
 # 用法: bash setup-server.sh
+# 注意: 生产环境务必通过环境变量覆盖 ADMIN_PWD, 避免使用默认值!
+#   ADMIN_PWD='<强密码>' bash setup-server.sh
 # ============================================================
 set -euo pipefail
 
-SERVER_IP="wxsw.app"
+SERVER_IP="${SERVER_IP:-wxsw.app}"
 APP_DIR="/opt/wanxiang"
-ADMIN_PWD="wanxiang2026"
+if [ -n "${ADMIN_PWD:-}" ]; then
+  echo ">>> 使用环境变量提供的管理员密码"
+elif [ -f "$APP_DIR/.env" ] && grep -q '^ADMIN_INITIAL_PASSWORD=' "$APP_DIR/.env"; then
+  ADMIN_PWD=$(grep '^ADMIN_INITIAL_PASSWORD=' "$APP_DIR/.env" | cut -d= -f2-)
+  echo ">>> 复用已有 .env 中的管理员密码"
+else
+  ADMIN_PWD=$(head -c 16 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16)
+  echo ">>> 未提供 ADMIN_PWD, 已随机生成新密码 (见下方输出, 请妥善保存)"
+fi
 DEVICE_SECRET=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n')
 
 echo "╔══════════════════════════════════════════════════╗"

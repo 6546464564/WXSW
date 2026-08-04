@@ -14,7 +14,10 @@ function scheduleMirrorJob(db) {
     if (!db.getLatestBookstoreMirror()) {
       logger.info('mirror: empty cache on boot, kick off initial fetch');
       try {
-        const r = await qidianMirror.fetchAndCache(db);
+        const r = await Promise.race([
+          qidianMirror.fetchAndCache(db),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('mirror initial fetch timed out (10min)')), 10 * 60 * 1000)),
+        ]);
         logger.info('mirror: initial fetch ok', r);
       } catch (e) {
         qidianMirror.recordFailure(db, e);
@@ -47,7 +50,11 @@ function scheduleNextMirrorRun(db) {
 
   _mirrorTimer = setTimeout(async () => {
     try {
-      const r = await qidianMirror.fetchAndCache(db);
+      // 整体兜底超时: 防止上游无超时卡死导致后续镜像永久停摆
+      const r = await Promise.race([
+        qidianMirror.fetchAndCache(db),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('mirror run timed out (10min)')), 10 * 60 * 1000)),
+      ]);
       logger.info('mirror: scheduled fetch ok', r);
     } catch (e) {
       qidianMirror.recordFailure(db, e);

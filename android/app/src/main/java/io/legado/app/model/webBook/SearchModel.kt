@@ -42,6 +42,11 @@ class SearchModel(private val scope: CoroutineScope, private val callBack: CallB
     private var searchKey: String = ""
     private var bookSourceParts = emptyList<BookSourcePart>()
     private var searchBooks = arrayListOf<SearchBook>()
+    // 万象书屋: searchBooks 的互斥锁. 换关键词时 search() 在新任务启动前 clear(),
+    // 而旧任务被 cancel 后可能仍在跑 mergeItems/onSearchSuccess (协程取消是协作式的),
+    // 并发 clear/遍历/写回 ArrayList 会 ConcurrentModificationException 或丢结果.
+    // 所有对 searchBooks 的读改写都走这个锁.
+    private val searchBooksLock = Any()
     private var searchJob: Job? = null
     private var workingState = MutableStateFlow(true)
 
@@ -61,7 +66,7 @@ class SearchModel(private val scope: CoroutineScope, private val callBack: CallB
             if (mSearchId != 0L) {
                 close()
             }
-            searchBooks.clear()
+            synchronized(searchBooksLock) { searchBooks.clear() }
             bookSourceParts = callBack.getSearchScope().getBookSourceParts()
             if (bookSourceParts.isEmpty()) {
                 callBack.onSearchCancel(NoStackTraceException("启用书源为空"))
@@ -99,7 +104,7 @@ class SearchModel(private val scope: CoroutineScope, private val callBack: CallB
                         )
                     }
                     mergeItems(libBooks, precision)
-                    callBack.onSearchSuccess(searchBooks)
+                    callBack.onSearchSuccess(snapshotSearchBooks())
                 }
             }
             flow {
@@ -111,7 +116,10 @@ class SearchModel(private val scope: CoroutineScope, private val callBack: CallB
                 }
             }.onStart {
                 callBack.onSearchStart()
-            }.mapParallelSafe(threadCount) {
+            // 万象书屋: 搜索并发与线程池一致地封顶到 MAX_THREAD (9), 不再直接用用户可配的
+            // threadCount (默认 16, 设置里可调到任意值). 评审指出并发过高会触发源站风控/封 IP;
+            // flatMapMerge 的并发数决定同时发起的网络搜索数, 池线程数并不能限制挂起中的网络请求.
+            }.mapParallelSafe(min(threadCount, AppConst.MAX_THREAD)) {
                 withTimeout(30000L) {
                     WebBook.searchBookAwait(
                         it, searchKey, searchPage,
@@ -128,9 +136,9 @@ class SearchModel(private val scope: CoroutineScope, private val callBack: CallB
                 appDb.searchBookDao.insert(*items.toTypedArray())
                 mergeItems(items, precision)
                 currentCoroutineContext().ensureActive()
-                callBack.onSearchSuccess(searchBooks)
+                callBack.onSearchSuccess(snapshotSearchBooks())
             }.onCompletion {
-                if (it == null) callBack.onSearchFinish(searchBooks.isEmpty(), hasMore)
+                if (it == null) callBack.onSearchFinish(snapshotSearchBooks().isEmpty(), hasMore)
             }.catch {
                 // 万象书屋: 用户切换关键词或退出搜索时, 线程池关闭后被丢弃的并发任务会抛
                 // RejectedExecutionException / CancellationException, 这是预期取消, 不写入用户日志
@@ -141,70 +149,78 @@ class SearchModel(private val scope: CoroutineScope, private val callBack: CallB
         }
     }
 
+    /** 万象书屋: 锁内读 searchBooks 快照, 给 onSearchSuccess 等外部回调用 */
+    private fun snapshotSearchBooks(): List<SearchBook> = synchronized(searchBooksLock) { searchBooks }
+
     private suspend fun mergeItems(newDataS: List<SearchBook>, precision: Boolean) {
-        if (newDataS.isNotEmpty()) {
-            val copyData = ArrayList(searchBooks)
-            val equalData = arrayListOf<SearchBook>()
-            val containsData = arrayListOf<SearchBook>()
-            val otherData = arrayListOf<SearchBook>()
-            copyData.forEach {
-                coroutineContext.ensureActive()
-                if (it.name == searchKey || it.author == searchKey) {
-                    equalData.add(it)
-                } else if (it.name.contains(searchKey) || it.author.contains(searchKey)) {
-                    containsData.add(it)
-                } else {
-                    otherData.add(it)
-                }
-            }
-            newDataS.forEach { nBook ->
-                coroutineContext.ensureActive()
-                if (nBook.name == searchKey || nBook.author == searchKey) {
-                    var hasSame = false
-                    equalData.forEach { pBook ->
-                        coroutineContext.ensureActive()
-                        if (pBook.name == nBook.name && pBook.author == nBook.author) {
-                            pBook.addOrigin(nBook.origin)
-                            hasSame = true
-                        }
-                    }
-                    if (!hasSame) {
-                        equalData.add(nBook)
-                    }
-                } else if (nBook.name.contains(searchKey) || nBook.author.contains(searchKey)) {
-                    var hasSame = false
-                    containsData.forEach { pBook ->
-                        coroutineContext.ensureActive()
-                        if (pBook.name == nBook.name && pBook.author == nBook.author) {
-                            pBook.addOrigin(nBook.origin)
-                            hasSame = true
-                        }
-                    }
-                    if (!hasSame) {
-                        containsData.add(nBook)
-                    }
-                } else if (!precision) {
-                    var hasSame = false
-                    otherData.forEach { pBook ->
-                        coroutineContext.ensureActive()
-                        if (pBook.name == nBook.name && pBook.author == nBook.author) {
-                            pBook.addOrigin(nBook.origin)
-                            hasSame = true
-                        }
-                    }
-                    if (!hasSame) {
-                        otherData.add(nBook)
+        // 万象书屋: 整段持锁. 协程取消是协作式的, 旧搜索任务被 cancel 后仍可能在锁外
+        // 并发执行这里 (与 search() 的 clear / 新任务的 mergeItems 竞争), 必须串行化.
+        // ensureActive() 实际不挂起, 持锁安全.
+        synchronized(searchBooksLock) {
+            if (newDataS.isNotEmpty()) {
+                val copyData = ArrayList(searchBooks)
+                val equalData = arrayListOf<SearchBook>()
+                val containsData = arrayListOf<SearchBook>()
+                val otherData = arrayListOf<SearchBook>()
+                copyData.forEach {
+                    coroutineContext.ensureActive()
+                    if (it.name == searchKey || it.author == searchKey) {
+                        equalData.add(it)
+                    } else if (it.name.contains(searchKey) || it.author.contains(searchKey)) {
+                        containsData.add(it)
+                    } else {
+                        otherData.add(it)
                     }
                 }
+                newDataS.forEach { nBook ->
+                    coroutineContext.ensureActive()
+                    if (nBook.name == searchKey || nBook.author == searchKey) {
+                        var hasSame = false
+                        equalData.forEach { pBook ->
+                            coroutineContext.ensureActive()
+                            if (pBook.name == nBook.name && pBook.author == nBook.author) {
+                                pBook.addOrigin(nBook.origin)
+                                hasSame = true
+                            }
+                        }
+                        if (!hasSame) {
+                            equalData.add(nBook)
+                        }
+                    } else if (nBook.name.contains(searchKey) || nBook.author.contains(searchKey)) {
+                        var hasSame = false
+                        containsData.forEach { pBook ->
+                            coroutineContext.ensureActive()
+                            if (pBook.name == nBook.name && pBook.author == nBook.author) {
+                                pBook.addOrigin(nBook.origin)
+                                hasSame = true
+                            }
+                        }
+                        if (!hasSame) {
+                            containsData.add(nBook)
+                        }
+                    } else if (!precision) {
+                        var hasSame = false
+                        otherData.forEach { pBook ->
+                            coroutineContext.ensureActive()
+                            if (pBook.name == nBook.name && pBook.author == nBook.author) {
+                                pBook.addOrigin(nBook.origin)
+                                hasSame = true
+                            }
+                        }
+                        if (!hasSame) {
+                            otherData.add(nBook)
+                        }
+                    }
+                }
+                coroutineContext.ensureActive()
+                equalData.sortByDescending { it.origins.size }
+                equalData.addAll(containsData.sortedByDescending { it.origins.size })
+                if (!precision) {
+                    equalData.addAll(otherData)
+                }
+                coroutineContext.ensureActive()
+                searchBooks = equalData
             }
-            coroutineContext.ensureActive()
-            equalData.sortByDescending { it.origins.size }
-            equalData.addAll(containsData.sortedByDescending { it.origins.size })
-            if (!precision) {
-                equalData.addAll(otherData)
-            }
-            coroutineContext.ensureActive()
-            searchBooks = equalData
         }
     }
 

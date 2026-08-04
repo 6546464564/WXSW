@@ -140,7 +140,10 @@ public actor SafeRegex {
         let nsstr = text as NSString
         let range = NSRange(0..<nsstr.length)
         if replaceFirst {
-            guard let m = regex.firstMatch(in: text, range: range) else { return "" }
+            // 只替换第一个匹配 (对齐 legado `##regex##replace##` 4 # 行为): 返回 firstMatch
+            // 局部子串替换后的内容, 而非整段文本. 无匹配时返回原文 — 不能返回空串,
+            // 否则替换规则链会把整章正文清空.
+            guard let m = regex.firstMatch(in: text, range: range) else { return text }
             let matched = nsstr.substring(with: m.range)
             let mns = matched as NSString
             return regex.stringByReplacingMatches(

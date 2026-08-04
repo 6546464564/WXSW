@@ -189,8 +189,10 @@ object CacheBook {
             return count
         }
 
-    val successDownloadSet = linkedSetOf<String>()
-    val errorDownloadMap = hashMapOf<String, Int>()
+    // 万象书屋 (基底 fix): 原 linkedSetOf/hashMapOf 非线程安全 — 下载回调可能同时从多个
+    // 协程 (eachParallel 的并发协程) 写这两个集合, HashMap 并发 put 会丢数据甚至死循环.
+    val successDownloadSet = ConcurrentHashMap.newKeySet<String>()
+    val errorDownloadMap = ConcurrentHashMap<String, Int>()
 
     class CacheBookModel(var bookSource: BookSource, var book: Book) {
 
@@ -295,7 +297,10 @@ object CacheBook {
 
         @Synchronized
         private fun onFinally() {
-            if (waitDownloadSet.isEmpty() && onDownloadSet.isEmpty()) {
+            // 万象书屋 (基底并发 fix): 失败重试有 1s 窗口 (onPreError→delay→onPostError),
+            // 窗口内两个集合都空但章节马上会加回 waitDownloadSet. 此时移除会丢掉重试章节,
+            // 必须等 waitingRetry 结束 (onPostError 已把章节放回) 才允许移除.
+            if (waitDownloadSet.isEmpty() && onDownloadSet.isEmpty() && !waitingRetry) {
                 cacheBookMap.remove(book.bookUrl)
             }
             postEvent(EventBus.UP_DOWNLOAD, book.bookUrl)
@@ -308,7 +313,9 @@ object CacheBook {
         fun download(scope: CoroutineScope, context: CoroutineContext) {
             val chapterIndex = waitDownloadSet.firstOrNull()
             if (chapterIndex == null) {
-                if (!isLoading && onDownloadSet.isEmpty()) {
+                // 万象书屋 (基底并发 fix): 同 onFinally, 失败重试窗口内不能移除,
+                // 否则重试章节永远不被调度.
+                if (!isLoading && onDownloadSet.isEmpty() && !waitingRetry) {
                     cacheBookMap.remove(book.bookUrl)
                 }
                 return

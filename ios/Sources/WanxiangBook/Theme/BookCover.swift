@@ -344,6 +344,10 @@ enum BookCoverPreloader {
             let cacheKey = request.url?.absoluteString ?? raw
             if BookCoverImageCache.shared.image(for: cacheKey) != nil { continue }
             if await BookCoverDiskCache.shared.load(key: cacheKey) != nil { continue }
+            // 万象书屋 (评审 fix): 预加载同样走 BookCoverLoadLimiter — 之前绕过限流器,
+            // 书城首屏 24 张预载 + 用户滚动触发的可见封面加载会同时打满连接数.
+            await BookCoverLoadLimiter.shared.acquire()
+            defer { Task { await BookCoverLoadLimiter.shared.release() } }
             _ = try? await BookCoverImageSession.shared.data(for: request)
         }
     }

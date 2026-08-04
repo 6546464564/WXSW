@@ -1102,6 +1102,8 @@ public struct ReaderView: View {
 
     private func handleDisappear() {
         UIApplication.shared.isIdleTimerDisabled = false
+        // 万象书屋 (评审 fix): 退出阅读器前把当前阅读位置落库, 不被节流窗口吞掉
+        flushReadingProgress()
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first?.windows.first
@@ -1399,15 +1401,26 @@ public struct ReaderView: View {
         }
     }
 
+    /// 万象书屋 (评审 fix): 阅读进度 DB 写入节流 — 每页翻页都写 SQLite 会反复唤醒
+    /// DB actor + WAL checkpoint, 长章节连翻卡顿. 节流到最多每 3 秒写一次;
+    /// 退出阅读器时 handleDisappear → flushReadingProgress 强制落库最终位置, 不丢进度.
+    private static let progressDBWriteInterval: TimeInterval = 3.0
+    @State private var lastProgressDBWrite: Date = .distantPast
+
     /// 翻页/章节切换时持久化页内字符偏移量 (对齐 Android durChapterPos)
     private func saveReadingPosition(pageId: String) {
         guard let page = pages.first(where: { $0.id == pageId }) else { return }
         UserDefaults.standard.set(page.chapterIndex, forKey: "wx.lastReadingChapterIndex")
         UserDefaults.standard.set(page.charOffset, forKey: "wx.lastReadingCharOffset")
+        // SQLite 写库节流 — UserDefaults 写内存很快, 每页都写保留 (崩溃恢复用)
+        guard Date().timeIntervalSince(lastProgressDBWrite) >= Self.progressDBWriteInterval else { return }
+        lastProgressDBWrite = Date()
+        writeReadingProgress(chapterIndex: page.chapterIndex, chapterPos: page.charOffset)
+    }
+
+    private func writeReadingProgress(chapterIndex: Int, chapterPos: Int) {
         // 同步写入 DB durChapterPos (与 Android book.durChapterPos 对齐)
-        Task.detached(priority: .utility) { [bookUrl = engine.book.bookUrl,
-                                             chapterIndex = page.chapterIndex,
-                                             chapterPos = page.charOffset] in
+        Task.detached(priority: .utility) { [bookUrl = engine.book.bookUrl] in
             try? await BookshelfRepository.shared.updateProgress(
                 bookUrl: bookUrl,
                 chapterIndex: chapterIndex,
@@ -1415,6 +1428,13 @@ public struct ReaderView: View {
                 chapterPos: chapterPos
             )
         }
+    }
+
+    /// 退出阅读器前把当前页位置立即落库 (节流窗口内的最后一次翻页不丢)
+    private func flushReadingProgress() {
+        guard let page = pages.first(where: { $0.id == currentPageId }) else { return }
+        lastProgressDBWrite = Date()
+        writeReadingProgress(chapterIndex: page.chapterIndex, chapterPos: page.charOffset)
     }
 
     /// 翻页到最后一页后继续前进：读完页已内嵌为末页，此处仅处理非末章的下一章切换

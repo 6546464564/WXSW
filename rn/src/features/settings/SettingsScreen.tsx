@@ -20,7 +20,6 @@ import {
   Platform,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import {useReaderStore} from '../../store/readerStore';
 import {Colors, Spacing, FontSize, Radius} from '../../app/theme';
 
 type ThemeMode = 'system' | 'day' | 'night';
@@ -50,7 +49,6 @@ function MyRowLabel({
 }
 
 export default function SettingsScreen() {
-  const {settings, updateSettings} = useReaderStore();
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
   const [eyeCare, setEyeCare] = useState(false);
 

@@ -60,6 +60,7 @@ public actor SourceRateLimiter {
         // 唤醒后必须重新读取 records[key] 并循环校验 — 否则多个任务会在同一时刻通过限速器,
         // 实际打出 N×1 并发请求, 触发反爬封 IP.
         while true {
+            if Task.isCancelled { return }
             let now = nowMs()
             var rec = records[key] ?? Record()
             let earliest = rec.lastFireMs + Int64(intervalMs)
@@ -71,7 +72,12 @@ public actor SourceRateLimiter {
             }
             // 需要等待: 先写回当前 snapshot 再 sleep (让其他 key 的并发任务不被我的 sleep 阻塞)
             records[key] = rec
-            try? await Task.sleep(nanoseconds: UInt64(earliest - now) * 1_000_000)
+            do {
+                try await Task.sleep(nanoseconds: UInt64(earliest - now) * 1_000_000)
+            } catch {
+                // 任务被取消: 直接退出, 不再空转
+                return
+            }
             // 唤醒后循环重新检查 (期间可能有其他任务已更新 lastFireMs)
         }
     }
@@ -82,6 +88,7 @@ public actor SourceRateLimiter {
         guard capacity > 0 else { return }
         // 万象书屋 (bug fix): 同 acquireInterval — 唤醒后必须循环重新检查窗口状态
         while true {
+            if Task.isCancelled { return }
             var rec = records[key] ?? Record()
             if rec.ring.capacity < capacity { rec.ring.reserveCapacity(capacity) }
             let now = nowMs()
@@ -98,7 +105,11 @@ public actor SourceRateLimiter {
             let oldest = rec.ring.first ?? now
             let waitMs = max(1, oldest + Int64(periodMs) - now)
             records[key] = rec
-            try? await Task.sleep(nanoseconds: UInt64(waitMs) * 1_000_000)
+            do {
+                try await Task.sleep(nanoseconds: UInt64(waitMs) * 1_000_000)
+            } catch {
+                return
+            }
         }
     }
 

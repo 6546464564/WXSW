@@ -2,7 +2,7 @@ package io.legado.app.ad
 
 import io.legado.app.BuildConfig
 import io.legado.app.help.http.newCallStrResponse
-import io.legado.app.help.http.okHttpClient
+import io.legado.app.help.http.wanxiangSecureOkHttpClient
 import io.legado.app.utils.GSON
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.fromJsonObject
@@ -99,7 +99,7 @@ object AdRepository {
             }
         val cur = current()
         runCatching {
-            val resp = okHttpClient.newCallStrResponse(retry = 1) {
+            val resp = wanxiangSecureOkHttpClient.newCallStrResponse(retry = 1) {
                 url("$baseUrl/api/ad-config")
                 if (cur.etag.isNotEmpty()) header("If-None-Match", cur.etag)
                 header("Accept", "application/json")

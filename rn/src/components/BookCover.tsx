@@ -65,7 +65,7 @@ export default function BookCover({
       .catch(() => {
         coverCache.set(cacheKey, null);
       });
-  }, [failed, bookTitle]);
+  }, [failed, bookTitle, bookAuthor]);
 
   const trimmedUrl = url?.trim() || '';
   const activeUrl = fallbackUrl || trimmedUrl;

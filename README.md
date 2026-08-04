@@ -20,11 +20,12 @@ WXSW/
 ├── ios/            iOS 客户端 (SwiftUI, M0-M5 路线图见 ios/docs/PLAN.md)
 ├── rn/             React Native 客户端 (万象书屋 Lite, 共用后端 API)
 ├── backend/        Node.js + Express + SQLite 后端 + 管理面板
-├── tools/          Python 工具脚本 (数据采集 / 对比 / 导入)
-├── data/           数据文件 (排行榜 / 章节 / 搜索结果)
+├── dev/            开发辅助 (非 App 运行时依赖)
+│   ├── tools/      Python 采集 / 对比 / 导入工具
+│   ├── data/       采集产物 (排行榜 / 章节 / 搜索结果)
+│   ├── scripts/    发布前自检 / 部署 / Mac 迁移脚本
+│   └── tests/      airtest 自动化测试 (模拟 / 冒烟 / 覆盖率)
 ├── docs/           英文 README / API 文档 / 全栈审查报告 / NOTICE
-├── scripts/        发布前自检 / Mac 迁移脚本
-├── tests/          自动化测试 (模拟 / 冒烟 / 覆盖率)
 ├── screenshots/    应用截图
 └── .github/        CI 工作流 (release / cronet / web / 后端 CI 等)
 ```

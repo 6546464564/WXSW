@@ -190,6 +190,16 @@ const DANGEROUS_JS_PATTERNS = [
   { sev: 'error', re: /<script[\s>][^<]*src\s*=\s*['"]https?:\/\//i,
     msg: '内嵌 <script src=远程地址> 标签' },
 
+  // 高危: VM 沙箱逃逸手法 (可拿到 process/require → 宿主任意代码)
+  { sev: 'error', re: /\bprocess\s*\.|require\s*\(\s*['"]/i,
+    msg: '访问 process / require (沙箱逃逸风险)' },
+  { sev: 'error', re: /constructor\s*\.\s*constructor|\[['"]constructor['"]\]\s*\[/i,
+    msg: 'constructor.constructor 链 (VM 沙箱逃逸经典手法)' },
+  { sev: 'error', re: /\bglobalThis\b|\bglobal\s*\.|\b__proto__\s*\.\s*constructor/i,
+    msg: '访问 globalThis/global 全局对象 (沙箱逃逸风险)' },
+  { sev: 'error', re: /child_process|node:fs|node:path|node:os\b/i,
+    msg: '引用 node 内部模块 (沙箱逃逸风险)' },
+
   // 中危: 动态执行 (legado 书源常见, 不一定是恶意)
   { sev: 'warn', re: /\beval\s*\(/,
     msg: '使用 eval() (动态执行字符串)' },

@@ -27,7 +27,7 @@ export async function verifyReceipt(
       deviceId: wanxiangClient.getDeviceId(),
     });
     return res.data;
-  } catch (e: any) {
+  } catch {
     return {ok: false};
   }
 }

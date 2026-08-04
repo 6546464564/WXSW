@@ -21,8 +21,8 @@ import {useRoute, useNavigation, RouteProp} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import BookCover from '../../components/BookCover';
-import {fetchRankBooks, fetchFinishLibrary, QidianBook, Channel} from '../../api/bookstore';
-import {useThemeColors, Radius} from '../../app/theme';
+import {fetchRankBooks, fetchFinishLibrary, QidianBook} from '../../api/bookstore';
+import {useThemeColors} from '../../app/theme';
 import {RootStackParamList} from '../../app/Navigation';
 import {useBookshelfStore} from '../../store/bookshelfStore';
 
@@ -32,7 +32,7 @@ export default function RankDetailScreen() {
   const colors = useThemeColors();
   const route = useRoute<RouteProp<RootStackParamList, 'RankDetail'>>();
   const navigation = useNavigation<Nav>();
-  const {mode, channel, title, rankType} = route.params;
+  const {mode, channel, rankType} = route.params;
 
   const [books, setBooks] = useState<QidianBook[]>([]);
   const [loading, setLoading] = useState(true);

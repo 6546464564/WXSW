@@ -99,10 +99,10 @@ struct WanxiangBookApp: App {
             .onOpenURL { url in
                 guard url.scheme == "wanxiang" else { return }
                 NSLog("[WX-URL] received: %@", url.absoluteString)
-                if url.host == "autoReward" {
-                    PurifiedReadingState.shared.markRewardedSuccess(unlockMinutes: 30)
-                    NSLog("[WX-URL] autoReward: unlocked 30 min purified reading")
-                } else if url.host == "download-all" {
+                // 万象书屋: 已移除 `wanxiang://autoReward` 深链 — 任意 app/网页都能调它
+                // 免费解锁纯净阅读 (后门). 真实验奖路径只有 AdManager.showRewardedToUnlock
+                // (看完激励视频), 测试用 -autoRewardAds 启动参数, 不走深链.
+                if url.host == "download-all" {
                     Task {
                         // 等书源加载完
                         await BookSourceRegistry.shared.waitUntilEnabledSourcesNonEmpty(timeout: 10)

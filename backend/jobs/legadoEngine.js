@@ -26,6 +26,7 @@ const cheerio = require('cheerio');
 const crypto = require('crypto');
 const { URL } = require('url');
 const legadoJava = require('./legadoJava');
+const validator = require('../sourceValidator');
 const { JSONPath } = require('jsonpath-plus');
 
 const QIMAO_SIGN_KEY = 'd3dGiJc651gSQ8w1';
@@ -90,6 +91,22 @@ class BlockedError extends Error {
 }
 
 async function httpGet(url, { headers = {}, timeout = 15000 } = {}) {
+  // SSRF 防护: 运行时对每次出站请求校验目标 host, 拒绝私网/元数据地址.
+  // 与 sourceValidator.probeUrl 的校验口径保持一致.
+  try {
+    const parsed = new URL(url);
+    if (!/^https?:$/.test(parsed.protocol)) {
+      throw new Error(`blocked: non-http(s) url ${parsed.protocol}//`);
+    }
+    const check = await validator.isPrivateAddrAfterDns(parsed.hostname);
+    if (!check.ok) {
+      throw new Error(`blocked: ${check.reason}`);
+    }
+  } catch (e) {
+    if (e.name === 'TypeError') throw new Error(`invalid url: ${url}`);
+    throw e;
+  }
+
   const baseOpts = {
     headers: { 'User-Agent': UA, ...headers },
     redirect: 'follow',
@@ -109,7 +126,8 @@ async function httpGet(url, { headers = {}, timeout = 15000 } = {}) {
   if (_proxyDispatcher) {
     try {
       return await doFetch({ ...baseOpts, dispatcher: _proxyDispatcher });
-    } catch {
+    } catch (e) {
+      console.warn('[legadoEngine] proxy fetch failed, falling back to direct connection', { url, msg: e.message });
       return await doFetch(baseOpts);
     }
   }

@@ -17,14 +17,6 @@ function init(database) {
   stmts.getBookByQidianId = db.prepare('SELECT * FROM cached_books WHERE qidian_id = ?');
   stmts.getBookByTitle = db.prepare('SELECT * FROM cached_books WHERE title = ? LIMIT 1');
 
-  stmts.searchBooks = db.prepare(`
-    SELECT id, qidian_id, title, author, category, cover_url, intro,
-           total_chapters, cached_chapters, status
-    FROM cached_books
-    WHERE status = 'done' AND (title LIKE ? OR author LIKE ?)
-    ORDER BY cached_chapters DESC LIMIT 20
-  `);
-
   stmts.listBooks = db.prepare(`
     SELECT id, qidian_id, title, author, category, cover_url, source_url,
            total_chapters, cached_chapters, status, error_msg, priority, created_at, updated_at
@@ -143,10 +135,6 @@ function searchBooks(keyword, limit = 20) {
 function getBook(id) { return stmts.getBookById.get(id); }
 function getBookByQidianId(qid) { return stmts.getBookByQidianId.get(qid); }
 function getBookByTitle(title) { return stmts.getBookByTitle.get(title); }
-function searchBooks(keyword) {
-  const like = `%${keyword}%`;
-  return stmts.searchBooks.all(like, like);
-}
 function listBooks(status) {
   return status ? stmts.listBooksByStatus.all(status) : stmts.listBooks.all();
 }

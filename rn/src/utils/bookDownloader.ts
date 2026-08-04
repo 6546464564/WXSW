@@ -23,7 +23,9 @@ export interface DownloadJob {
 
 type Listener = (job: DownloadJob) => void;
 
-const MAX_CONCURRENCY = 4;
+// 同一本书串行下载（对齐 iOS BookDownloader 的 localConcurrency = 1）：
+// 并发拉取同一源的正文会触发源站反爬/RateLimit，导致正文残缺。
+const MAX_CONCURRENCY = 1;
 
 class BookDownloader {
   private jobs = new Map<string, DownloadJob>();
@@ -82,6 +84,13 @@ class BookDownloader {
     let cursor = 0;
     let running = 0;
 
+    // 空章节区间直接结束，避免 Promise 永不 resolve 导致任务卡死在 running
+    if (chapters_.length === 0) {
+      job.status = 'finished';
+      this.emit(job);
+      return;
+    }
+
     await new Promise<void>(resolve => {
       const next = () => {
         if (this.abortFlags.get(bookUrl)) {
@@ -104,7 +113,14 @@ class BookDownloader {
             .finally(() => {
               running--;
               this.emit(job);
-              if (cursor >= chapters_.length && running === 0) {
+              if (this.abortFlags.get(bookUrl)) {
+                // 已取消：在途下载完成后必须收尾为 cancelled，而不是 finished/error
+                if (running === 0) {
+                  job.status = 'cancelled';
+                  this.emit(job);
+                  resolve();
+                }
+              } else if (cursor >= chapters_.length && running === 0) {
                 job.status = job.failed > 0 && job.completed === 0 ? 'error' : 'finished';
                 this.emit(job);
                 resolve();

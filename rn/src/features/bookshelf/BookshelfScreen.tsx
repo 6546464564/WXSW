@@ -74,18 +74,18 @@ export default function BookshelfScreen() {
   const openSearch = () => navigation.navigate('Search', {});
 
   const onLongPress = (book: ShelfBook) => {
-    const options = ['置顶', '下载到本地', '移到分组', '从书架删除', '取消'];
+    // 置顶/下载到本地 原为无任何实现的假按钮（评审项：隐藏无功能的按钮），故移除
+    const options = ['移到分组', '从书架删除', '取消'];
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
-        {options, destructiveButtonIndex: 3, cancelButtonIndex: 4},
+        {options, destructiveButtonIndex: 1, cancelButtonIndex: 2},
         idx => {
-          if (idx === 2) setMoveBookTarget(book);
-          if (idx === 3) confirmDelete(book);
+          if (idx === 0) setMoveBookTarget(book);
+          if (idx === 1) confirmDelete(book);
         },
       );
     } else {
       Alert.alert(`「${book.name}」`, '', [
-        {text: '置顶', onPress: () => {}},
         {text: '移到分组', onPress: () => setMoveBookTarget(book)},
         {text: '从书架删除', style: 'destructive', onPress: () => removeBook(book.id)},
         {text: '取消', style: 'cancel'},

@@ -153,6 +153,49 @@ val okHttpClientManga by lazy {
 }
 
 /**
+ * 万象书屋 (基底安全审计 fix): 自研后端 API 专用 OkHttpClient.
+ *
+ * 全局 [okHttpClient] 为兼容书源自签证书而信任所有证书 (SSLHelper.unsafe*),
+ * 但设备注册/心跳/书源同步也复用了它 — MITM 攻击者可窃取设备 token,
+ * 或借「书源同步」响应注入恶意书源 JS 到 Rhino 沙箱执行.
+ *
+ * 自研后端 (wanxiang 域名) 无自签证书兼容需求, 这里使用系统默认证书校验
+ * (不覆盖 sslSocketFactory / hostnameVerifier), 其余配置与全局客户端一致.
+ */
+val wanxiangSecureOkHttpClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .addInterceptor(OkHttpExceptionInterceptor)
+        .addInterceptor { chain ->
+            val request = chain.request()
+            val builder = request.newBuilder()
+            if (request.header(AppConst.UA_NAME) == null) {
+                builder.addHeader(AppConst.UA_NAME, AppConfig.userAgent)
+            }
+            builder.addHeader("Keep-Alive", "300")
+            builder.addHeader("Connection", "Keep-Alive")
+            builder.addHeader("Cache-Control", "no-cache")
+            chain.proceed(builder.build())
+        }
+        .addInterceptor { chain ->
+            val resp = chain.proceed(chain.request())
+            val etag = resp.header("X-Sources-Etag")
+            if (!etag.isNullOrBlank()) {
+                io.legado.app.help.WanxiangBackend.noteServerSourcesEtag(etag)
+            }
+            resp
+        }
+        .addInterceptor(DecompressInterceptor)
+        .build()
+}
+
+/**
  * 缓存代理okHttp
  */
 fun getProxyClient(proxy: String? = null): OkHttpClient {

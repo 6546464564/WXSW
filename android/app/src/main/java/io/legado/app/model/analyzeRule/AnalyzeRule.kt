@@ -467,12 +467,9 @@ class AnalyzeRule(
         val replacement = rule.replacement
         val regex = compileRegexCache(replaceRegex)
 
-        // 万象书屋 D-16: 短输入快速路径, 不引入 timeout 开销
-        if (result.length < SAFE_REPLACE_FAST_PATH_THRESHOLD) {
-            return doReplaceUnsafe(result, regex, replaceRegex, replacement, rule.replaceFirst)
-        }
-
-        // 长输入安全路径: 2 秒超时 + 可中断
+        // 万象书屋 (基底 ReDoS fix): 不再区分长短输入 — 指数级回溯如 `(a+)+$` 对
+        // 30 余字符的短输入也能卡死数秒到十几秒 (本文件旧注释实测 31 字符→14s),
+        // 任何快速路径阈值都兜不住. 所有替换统一走可中断 + 2s 超时保护路径.
         return try {
             runBlocking(coroutineContext) {
                 withTimeoutOrNull(REGEX_REPLACE_TIMEOUT_MS) {
@@ -495,24 +492,6 @@ class AnalyzeRule(
         }
     }
 
-    /** 短输入直接走原逻辑, 不裹 timeout, 不损性能 */
-    private fun doReplaceUnsafe(
-        result: String, regex: Regex?, replaceRegex: String, replacement: String, replaceFirst: Boolean
-    ): String {
-        if (replaceFirst) {
-            if (regex != null) kotlin.runCatching {
-                val pattern = regex.toPattern()
-                val matcher = pattern.matcher(result)
-                return if (matcher.find()) matcher.group(0)!!.replaceFirst(regex, replacement) else ""
-            }
-            return replacement
-        }
-        if (regex != null) kotlin.runCatching {
-            return result.replace(regex, replacement)
-        }
-        return result.replace(replaceRegex, replacement)
-    }
-
     /** 长输入安全路径, 输入用 InterruptibleCharSequence 包装 */
     private fun doReplaceWithInterruptibleInput(
         result: String, regex: Regex?, replaceRegex: String, replacement: String, replaceFirst: Boolean
@@ -522,15 +501,50 @@ class AnalyzeRule(
             if (regex != null) {
                 val pattern = regex.toPattern()
                 val matcher = pattern.matcher(safe)
-                return if (matcher.find()) matcher.group(0)!!.replaceFirst(regex, replacement) else ""
+                return if (matcher.find()) {
+                    // 万象书屋 (基底 fix): replacement 里 $N 引用不存在的组 (如 $99) 时,
+                    // replaceFirst 抛 IndexOutOfBoundsException, 外层 catch 会把整次替换静默吞掉.
+                    // 先清洗: 非法组引用转义成字面量, 合法引用原样保留.
+                    matcher.group(0)!!.replaceFirst(
+                        regex, sanitizeReplacement(replacement, matcher.groupCount())
+                    )
+                } else result
             }
-            return replacement
+            return result
         }
         if (regex != null) {
             val pattern = regex.toPattern()
-            return pattern.matcher(safe).replaceAll(replacement)
+            return pattern.matcher(safe).replaceAll(
+                sanitizeReplacement(replacement, pattern.matcher("").groupCount())
+            )
         }
-        return Pattern.compile(replaceRegex).matcher(safe).replaceAll(replacement)
+        val pattern = Pattern.compile(replaceRegex)
+        return pattern.matcher(safe).replaceAll(
+            sanitizeReplacement(replacement, pattern.matcher("").groupCount())
+        )
+    }
+
+    /**
+     * 万象书屋 (基底 fix): 把 replacement 里超出捕获组数量的 `$N` 引用转义成 `\$N` (字面量),
+     * 避免 Matcher.replaceAll/replaceFirst 抛 IndexOutOfBoundsException 导致整次替换静默失效.
+     * 例: regex=`第(\\d+)章`, replacement=`第$2章` → 组数=1, `$2` 非法 → 转义为 `\$2`,
+     * 最终输出字面 `第$2章` 而非整个替换失效返回原文.
+     */
+    private fun sanitizeReplacement(replacement: String, groupCount: Int): String {
+        if (replacement.indexOf('$') < 0) return replacement
+        val matcher = regexPattern.matcher(replacement)
+        if (!matcher.find()) return replacement
+        val sb = StringBuilder()
+        var last = 0
+        do {
+            sb.append(replacement, last, matcher.start())
+            val group = matcher.group()
+            val n = group.substring(1).toIntOrNull() ?: -1
+            sb.append(if (n in 0..groupCount) group else "\\$group")
+            last = matcher.end()
+        } while (matcher.find())
+        sb.append(replacement, last, replacement.length)
+        return sb.toString()
     }
 
     private fun compileRegexCache(regex: String): Regex? {
@@ -954,11 +968,9 @@ class AnalyzeRule(
             Pattern.compile("@get:\\{[^}]+?\\}|\\{\\{[\\w\\W]*?\\}\\}", Pattern.CASE_INSENSITIVE)
         private val regexPattern = Pattern.compile("\\$\\d{1,2}")
 
-        // 万象书屋 D-16 (PARSE-1): ReDoS 防护参数
-        //   1000 字以下的输入即使最坏回溯也微秒级完成, 走快速路径不裹 timeout 开销.
-        //   超过此阈值才进 InterruptibleCharSequence + 2s 超时保护路径.
-        //   实测: 31 字符 + (a+)+$ → 14s 卡死; 现在 2s 超时 + 强制中断 = 上限 2s.
-        private const val SAFE_REPLACE_FAST_PATH_THRESHOLD = 1000
+        // 万象书屋 (基底 ReDoS fix): 所有替换统一走 InterruptibleCharSequence + 2s 超时保护路径.
+        // 移除快速路径: 指数级回溯对短输入同样致命 (实测 31 字符 + `(a+)+$` → 14s 卡死),
+        // 阈值再低也兜不住, 干脆全量保护.
         private const val REGEX_REPLACE_TIMEOUT_MS = 2000L
 
         fun AnalyzeRule.setCoroutineContext(context: CoroutineContext): AnalyzeRule {

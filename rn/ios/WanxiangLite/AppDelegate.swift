@@ -41,8 +41,10 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 
   override func bundleURL() -> URL? {
 #if DEBUG
+    // DEBUG 构建从 Metro 加载 JS Bundle，保证热重载与调试可用
     RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
 #else
+    // Release 构建走 react-native-update 热更新包
     RCTBundleProvider.bundleURL()
 #endif
   }

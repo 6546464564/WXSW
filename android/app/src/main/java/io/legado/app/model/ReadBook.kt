@@ -93,6 +93,12 @@ object ReadBook : CoroutineScope by MainScope() {
     val preDownloadSemaphore = Semaphore(2)
     val executor = globalExecutor
 
+    // 万象书屋 (基底 fix): 翻页写库节流间隔. 连续翻页且未跨章时, saveRead 低于此间隔直接跳过,
+    // 进度留在内存字段, 由跨章/退出阅读器时的保存兜底落库.
+    private val SAVE_READ_THROTTLE_MS = 2000L
+    @Volatile
+    private var lastPageSaveReadAt = 0L
+
     fun resetData(book: Book) {
         releaseAndCancel()
         ReadBook.book = book
@@ -869,12 +875,20 @@ object ReadBook : CoroutineScope by MainScope() {
     }
 
     fun saveRead(pageChanged: Boolean = false) {
+        // 万象书屋 (基底 fix): 每次翻页都整行 UPDATE book 表 (Sqlite 全量写), 高频翻页
+        // 会产生大量写放大. 纯翻页 (非跨章) 时如果距上次落库不足阈值, 直接跳过 —
+        // durChapterPos 已在内存字段更新, 下次任何落库 (跨章/退出阅读器/节流超时) 都会带上最新值.
+        val now = System.currentTimeMillis()
+        val chapterChanged = (book?.durChapterIndex ?: Int.MIN_VALUE) != durChapterIndex
+        if (pageChanged && !chapterChanged && now - lastPageSaveReadAt < SAVE_READ_THROTTLE_MS) {
+            return
+        }
+        lastPageSaveReadAt = now
         executor.execute {
             kotlin.runCatching {
                 val book = book ?: return@execute
                 book.lastCheckCount = 0
                 book.durChapterTime = System.currentTimeMillis()
-                val chapterChanged = book.durChapterIndex != durChapterIndex
                 book.durChapterIndex = durChapterIndex
                 book.durChapterPos = durChapterPos
                 if (!pageChanged || chapterChanged) {

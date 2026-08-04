@@ -6,8 +6,8 @@
  */
 
 // @ts-nocheck
-import {RuleEngine} from './src/engine/RuleEngine';
-import {BookSource} from './src/engine/types';
+import {RuleEngine} from '../src/engine/RuleEngine';
+import {BookSource} from '../src/engine/types';
 
 (globalThis as any).__DEV__ = true;
 

@@ -5,6 +5,7 @@
 
 const crypto = require('node:crypto');
 const { JSONPath } = require('jsonpath-plus');
+const validator = require('../sourceValidator');
 
 const UA = 'Mozilla/5.0 (Linux; Android 12; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36';
 
@@ -34,13 +35,25 @@ function createJavaApi(opts = {}) {
 
     // ─── 网络 ───
     ajax(url) {
-      // 同步 HTTP GET (用 child_process.execSync 模拟, 因为 VM 不支持 async)
-      const { execSync } = require('child_process');
+      // 同步 HTTP GET。不用 shell 拼接 (防命令注入), 通过 argv 把 URL 传给子进程.
+      // 同时做同步 SSRF 校验, 拒绝私网/元数据地址.
+      const { execFileSync } = require('child_process');
+      const dns = require('node:dns');
       try {
-        const result = execSync(
-          `node -e "fetch('${url.replace(/'/g, "\\'")}',{headers:{'User-Agent':'${UA}'}}).then(r=>r.text()).then(t=>process.stdout.write(t)).catch(()=>process.stdout.write('{}'))"`,
-          { timeout: 15000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-        );
+        const parsed = new URL(String(url));
+        if (!/^https?:$/.test(parsed.protocol)) return '{}';
+        if (validator.isPrivateHost(parsed.hostname)) return '{}';
+        const addrs = dns.lookupSync(parsed.hostname, { all: true });
+        for (const a of addrs) {
+          if (validator.isPrivateIp(a.address)) return '{}';
+        }
+        const script = `const u=process.argv[1];
+          fetch(u,{headers:{'User-Agent':process.argv[2]},signal:AbortSignal.timeout(15000)})
+            .then(r=>r.text()).then(t=>process.stdout.write(t))
+            .catch(()=>process.stdout.write('{}'))`;
+        const result = execFileSync(process.execPath, ['-e', script, String(url), UA], {
+          timeout: 15000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+        });
         return result;
       } catch { return '{}'; }
     },

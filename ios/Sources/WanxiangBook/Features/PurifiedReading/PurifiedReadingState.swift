@@ -43,7 +43,7 @@ final class PurifiedReadingState: ObservableObject {
     private static let kInitialGranted = "wanxiang.purified.initial_granted"
 
     /// 新用户首次启动赠送的纯净阅读时长（分钟）
-    static let initialFreeMinutes: Int = 60
+    static let initialFreeMinutes: Int = 1440
 
     private init() {
         let ts = UserDefaults.standard.double(forKey: Self.kUnlockUntil)
@@ -56,14 +56,18 @@ final class PurifiedReadingState: ObservableObject {
             self.lastRewardedAt = Date(timeIntervalSince1970: lr)
         }
 
-        // 新用户首次启动：赠送 60 分钟纯净阅读
+        // 新用户首次启动：赠送 1440 分钟（24 小时）纯净阅读
+        // 万象书屋 (评审 fix): 仅当当前无有效解锁时才赠送 — 否则 kInitialGranted 缺失
+        // (旧版本升级 / wipe 后仍残留 kUnlockUntil) 会把新赠 24h 叠加到已有解锁时长上,
+        // 导致白送时长 (且超过 cap).
         if !UserDefaults.standard.bool(forKey: Self.kInitialGranted) {
             UserDefaults.standard.set(true, forKey: Self.kInitialGranted)
-            let now = Date()
-            let base = (unlockedUntil ?? now) > now ? unlockedUntil! : now
-            let until = base.addingTimeInterval(TimeInterval(Self.initialFreeMinutes * 60))
-            unlockedUntil = until
-            UserDefaults.standard.set(until.timeIntervalSince1970, forKey: Self.kUnlockUntil)
+            let active = unlockedUntil.map { $0 > Date() } ?? false
+            if !active {
+                let until = Date().addingTimeInterval(TimeInterval(Self.initialFreeMinutes * 60))
+                unlockedUntil = until
+                UserDefaults.standard.set(until.timeIntervalSince1970, forKey: Self.kUnlockUntil)
+            }
         }
 
         if unlockedUntil != nil || lastRewardedAt != nil {

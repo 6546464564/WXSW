@@ -53,6 +53,7 @@ async function fetchWithCookie(cookieHeader) {
           'Referer': 'https://www.qdmm.com/',
         },
         redirect: 'follow',
+        signal: AbortSignal.timeout(15000),
       };
       if (dispatcher) opts.dispatcher = dispatcher;
       const resp = await fetch(url, opts);

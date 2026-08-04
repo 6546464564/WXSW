@@ -580,29 +580,41 @@ object QidianRepository {
      * 一次拿到后整个 App 进程都复用 (csrf cookie 寿命 1 年, 起点 server 接受任意 csrf 配对当前 session).
      */
     private suspend fun ensureCsrfToken(gender: Channel = Channel.Male): String {
+        // 先无锁读缓存 (热路径 0 开销)
         if (gender == Channel.Female) {
             cachedCsrfTokenFemale?.let { return it }
         } else {
             cachedCsrfTokenMale?.let { return it }
         }
-        val genderParam = if (gender == Channel.Female) "female" else "male"
-        val resp = okHttpClient.newCallStrResponse(retry = 1) {
-            url("$BASE/rank/yuepiao?gender=$genderParam")
-            header("User-Agent", UA)
-            header("Accept", "text/html")
+        csrfMutex.lock()
+        try {
+            // 拿到锁后再读一次 — 前面的请求可能已把 token 填进缓存
+            if (gender == Channel.Female) {
+                cachedCsrfTokenFemale?.let { return it }
+            } else {
+                cachedCsrfTokenMale?.let { return it }
+            }
+            val genderParam = if (gender == Channel.Female) "female" else "male"
+            val resp = okHttpClient.newCallStrResponse(retry = 1) {
+                url("$BASE/rank/yuepiao?gender=$genderParam")
+                header("User-Agent", UA)
+                header("Accept", "text/html")
+            }
+            val setCookies = resp.raw.headers("Set-Cookie")
+            val csrfLine = setCookies.firstOrNull { it.startsWith("_csrfToken=") }
+                ?: throw IllegalStateException("响应未带 _csrfToken Set-Cookie (起点改了协议?)")
+            val token = csrfLine.removePrefix("_csrfToken=").substringBefore(";").trim()
+            if (token.isEmpty()) throw IllegalStateException("_csrfToken 空值")
+            if (gender == Channel.Female) {
+                cachedCsrfTokenFemale = token
+            } else {
+                cachedCsrfTokenMale = token
+            }
+            LogUtils.d(TAG, "csrf token cached gender=$genderParam")
+            return token
+        } finally {
+            csrfMutex.unlock()
         }
-        val setCookies = resp.raw.headers("Set-Cookie")
-        val csrfLine = setCookies.firstOrNull { it.startsWith("_csrfToken=") }
-            ?: throw IllegalStateException("响应未带 _csrfToken Set-Cookie (起点改了协议?)")
-        val token = csrfLine.removePrefix("_csrfToken=").substringBefore(";").trim()
-        if (token.isEmpty()) throw IllegalStateException("_csrfToken 空值")
-        if (gender == Channel.Female) {
-            cachedCsrfTokenFemale = token
-        } else {
-            cachedCsrfTokenMale = token
-        }
-        LogUtils.d(TAG, "csrf token cached gender=$genderParam")
-        return token
     }
 
     @Volatile
@@ -611,7 +623,10 @@ object QidianRepository {
     @Volatile
     private var cachedCsrfTokenFemale: String? = null
 
-    /** RankType → /rank/<path>?pageNum=N 的 SSR path. */
+    // 万象书屋 (基底并发 fix): CSRF token 是 check-then-act, 多个榜单页并发预取会同时
+    // 发 HTTP (幂等但重复 + 弱网放大失败). Mutex 单飞后同一时间只允许一次拉取.
+    private val csrfMutex = kotlinx.coroutines.sync.Mutex()
+
     private fun rankDetailPath(type: RankType): String? = when (type) {
         RankType.Yuepiao    -> "yuepiao"
         RankType.HotReading -> "hotsales"

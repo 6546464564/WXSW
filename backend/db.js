@@ -244,6 +244,15 @@ function cleanupOldData() {
   if (retried.changes > 0) {
     console.log(`[cleanup] retried ${retried.changes} not_found/error books`);
   }
+
+  // 卡死的 searching/downloading 状态: 进程崩溃后没有任务会捞回, 超 1 小时重置为 pending
+  const stuckCutoff = Date.now() - 3600 * 1000;
+  const unstuck = db.prepare(
+    "UPDATE cached_books SET status = 'pending', error_msg = NULL, updated_at = ? WHERE status IN ('searching','downloading') AND updated_at < ?"
+  ).run(Date.now(), stuckCutoff);
+  if (unstuck.changes > 0) {
+    console.log(`[cleanup] unstuck ${unstuck.changes} stale searching/downloading books`);
+  }
 }
 
 // ─── 初始化 ─────────────────────────────────────────────────
@@ -418,7 +427,6 @@ module.exports = {
   getCachedBook: bookCacheModel.getBook,
   getCachedBookByQidianId: bookCacheModel.getBookByQidianId,
   getCachedBookByTitle: bookCacheModel.getBookByTitle,
-  searchCachedBooks: bookCacheModel.searchBooks,
   listCachedBooks: bookCacheModel.listBooks,
   nextPendingBook: bookCacheModel.nextPendingBook,
   updateCachedBookSource: bookCacheModel.updateBookSource,

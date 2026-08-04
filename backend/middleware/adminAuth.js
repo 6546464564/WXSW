@@ -4,6 +4,7 @@ let db; // 由 setup() 注入
 
 // 内存级 login 限速
 const loginAttempts = new Map();
+const LOGIN_ATTEMPTS_MAX = 10_000;
 
 function setup(database) {
   db = database;
@@ -15,6 +16,10 @@ function setup(database) {
       if ((slot.lockedUntil || 0) < cutoff && (slot.firstTs || 0) < cutoff) {
         loginAttempts.delete(ip);
       }
+    }
+    if (loginAttempts.size > LOGIN_ATTEMPTS_MAX) {
+      const oldest = [...loginAttempts.entries()].sort((a, b) => a[1].firstTs - b[1].firstTs);
+      for (const [k] of oldest.slice(0, oldest.length - LOGIN_ATTEMPTS_MAX)) loginAttempts.delete(k);
     }
   }, 30 * 60 * 1000).unref?.();
 }

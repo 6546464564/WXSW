@@ -73,6 +73,14 @@ object AdManager {
     // 多个 refreshFromRemote / initOnDemand 交错. 用 Mutex 单飞行.
     private val bootstrapMutex = kotlinx.coroutines.sync.Mutex()
 
+    // 万象书屋: 全局激励视频会话单飞锁. 同一时间只允许一个"加载/展示中"的激励会话.
+    //
+    // 背景: checkChapterPaywall 在 upContent 与 upContentAwait 两条路径都会触发,
+    // 且锁屏页的"看广告"按钮可被连点. 之前每个 loadAndShowRewardedInner 有各自的
+    // dispatched CAS (防单会话内重复回调), 但没有跨会话守卫 — 两个会话并发时
+    // 可能同时播放两个广告、onRewarded 各发一次奖 (markRewardedSuccess 被调两次).
+    private val rewardedSessionActive = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /**
      * 进程级初始化. 通常在 App.onCreate 之后、主界面冷启动时调用.
      *
@@ -373,6 +381,13 @@ object AdManager {
         onSkipped: () -> Unit,
         onRewarded: () -> Unit
     ) {
+        // 万象书屋: 单飞守卫 — 已有激励会话在跑时拒绝新会话, 新会话按"跳过"处理
+        // (付费墙路径的 onSkipped 会展示重试按钮, 不会卡死用户).
+        // 守卫只负责"同一时间一个会话", 会话内重复回调仍由 dispatch 的 CAS 兜底.
+        if (!rewardedSessionActive.compareAndSet(false, true)) {
+            onSkipped()
+            return
+        }
         WanxiangBackend.reportAdEvent("rewardedReadingUnlock", provider.name, "load")
         // 万象书屋: 防双触发 (例如 SDK 既调 onError 又调 onAdClosed) + 兜底超时.
         //
@@ -391,6 +406,7 @@ object AdManager {
         fun dispatch(rewarded: Boolean) {
             if (!dispatched.compareAndSet(false, true)) return
             timeoutJob?.cancel()
+            rewardedSessionActive.set(false)
             if (rewarded) onRewarded() else onSkipped()
         }
 

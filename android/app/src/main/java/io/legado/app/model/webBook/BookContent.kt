@@ -31,6 +31,10 @@ import kotlin.coroutines.coroutineContext
  */
 object BookContent {
 
+    // 万象书屋 (基底 fix): 单章正文字符数上限. 正常网文一章 ~5-10k 字, 恶意/异常书源可返回
+    // 数十 MB, 超限即截断 (详见 analyzeContent 内注释).
+    private const val MAX_CONTENT_CHARS = 2_000_000
+
     @Throws(Exception::class)
     suspend fun analyzeContent(
         bookSource: BookSource,
@@ -135,6 +139,16 @@ object BookContent {
             }
         }
         var contentStr = contentList.joinToString("\n")
+        // 万象书屋 (基底 fix): 病态书源可返回几十 MB 的"正文"(脏数据/恶意书源), 后续
+        // split/replaceRegex/存储全量复制会把内存打爆. 聚合后立即按上限截断, 截断点取
+        // 到段落边界, 避免把正文切成一半.
+        if (contentStr.length > MAX_CONTENT_CHARS) {
+            contentStr = contentStr.take(MAX_CONTENT_CHARS).substringBeforeLast('\n')
+            Debug.log(
+                bookSource.bookSourceUrl,
+                "正文超过 ${MAX_CONTENT_CHARS} 字符, 已截断 (防止内存打爆)"
+            )
+        }
         //全文替换
         val replaceRegex = contentRule.replaceRegex
         if (!replaceRegex.isNullOrEmpty()) {

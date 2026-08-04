@@ -68,6 +68,9 @@ public final class ReaderEngine: ObservableObject {
     private var loadingIndices: Set<Int> = []
     /// 进行中的拉取任务, 防止重复
     private var inflight: [Int: Task<String, Error>] = [:]
+    /// 万象书屋 (评审 fix): prefetchAround 启动的后台任务 — ReaderEngine 销毁时统一取消,
+    /// 避免 ReaderView 退出后仍在后台拉章 (inflight 只跟踪 loadChapter 内部任务, 不覆盖这里).
+    private var prefetchTasks: Set<Task<Void, Never>> = []
 
     private var memoryWarningObserver: Any?
 
@@ -88,6 +91,10 @@ public final class ReaderEngine: ObservableObject {
         if let obs = memoryWarningObserver {
             NotificationCenter.default.removeObserver(obs)
         }
+        // 万象书屋 (评审 fix): ReaderEngine 销毁时取消所有后台预拉/拉章任务, 防止
+        // 退出阅读器后 inflight 网络请求继续跑.
+        prefetchTasks.forEach { $0.cancel() }
+        inflight.values.forEach { $0.cancel() }
     }
 
     private func handleMemoryWarning() {
@@ -376,8 +383,19 @@ public final class ReaderEngine: ObservableObject {
             if task.isCancelled {
                 inflight.removeValue(forKey: index)
             } else {
-                do { _ = try await task.value } catch {}
-                return
+                do {
+                    let body = try await task.value
+                    contentCache[index] = body
+                    touchCacheAccess(index)
+                    return
+                } catch {
+                    // 万象书屋 (goToChapter 竞争 fix): 复用的是别处(prefetch/上一章)启动的 task.
+                    // 它失败时这里非 silent 调用方要就地报错, 不能吞掉 — 否则用户翻到本章既无内容也无错误提示.
+                    if !silent, index == currentChapterIndex {
+                        self.lastError = error.localizedDescription
+                    }
+                    return
+                }
             }
         }
         loadingIndices.insert(index)
@@ -440,7 +458,11 @@ public final class ReaderEngine: ObservableObject {
             contentCache[index] = body
             touchCacheAccess(index)
             evictOldCacheIfNeeded()
-            self.lastError = nil
+            // 万象书屋 (goToChapter 竞争 fix): 只有"仍是当前章"时才清 lastError,
+            // 否则旧章完成会误清当前章的报错状态.
+            if index == currentChapterIndex {
+                self.lastError = nil
+            }
             if silent, abs(index - currentChapterIndex) == 1 {
                 adjacentCacheRevision &+= 1
             }
@@ -455,7 +477,10 @@ public final class ReaderEngine: ObservableObject {
                 if index == currentChapterIndex, ReadingSettings.autoChangeSourceEnabled {
                     Task { await tryAutoChangeSource(failedAt: index) }
                 }
-                self.lastError = error.localizedDescription
+                // 万象书屋 (goToChapter 竞争 fix): 非当前章的失败不污染 lastError
+                if index == currentChapterIndex {
+                    self.lastError = error.localizedDescription
+                }
             }
         }
     }
@@ -551,7 +576,7 @@ public final class ReaderEngine: ObservableObject {
                   contentCache[target] == nil, inflight[target] == nil else {
                 continue
             }
-            Task(priority: .userInitiated) { await loadChapter(index: target, silent: true) }
+            launchPrefetchTask(target, priority: .userInitiated)
         }
         // 2. 后续 N 章 (用户顺序读时, 翻页前已经在 SQLite)
         for offset in 2...Self.preDownloadAhead {
@@ -560,7 +585,7 @@ public final class ReaderEngine: ObservableObject {
                   contentCache[target] == nil, inflight[target] == nil else {
                 continue
             }
-            Task(priority: .utility) { await loadChapter(index: target, silent: true) }
+            launchPrefetchTask(target, priority: .utility)
         }
         // 3. 前 N 章 (用户回看上文时也命中)
         for offset in 2...Self.preDownloadBehind {
@@ -569,7 +594,21 @@ public final class ReaderEngine: ObservableObject {
                   contentCache[target] == nil, inflight[target] == nil else {
                 continue
             }
-            Task(priority: .utility) { await loadChapter(index: target, silent: true) }
+            launchPrefetchTask(target, priority: .utility)
+        }
+    }
+
+    /// 万象书屋 (评审 fix): 启动 prefetch 任务并登记, 完成后自动从集合移除 (防无限增长);
+    /// ReaderEngine deinit 时统一 cancel.
+    private func launchPrefetchTask(_ target: Int, priority: TaskPriority) {
+        let task = Task(priority: priority) { [weak self] in
+            guard let self else { return }
+            await self.loadChapter(index: target, silent: true)
+        }
+        prefetchTasks.insert(task)
+        Task { [weak self] in
+            _ = await task.result
+            await MainActor.run { self?.prefetchTasks.remove(task) }
         }
     }
     // MARK: - 内存缓存 LRU 淘汰

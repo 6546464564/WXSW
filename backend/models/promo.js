@@ -50,13 +50,26 @@ function recordPromoAttempt({ code, deviceId, deviceModel, success, ip }) {
 function recordPromoUsage({ code, agentName, deviceId, deviceModel, systemVersion, ip }) {
   const now = Date.now();
   try {
+    const codeRow = db.prepare('SELECT * FROM promo_codes WHERE code=?').get(code);
+    if (!codeRow) return { ok: false, msg: '推广码不存在' };
+    if (!codeRow.enabled) return { ok: false, msg: '该推广码已停用' };
+    if (codeRow.expires_at && now > codeRow.expires_at) return { ok: false, msg: '该推广码已过期' };
+    if (codeRow.max_uses > 0 && codeRow.used_count >= codeRow.max_uses) {
+      return { ok: false, msg: '该推广码已达使用上限' };
+    }
+    if (codeRow.single_device) {
+      const existing = db.prepare(
+        'SELECT COUNT(*) AS c FROM promo_usage WHERE code=? AND device_id=?'
+      ).get(code, deviceId);
+      if (existing.c > 0) return { ok: false, msg: '该推广码仅限单个设备使用' };
+    }
     db.prepare(`INSERT INTO promo_usage (code, agent_name, device_id, device_model, system_version, ip, ts)
                 VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(code, agentName || '', deviceId, deviceModel || null, systemVersion || null, ip || null, now);
     db.prepare('UPDATE promo_codes SET used_count = used_count + 1 WHERE code=?').run(code);
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, msg: e.message };
   }
 }
 

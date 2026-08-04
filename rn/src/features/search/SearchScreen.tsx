@@ -48,6 +48,36 @@ const FILTER_LABELS: {key: Filter; label: string}[] = [
 const MAX_HISTORY = 20;
 const HISTORY_KEY = 'wanxiang.search.history';
 
+// 万象书屋 (lint fix): relevanceTier/sortResults 是纯函数, 不依赖组件状态,
+// 提到模块级避免 useCallback 的 exhaustive-deps 告警 (每次渲染新引用).
+function relevanceTier(item: SearchResult, kw: string): number {
+  const name = (item.name || '').toLowerCase().replace(/\s+/g, '');
+  const author = (item.author || '').toLowerCase().replace(/^作者[：:]/, '').replace(/\s+/g, '');
+  if (name === kw) return 0;
+  if (author === kw) return 1;
+  if (name.startsWith(kw)) return 2;
+  if (name.includes(kw)) return 3;
+  if (author.includes(kw)) return 4;
+  return 5;
+}
+
+function sortResults(items: SearchResult[], keyword: string): SearchResult[] {
+  const kw = keyword.toLowerCase().replace(/\s+/g, '');
+  return items.sort((a, b) => {
+    const ta = relevanceTier(a, kw);
+    const tb = relevanceTier(b, kw);
+    if (ta !== tb) return ta - tb;
+    // 同层：源数多的排前面
+    if (a.distinctOriginCount !== b.distinctOriginCount) {
+      return b.distinctOriginCount - a.distinctOriginCount;
+    }
+    // 书库有章节数据的优先
+    const libA = a.sourceUrl === 'wanxiang://library' ? 1 : 0;
+    const libB = b.sourceUrl === 'wanxiang://library' ? 1 : 0;
+    return libB - libA;
+  });
+}
+
 export default function SearchScreen() {
   const route = useRoute<Route>();
   const navigation = useNavigation<Nav>();
@@ -55,7 +85,6 @@ export default function SearchScreen() {
   const [keyword, setKeyword] = useState(route.params?.keyword || '');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [searchedCount, setSearchedCount] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
   const [filter, setFilter] = useState<Filter>('all');
   const [errorMsg, setErrorMsg] = useState('');
@@ -101,7 +130,6 @@ export default function SearchScreen() {
       addHistory(searchKw);
       setSearching(true);
       setResults([]);
-      setSearchedCount(0);
       setErrorMsg('');
       setFilter('all');
 
@@ -157,7 +185,6 @@ export default function SearchScreen() {
           }
         }
         setResults(sortResults([...allResults], searchKw));
-        setSearchedCount(allResults.length);
       } catch (e: any) {
         const msg = e?.message || String(e);
         console.warn('[Search] 服务端搜索失败:', msg);
@@ -189,34 +216,6 @@ export default function SearchScreen() {
       } catch {}
     }
   };
-
-  function relevanceTier(item: SearchResult, kw: string): number {
-    const name = (item.name || '').toLowerCase().replace(/\s+/g, '');
-    const author = (item.author || '').toLowerCase().replace(/^作者[：:]/, '').replace(/\s+/g, '');
-    if (name === kw) return 0;
-    if (author === kw) return 1;
-    if (name.startsWith(kw)) return 2;
-    if (name.includes(kw)) return 3;
-    if (author.includes(kw)) return 4;
-    return 5;
-  }
-
-  function sortResults(items: SearchResult[], keyword: string): SearchResult[] {
-    const kw = keyword.toLowerCase().replace(/\s+/g, '');
-    return items.sort((a, b) => {
-      const ta = relevanceTier(a, kw);
-      const tb = relevanceTier(b, kw);
-      if (ta !== tb) return ta - tb;
-      // 同层：源数多的排前面
-      if (a.distinctOriginCount !== b.distinctOriginCount) {
-        return b.distinctOriginCount - a.distinctOriginCount;
-      }
-      // 书库有章节数据的优先
-      const libA = a.sourceUrl === 'wanxiang://library' ? 1 : 0;
-      const libB = b.sourceUrl === 'wanxiang://library' ? 1 : 0;
-      return libB - libA;
-    });
-  }
 
   const onChangeText = (text: string) => {
     setKeyword(text);

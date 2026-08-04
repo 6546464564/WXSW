@@ -18,6 +18,7 @@ import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.CancellationException
 import splitties.init.appCtx
 import java.lang.ref.WeakReference
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.regex.Pattern
 
@@ -27,7 +28,10 @@ class ContentProcessor private constructor(
 ) {
 
     companion object {
-        private val processors = hashMapOf<String, WeakReference<ContentProcessor>>()
+        // 万象书屋 (基底并发 fix): 普通 HashMap 在多 IO 协程 + 主线程并发读写会抛
+        // ConcurrentModificationException (upReplaceRules 无 try/catch 直接崩线程).
+        // 改 ConcurrentHashMap 保证弱一致安全迭代.
+        private val processors = ConcurrentHashMap<String, WeakReference<ContentProcessor>>()
         private val isAndroid8 = Build.VERSION.SDK_INT in 26..27
 
         fun get(book: Book) = get(book.name, book.origin)
@@ -52,7 +56,7 @@ class ContentProcessor private constructor(
 
     private val titleReplaceRules = CopyOnWriteArrayList<ReplaceRule>()
     private val contentReplaceRules = CopyOnWriteArrayList<ReplaceRule>()
-    val removeSameTitleCache = hashSetOf<String>()
+    val removeSameTitleCache = ConcurrentHashMap.newKeySet<String>()
 
     init {
         upReplaceRules()

