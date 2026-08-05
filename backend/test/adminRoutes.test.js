@@ -344,6 +344,146 @@ test('search/toc + search/content 参数校验与 source not found', async () =>
 });
 
 // ─────────────────────────────────────────────
+// admin 登录失败分支 / 锁定
+// ─────────────────────────────────────────────
+test('admin login 失败计数 + 锁定', async () => {
+  // 用独立 IP, 避免污染 127.0.0.1 的限速状态 (trust proxy=1 生效)
+  const IP = '203.0.113.10';
+  await request(app).post('/api/admin/login')
+    .set('X-Forwarded-For', IP).send({ username: '不存在', password: 'x' }).expect(401);
+  await request(app).post('/api/admin/login')
+    .set('X-Forwarded-For', IP).send({ password: 'wrong' }).expect(401);
+  // 连续失败累计 (loginRateLimit 内存层 MAX_FAILS=5 → 429; DB 层 threshold=5 → 423)
+  for (let i = 0; i < 3; i++) {
+    await request(app).post('/api/admin/login')
+      .set('X-Forwarded-For', IP).send({ username: 'lockuser', password: 'bad' });
+  }
+  // 第 6 次: 内存限速或 DB 账户锁定, 二者其一必然生效 (423 或 429)
+  const r3 = await request(app).post('/api/admin/login')
+    .set('X-Forwarded-For', IP).send({ username: 'lockuser', password: 'bad' });
+  assert.ok([423, 429].includes(r3.status), `expected 423/429 got ${r3.status}`);
+  assert.equal(r3.body.ok, false);
+  if (r3.status === 423) {
+    assert.ok(r3.body.unlock_at > Date.now());
+  }
+});
+
+test('admin 用户管理: 创建/列表/删除 + 权限', async () => {
+  const agent = request.agent(app);
+  await agent.post('/api/admin/login').send({ password: ADMIN_PW }).expect(200);
+  // 创建 operator 用户
+  await agent.post('/api/admin/users').send({ username: 'op1', password: 'op-pass-12345', role: 'operator' }).expect(200);
+  const list = await agent.get('/api/admin/users').expect(200);
+  assert.ok(list.body.users.some(u => u.username === 'op1'));
+  // 删除
+  await agent.delete('/api/admin/users/op1').expect(200);
+  const list2 = await agent.get('/api/admin/users').expect(200);
+  assert.ok(!list2.body.users.some(u => u.username === 'op1'));
+  // 未登录 → 401
+  await request(app).get('/api/admin/users').expect(401);
+});
+
+test('admin 推广码 CRUD + 统计', async () => {
+  const agent = request.agent(app);
+  await agent.post('/api/admin/login').send({ password: ADMIN_PW }).expect(200);
+  await agent.post('/api/admin/promo/codes').send({ code: 'TESTPROMO', agentName: '测试代理' }).expect(200);
+  const list = await agent.get('/api/admin/promo/codes').expect(200);
+  assert.ok(list.body.list.some(c => c.code === 'TESTPROMO'));
+  // 更新 (DB 字段名 max_uses) + 删除
+  await agent.put('/api/admin/promo/codes/TESTPROMO').send({ max_uses: 5 }).expect(200);
+  await agent.put('/api/admin/promo/codes/NOTEXIST').send({ max_uses: 5 }).expect(404);
+  const stats = await agent.get('/api/admin/promo/stats').expect(200);
+  assert.equal(stats.body.ok, true);
+  await agent.get('/api/admin/promo/stats/TESTPROMO').expect(200);
+  await agent.get('/api/admin/promo/fraud').expect(200);
+  await agent.delete('/api/admin/promo/codes/TESTPROMO').expect(200);
+  await agent.delete('/api/admin/promo/codes/TESTPROMO').expect(404);
+});
+
+test('admin 公告 CRUD', async () => {
+  const agent = request.agent(app);
+  await agent.post('/api/admin/login').send({ password: ADMIN_PW }).expect(200);
+  const r = await agent.post('/api/admin/announcement').send({ title: '测试公告', content: '内容' }).expect(200);
+  const list = await agent.get('/api/admin/announcements').expect(200);
+  assert.ok(list.body.list.some(a => a.id === r.body.id));
+  await agent.delete(`/api/admin/announcement/${r.body.id}`).expect(200);
+  await agent.delete(`/api/admin/announcement/${r.body.id}`).expect(200); // 删不存在也 ok
+});
+
+test('admin 书源管理: check / enabled / platforms / delete', async () => {
+  const agent = request.agent(app);
+  await agent.post('/api/admin/login').send({ password: ADMIN_PW }).expect(200);
+  const url = 'https://manage.example.com';
+  await agent.post('/api/admin/sources').send({
+    bookSourceUrl: url, bookSourceName: '管理源', bookSourceGroup: '管理组',
+  }).expect(200);
+  // 批量 upsert (数组)
+  await agent.post('/api/admin/sources').send([{ bookSourceUrl: 'https://a.example.com', bookSourceName: 'A源' }]).expect(200);
+  // enabled
+  await agent.patch('/api/admin/sources/enabled').send({ url, enabled: false }).expect(200);
+  await agent.patch('/api/admin/sources/enabled').send({ url: 'https://nope.example.com', enabled: true }).expect(200);
+  // platforms
+  await agent.patch('/api/admin/sources/platforms').send({ url, platforms: ['ios', 'android'] }).expect(200);
+  await agent.patch('/api/admin/sources/platforms').send({ url: 'https://nope.example.com', platforms: ['ios'] }).expect(404);
+  await agent.patch('/api/admin/sources/platforms').send({ url, platforms: 'not-array' }).expect(400);
+  // bulk platforms
+  await agent.patch('/api/admin/sources/platforms/bulk').send({ urls: [url], platform: 'ios', op: 'add' }).expect(200);
+  await agent.patch('/api/admin/sources/platforms/bulk').send({ urls: [], platform: 'ios', op: 'add' }).expect(400);
+  await agent.patch('/api/admin/sources/platforms/bulk').send({ urls: [url], platform: 'windows', op: 'add' }).expect(400);
+  await agent.patch('/api/admin/sources/platforms/bulk').send({ urls: [url], platform: 'ios', op: 'badop' }).expect(400);
+  // check (静态检查, 不触发外部网络)
+  const chk = await agent.post('/api/admin/sources/check').send({ url }).expect(200);
+  assert.equal(chk.body.ok, true);
+  // delete
+  await agent.delete('/api/admin/sources?url=' + encodeURIComponent(url)).expect(200);
+  await agent.delete('/api/admin/sources').expect(400); // 缺 url
+});
+
+test('admin TXT 上传到书库', async () => {
+  const agent = request.agent(app);
+  await agent.post('/api/admin/login').send({ password: ADMIN_PW }).expect(200);
+  // 缺文件 → 400
+  await agent.post('/api/admin/library/upload').send({ title: '无文件' }).expect(400);
+  // 缺标题 → 400
+  await agent.post('/api/admin/library/upload')
+    .attach('file', Buffer.from('第一章\n正文内容'), 'book.txt')
+    .expect(400);
+  // 正常上传 (GBK 编码自动识别, 或 UTF-8)
+  const utf8 = '第一章 开始\n这是第一章内容。\n\n第二章 后续\n这是第二章内容。\n';
+  const r = await agent.post('/api/admin/library/upload')
+    .field('title', 'TXT测试书')
+    .field('author', '测试作者')
+    .field('category', '玄幻')
+    .attach('file', Buffer.from(utf8, 'utf-8'), 'book.txt')
+    .expect(200);
+  assert.equal(r.body.ok, true);
+  assert.ok(r.body.chapters >= 2);
+  // 重复书名: cached_books 的 UNIQUE 是 qidian_id 而非 title, 同名书会再次入库
+  // (上传路由的 409 分支仅在 qidian_id 冲突时触发)
+  const r2 = await agent.post('/api/admin/library/upload')
+    .field('title', 'TXT测试书')
+    .attach('file', Buffer.from('第一章\n内容', 'utf-8'), 'book2.txt')
+    .expect(200);
+  assert.equal(r2.body.ok, true);
+});
+
+test('admin qimao-import 参数校验', async () => {
+  const agent = request.agent(app);
+  await agent.post('/api/admin/login').send({ password: ADMIN_PW }).expect(200);
+  // 缺 qimaoId → 400
+  await agent.post('/api/admin/cache/qimao-import').send({}).expect(400);
+});
+
+test('admin 校验: sources/validate 参数校验', async () => {
+  const agent = request.agent(app);
+  await agent.post('/api/admin/login').send({ password: ADMIN_PW }).expect(200);
+  // 缺 url → 400
+  await agent.get('/api/admin/sources/validate').expect(400);
+  // 不存在的 url → 404
+  await agent.get('/api/admin/sources/validate?url=https%3A%2F%2Fnope.example.com').expect(404);
+});
+
+// ─────────────────────────────────────────────
 // admin password (放最后: 会销毁所有 session)
 // ─────────────────────────────────────────────
 test('/api/admin/password 旧密码校验 + 修改', async () => {

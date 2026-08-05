@@ -83,6 +83,8 @@ android/keystore/.local-password.txt
 android/keystore/*.OLD*
 keystore/*.keystore
 keystore/*.jks
+.github/workflows/*.jks
+.github/workflows/*.keystore
 
 # 万象书屋: 联调辅助脚本 (Cursor 生成, 不入仓库)
 install-and-run.sh

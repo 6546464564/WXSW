@@ -35,19 +35,29 @@ jobs:
       - name: Install
         run: npm ci --no-audit --no-fund
 
+      - name: Security audit (fail on vulnerabilities)
+        # 生产依赖必须 0 漏洞; 开发依赖的已知问题打日志不阻断.
+        run: |
+          npm audit --omit=dev
+          exit_code=$?
+          if [ $exit_code -ne 0 ]; then
+            echo "::error::npm audit found vulnerabilities in production deps. Run: npm audit fix"
+            exit $exit_code
+          fi
+
       - name: Run unit tests
         env:
           BCRYPT_COST: 4               # CI 环境 fast-hash, 不然每个测试 600ms+
           ADMIN_INITIAL_PASSWORD: ci-test-password-12345
+          DEVICE_TOKEN_SECRET: ci-test-secret-aaaaaaaaaaaaaaaaaaaaaaaa
         run: npm test
 
-      - name: Run integration tests (supertest)
-        if: hashFiles('backend/test/api.test.js') != ''
+      - name: Run backend coverage
         env:
           BCRYPT_COST: 4
           ADMIN_INITIAL_PASSWORD: ci-test-password-12345
           DEVICE_TOKEN_SECRET: ci-test-secret-aaaaaaaaaaaaaaaaaaaaaaaa
-        run: node --test test/api.test.js
+        run: node --experimental-require-module --experimental-test-coverage --test test/*.test.js 2>&1 | tail -20
 
   docker-build:
     name: Build Docker image

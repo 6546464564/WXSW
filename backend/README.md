@@ -79,6 +79,10 @@ WANXIANG_BACKEND_URL=https://www.wxsw.app
 ## 一键部署到 Linux VPS
 
 > 假设系统是 Ubuntu / Debian / CentOS，已有 root，已有指向 VPS 的域名。
+>
+> **反代方案**：生产环境用 **nginx**（`deploy/setup-server.sh` 一键安装配置，
+> `deploy/nginx-wanxiang-{,https}.conf` 为模板，见 `deploy/HTTPS-DEPLOY.md`）。
+> 下方 Caddy 步骤为可选替代（仓库内 `Caddyfile` 已为 www.wxsw.app）。
 
 ```bash
 # 1. 安装运行时
