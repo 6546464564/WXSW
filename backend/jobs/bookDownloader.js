@@ -230,29 +230,40 @@ async function downloadBook(db, bookRow, sources, chapterThreads = CHAPTER_CONCU
 
   const chapterItems = chapters.map((ch, i) => ({ ch, i }));
 
-  await pooledMap(chapterItems, chapterThreads, async ({ ch, i }) => {
-    // 连续错误多时自动增加延迟
-    const extraDelay = consecutiveErrors > 5 ? 3000 : (consecutiveErrors > 2 ? 1000 : 0);
-    await engine.sleep(CHAPTER_DELAY_MS + extraDelay + Math.random() * 300);
+  // 万象书屋: 慢速下载心跳 — 每 30s 刷新一次 cached_books.updated_at,
+  // 防止 cleanupOldData (backend/db.js) 把合法但缓慢的 downloading 误判为卡死
+  // 重置成 pending. 旧逻辑只在 total % 100 时刷新, 大文件 + IP 封禁冷却 / 代理
+  // 延迟 / 低并发下可能超 1 小时, 下一轮 processParallel 会把同一本书再次拉起来,
+  // 导致同一本书被并发下载两遍 (重复请求 + 终态写入竞争).
+  const heartbeat = setInterval(() => db.refreshCachedBookCount(id), 30_000);
 
-    const result = await downloadChapter(source, ch, id, i, db);
+  try {
+    await pooledMap(chapterItems, chapterThreads, async ({ ch, i }) => {
+      // 连续错误多时自动增加延迟
+      const extraDelay = consecutiveErrors > 5 ? 3000 : (consecutiveErrors > 2 ? 1000 : 0);
+      await engine.sleep(CHAPTER_DELAY_MS + extraDelay + Math.random() * 300);
 
-    if (result === 'done' || result === 'skip') {
-      doneCount++;
-      consecutiveErrors = 0;
-    } else {
-      errorCount++;
-      consecutiveErrors++;
-    }
+      const result = await downloadChapter(source, ch, id, i, db);
 
-    const total = doneCount + errorCount;
-    if (total % 100 === 0 || total === chapters.length) {
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-      const speed = (total / (Date.now() - startTime) * 1000).toFixed(1);
-      console.log(`  📥 [${id}] ${doneCount}/${chapters.length} (${errorCount} err) ${elapsed}s ${speed}/s`);
-      db.refreshCachedBookCount(id);
-    }
-  });
+      if (result === 'done' || result === 'skip') {
+        doneCount++;
+        consecutiveErrors = 0;
+      } else {
+        errorCount++;
+        consecutiveErrors++;
+      }
+
+      const total = doneCount + errorCount;
+      if (total % 100 === 0 || total === chapters.length) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+        const speed = (total / (Date.now() - startTime) * 1000).toFixed(1);
+        console.log(`  📥 [${id}] ${doneCount}/${chapters.length} (${errorCount} err) ${elapsed}s ${speed}/s`);
+        db.refreshCachedBookCount(id);
+      }
+    });
+  } finally {
+    clearInterval(heartbeat);
+  }
 
   db.refreshCachedBookCount(id);
 

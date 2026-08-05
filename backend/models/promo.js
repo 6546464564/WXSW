@@ -29,7 +29,8 @@ function updatePromoCode(code, updates) {
   for (const [k, v] of Object.entries(updates)) {
     if (allowed.includes(k)) {
       sets.push(`${k}=?`);
-      vals.push(v);
+      // SQLite 不能直接绑定 JS 布尔, 转 0/1 (single_device/enabled 是 INTEGER 列)
+      vals.push(typeof v === 'boolean' ? (v ? 1 : 0) : v);
     }
   }
   if (sets.length === 0) return false;

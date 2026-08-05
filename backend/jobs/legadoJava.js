@@ -9,6 +9,9 @@ const validator = require('../sourceValidator');
 
 const UA = 'Mozilla/5.0 (Linux; Android 12; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36';
 
+// 万象书屋: 出站请求最大重定向跳数 (与 sourceValidator.probeUrl 的 maxRedirects 一致)
+const MAX_REDIRECTS = 5;
+
 /**
  * 创建 java.* API 对象, 供 VM 沙箱中使用.
  * @param {object} opts - { result, baseUrl, source }
@@ -37,25 +40,44 @@ function createJavaApi(opts = {}) {
     ajax(url) {
       // 同步 HTTP GET。不用 shell 拼接 (防命令注入), 通过 argv 把 URL 传给子进程.
       // 同时做同步 SSRF 校验, 拒绝私网/元数据地址.
+      // 重定向逐跳校验: 子进程用 redirect:'manual', 父进程负责每一跳的 SSRF 检查
+      // 与 Location 解析 — 之前子进程 fetch 默认 follow, 302/307 跳到内网地址
+      // 会绕过初始校验直接被请求 (与 legadoEngine.httpGet 同一处 SSRF 缺口).
       const { execFileSync } = require('child_process');
       const dns = require('node:dns');
-      try {
-        const parsed = new URL(String(url));
-        if (!/^https?:$/.test(parsed.protocol)) return '{}';
-        if (validator.isPrivateHost(parsed.hostname)) return '{}';
-        const addrs = dns.lookupSync(parsed.hostname, { all: true });
-        for (const a of addrs) {
-          if (validator.isPrivateIp(a.address)) return '{}';
-        }
+      let current = String(url);
+      for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+        try {
+          const parsed = new URL(current);
+          if (!/^https?:$/.test(parsed.protocol)) return '{}';
+          if (validator.isPrivateHost(parsed.hostname)) return '{}';
+          const addrs = dns.lookupSync(parsed.hostname, { all: true });
+          for (const a of addrs) {
+            if (validator.isPrivateIp(a.address)) return '{}';
+          }
+        } catch { return '{}'; }
         const script = `const u=process.argv[1];
-          fetch(u,{headers:{'User-Agent':process.argv[2]},signal:AbortSignal.timeout(15000)})
-            .then(r=>r.text()).then(t=>process.stdout.write(t))
+          fetch(u,{headers:{'User-Agent':process.argv[2]},redirect:'manual',signal:AbortSignal.timeout(15000)})
+            .then(async r=>{
+              if(r.status>=300&&r.status<400){
+                const loc=r.headers.get('location')||'';
+                try{r.body?.cancel();}catch{}
+                process.stdout.write('__WXSW_REDIRECT__'+loc);
+              }else{process.stdout.write(await r.text());}
+            })
             .catch(()=>process.stdout.write('{}'))`;
-        const result = execFileSync(process.execPath, ['-e', script, String(url), UA], {
+        const result = execFileSync(process.execPath, ['-e', script, current, UA], {
           timeout: 15000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
         });
+        if (result.startsWith('__WXSW_REDIRECT__')) {
+          const loc = result.slice('__WXSW_REDIRECT__'.length);
+          if (!loc) return '{}';
+          try { current = new URL(loc, current).toString(); } catch { return '{}'; }
+          continue;
+        }
         return result;
-      } catch { return '{}'; }
+      }
+      return '{}';
     },
 
     // ─── 加密/哈希 ───

@@ -68,6 +68,9 @@ function smartBuildUrl(base, params) {
 
 const UA = 'Mozilla/5.0 (Linux; Android 12; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36';
 
+// 万象书屋: 出站请求最大重定向跳数 (与 sourceValidator.probeUrl 的 maxRedirects 一致)
+const MAX_REDIRECTS = 5;
+
 let _proxyDispatcher = null;
 
 function setProxyUrl(proxyUrl) {
@@ -91,36 +94,49 @@ class BlockedError extends Error {
 }
 
 async function httpGet(url, { headers = {}, timeout = 15000 } = {}) {
-  // SSRF 防护: 运行时对每次出站请求校验目标 host, 拒绝私网/元数据地址.
-  // 与 sourceValidator.probeUrl 的校验口径保持一致.
-  try {
-    const parsed = new URL(url);
-    if (!/^https?:$/.test(parsed.protocol)) {
-      throw new Error(`blocked: non-http(s) url ${parsed.protocol}//`);
-    }
-    const check = await validator.isPrivateAddrAfterDns(parsed.hostname);
-    if (!check.ok) {
-      throw new Error(`blocked: ${check.reason}`);
-    }
-  } catch (e) {
-    if (e.name === 'TypeError') throw new Error(`invalid url: ${url}`);
-    throw e;
-  }
-
+  // SSRF 防护: 对每次出站请求(含重定向每一跳)校验目标 host, 拒绝私网/元数据地址.
+  // 与 sourceValidator.probeUrl 的 redirect:'manual' 逐跳校验口径保持一致.
+  // 之前 redirect:'follow' 只校验初始 URL, 一个 302/307 指向 169.254.169.254 /
+  // 127.0.0.1 / 10.x 的响应会绕过防护被直接请求.
   const baseOpts = {
     headers: { 'User-Agent': UA, ...headers },
-    redirect: 'follow',
+    redirect: 'manual',
     signal: AbortSignal.timeout(timeout),
   };
 
   async function doFetch(opts) {
-    const resp = await fetch(url, opts);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
-    const text = await resp.text();
-    if (text.length < 1000 && (text.includes('google.com') || text.includes('captcha') || text.includes('challenge'))) {
-      throw new BlockedError(url);
+    let current = url;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      let parsed;
+      try {
+        parsed = new URL(current);
+      } catch (e) {
+        throw new Error(`invalid url: ${current}`);
+      }
+      if (!/^https?:$/.test(parsed.protocol)) {
+        throw new Error(`blocked: non-http(s) url ${parsed.protocol}//`);
+      }
+      const check = await validator.isPrivateAddrAfterDns(parsed.hostname);
+      if (!check.ok) {
+        throw new Error(`blocked: ${check.reason}`);
+      }
+      const resp = await fetch(current, opts);
+      // 30x: 拿 Location 解析成绝对 URL, 下一跳重新校验 SSRF
+      if (resp.status >= 300 && resp.status < 400) {
+        const loc = resp.headers.get('location');
+        try { resp.body?.cancel(); } catch {}
+        if (!loc) throw new Error(`redirect without location for ${current}`);
+        current = new URL(loc, current).toString();
+        continue;
+      }
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${current}`);
+      const text = await resp.text();
+      if (text.length < 1000 && (text.includes('google.com') || text.includes('captcha') || text.includes('challenge'))) {
+        throw new BlockedError(current);
+      }
+      return text;
     }
-    return text;
+    throw new Error(`too many redirects for ${url}`);
   }
 
   if (_proxyDispatcher) {
