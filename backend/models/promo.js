@@ -181,7 +181,8 @@ function promoFraudDetection() {
 
   return alerts.sort((a, b) => {
     const sev = { high: 0, medium: 1, low: 2 };
-    return (sev[a.severity] || 9) - (sev[b.severity] || 9);
+    // 万象书屋 (fix): `|| 9` 把 high(0) 误判为 9 — 0 是 falsy, 高优告警被排到最后. 用 ?? 保留 0.
+    return (sev[a.severity] ?? 9) - (sev[b.severity] ?? 9);
   });
 }
 

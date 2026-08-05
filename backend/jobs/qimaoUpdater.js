@@ -229,4 +229,4 @@ async function importBook(db, qimaoId, category, logger) {
   return { bookId, title, author, chapters: downloaded, failed, total: chapters.length };
 }
 
-module.exports = { updateBook, updateAll, importBook, getChapterList, getChapterContent };
+module.exports = { updateBook, updateAll, importBook, getChapterList, getChapterContent, md5Sign, buildUrl, stripHtml, decryptContent };

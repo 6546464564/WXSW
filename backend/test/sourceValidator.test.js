@@ -149,3 +149,33 @@ describe('severityOf', () => {
     assert.equal(severityOf([]), 'ok');
   });
 });
+
+describe('validateOne / validateAll', () => {
+  test('validateOne: shape 有 error 不探活直接返回', async () => {
+    const { validateOne } = require('../sourceValidator');
+    const r = await validateOne({ bookSourceUrl: 'not-a-url' }, { checkReach: true });
+    assert.equal(r.severity, 'error');
+    assert.equal(r.reach, undefined);
+  });
+
+  test('validateAll: 空数组返回 0/0/0', async () => {
+    const { validateAll } = require('../sourceValidator');
+    const r = await validateAll([], { checkReach: false });
+    assert.deepEqual({ total: r.total, ok: r.ok, warn: r.warn, error: r.error }, { total: 0, ok: 0, warn: 0, error: 0 });
+  });
+
+  test('validateAll: 多条有 error 源, 统计归组正确', async () => {
+    const { validateAll } = require('../sourceValidator');
+    const bad = { bookSourceUrl: 'x' };               // shape error → severity error
+    const good = {                                   // 合法, checkReach=false 跳过探活
+      bookSourceUrl: 'https://example.com',
+      bookSourceName: '示例',
+    };
+    const r = await validateAll([bad, good, bad], { checkReach: false });
+    assert.equal(r.total, 3);
+    assert.equal(r.ok, 0);      // good 只有 warn (缺 ruleToc/ruleContent)
+    assert.equal(r.error, 2);
+    assert.equal(r.warn, 1);
+  });
+});
+
