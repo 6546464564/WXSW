@@ -7,9 +7,9 @@
     "start": "node --experimental-require-module server.js",
     "init-db": "node -e \"require('./db').init()\"",
     "seed": "node scripts/seed-default-sources.js",
-    "test": "node --test test/sourceValidator.test.js test/ssrf.test.js test/qidianMirror.test.js",
+    "test": "node --experimental-require-module --test test/sourceValidator.test.js test/ssrf.test.js test/qidianMirror.test.js test/api.test.js test/adminRoutes.test.js test/promoAlertsQimao.test.js test/coverageGap.test.js test/backup.test.js test/bookDownloaderFlow.test.js test/bookDownloaderHeartbeat.test.js test/e2e.test.js test/engineSsrf.test.js test/legadoEngineSearch.test.js test/legadoEngineTocContent.test.js test/legadoEngineUnit.test.js test/legadoJavaUnit.test.js test/rateLimit.test.js",
     "test:api": "node --experimental-require-module --test test/api.test.js",
-    "test:all": "node --experimental-require-module --test test/sourceValidator.test.js test/ssrf.test.js test/qidianMirror.test.js test/api.test.js",
+    "test:all": "node --experimental-require-module --test test/*.test.js",
     "reset-pwd": "node scripts/reset-admin-password.js"
   },
   "dependencies": {

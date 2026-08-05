@@ -54,6 +54,11 @@ final class BookSourceListUITests: XCTestCase {
         let loaded = waitForAnySourceRow(app, timeout: 20)
         XCTAssertTrue(loaded, "书源列表未展示任何书源")
         shot(app, "40-书源列表-已加载")
+
+        // 万象书屋: 七猫免费小说 书源应已从后端下发并展示
+        let qimao = app.staticTexts["七猫免费小说"]
+        XCTAssertTrue(qimao.waitForExistence(timeout: 15), "书源列表未显示「七猫免费小说」(后端应已下发)")
+        shot(app, "50-书源列表-七猫可见")
     }
 
     /// 轮询找任意一行书源 (Toggle 是开关, 名称是文本)

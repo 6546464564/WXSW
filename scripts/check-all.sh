@@ -35,11 +35,11 @@ report() {
 
 run_backend() {
   step "1/4" "backend 单测 (node --test)"
-  (cd "$BACKEND" && node --test test/*.test.js) > "$LOG_DIR/backend-test.log" 2>&1
+  (cd "$BACKEND" && node --experimental-require-module --test test/*.test.js) > "$LOG_DIR/backend-test.log" 2>&1
   report $? "backend 单测" "backend-test.log"
 
   step "2/4" "backend 覆盖率 (node --experimental-test-coverage)"
-  (cd "$BACKEND" && node --experimental-test-coverage --test test/*.test.js) > "$LOG_DIR/backend-cov.log" 2>&1
+  (cd "$BACKEND" && node --experimental-require-module --experimental-test-coverage --test test/*.test.js) > "$LOG_DIR/backend-cov.log" 2>&1
   local cov_exit=$?
   if [ "$cov_exit" -eq 0 ]; then
     rg "^# all files" "$LOG_DIR/backend-cov.log" || true

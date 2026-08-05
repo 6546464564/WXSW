@@ -4,13 +4,32 @@ Node.js + Express + SQLite，单文件启动，附带网页版管理面板。
 
 ```
 backend/
-├── server.js          Express 入口
+├── server.js          Express 入口（启动 + 全局中间件 + 公开 API）
+├── routes/
+│   └── admin.js       管理 API（/api/admin，登录/书源/广告/统计等）
 ├── db.js              SQLite 数据访问层
+├── sourceValidator.js  书源静态校验器
+├── middleware/        认证/限速/熔断
+│   ├── adminAuth.js   admin 会话鉴权
+│   ├── deviceAuth.js  设备 token 鉴权
+│   ├── rateLimit.js   滑动窗口限速
+│   └── breaker.js     广告配置熔断
+├── models/            数据库 CRUD（经 db.js 注入）
+├── jobs/              定时任务 & 书源引擎
+│   ├── backup.js      每日备份
+│   ├── mirrorScheduler.js  书城 mirror 调度
+│   ├── qidianMirror.js / qdmmMirror.js  书城数据
+│   ├── qimaoUpdater.js 七猫章节更新
+│   ├── bookDownloader.js 缓存书下载编排
+│   ├── legadoEngine.js / legadoJava.js  Legado 书源规则引擎
+│   └── proxySearch.js  服务端代搜
 ├── package.json
 ├── public/
-│   └── admin.html     管理面板（vanilla JS + Tailwind CDN + ECharts）
-├── scripts/
-│   └── seed-default-sources.js  从 App 内置 JSON 导入书源（npm run seed）
+│   ├── admin.html     管理面板（vanilla JS + Tailwind CDN + ECharts）
+│   └── agent.html     推广代理页面
+├── scripts/           运维工具（seed / 重置密码 / 书源导入等）
+├── test/              单元 & API 测试（npm test）
+├── migrations/        SQLite 迁移
 ├── data/              SQLite 数据库存放目录（运行时自动创建）
 ├── Caddyfile          Caddy 反代示例
 ├── wanxiang.service   systemd 启动单元
