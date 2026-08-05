@@ -173,6 +173,11 @@ struct RootView: View {
                     }
                 }
             }
+            // -resetShelf: 清空书架 (含测试残留书). 测试基建, 真机/模拟器重装后残留的
+            // 压力测试书通过此参数一次性清掉.
+            if args.contains("--resetShelf") || args.contains("-resetShelf") {
+                try? await BookshelfRepository.shared.removeAll()
+            }
             // --AddDemoBook: 注入一本 mock 离线书 + 5 章, 给 reader/TTS 测试用
             if args.contains("--AddDemoBook") || args.contains("-AddDemoBook") {
                 await Self.injectDemoBook()

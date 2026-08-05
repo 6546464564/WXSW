@@ -247,6 +247,16 @@ public actor BookshelfRepository {
         NotificationCenter.default.post(name: .wanxiangBookshelfChanged, object: nil)
     }
 
+    /// 万象书屋 (测试基建): 清空书架全部书籍 + 章节缓存.
+    /// 给 -resetShelf 启动参数 / UI 测试用, 避免真机/模拟器累积的测试残留书 (如 52 本压力书).
+    public func removeAll() async throws {
+        try await DB.shared.openIfNeeded()
+        try await DB.shared.execQuery { handle in
+            sqlite3_exec(handle, "DELETE FROM book_chapters; DELETE FROM books;", nil, nil, nil)
+        }
+        NotificationCenter.default.post(name: .wanxiangBookshelfChanged, object: nil)
+    }
+
     /// 置顶 (orderIdx 设为最小值 - 1)
     public func pin(bookUrl: String) async throws {
         try await DB.shared.openIfNeeded()

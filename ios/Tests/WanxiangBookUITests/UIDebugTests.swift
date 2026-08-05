@@ -29,6 +29,16 @@ final class UIDebugTests: XCTestCase {
         dump(app, "SHELF")
     }
 
+    // 万象书屋 (测试基建): 带 -resetShelf 启动清空书架, dump 验证残留书已删除.
+    // 真机/模拟器重装后累积的压力测试书 (52 本) 通过此参数一次性清掉.
+    func test_reset_shelf() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["--uitest", "--unlockApp", "--skipSplash", "--resetShelf"]
+        app.launch()
+        sleep(12)
+        dump(app, "SHELF_AFTER_RESET")
+    }
+
     func test_dump_gate() throws {
         let app = XCUIApplication()
         app.launchArguments += ["-uitest", "-skipSplash", "-resetAppState"]
