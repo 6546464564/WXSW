@@ -24,6 +24,7 @@ schemes:
       config: Debug
       targets:
         - WanxiangBookTests
+        - WanxiangBookUITests
     profile:
       config: Release
     analyze:
@@ -319,13 +320,42 @@ targets:
       - target: WanxiangBook
     settings:
       base:
-        # 测试无需签名
-        CODE_SIGNING_ALLOWED: NO
+        # 万象书屋: 测试 target 也配签名 (CODE_SIGN_STYLE: Automatic + DEVELOPMENT_TEAM).
+        # 之前 CODE_SIGNING_ALLOWED: NO 只对模拟器友好 — 真机跑测试时测试 bundle 缺签名,
+        # xcodebuild 每次都得命令行补 DEVELOPMENT_TEAM / GENERATE_INFOPLIST_FILE /
+        # CODE_SIGNING_ALLOWED=YES, 现在配好后真机/模拟器都无需额外参数
+        # (模拟器构建由 Xcode 自动跳过签名, 不受影响).
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "6UX5G5838X"
+        # 测试 target 没有自己的 Info.plist, 由 Xcode 自动生成 (真机测试必需)
+        GENERATE_INFOPLIST_FILE: YES
         SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
         # 万象书屋: 给测试 host App bundle id 后缀, 避免跟主 app 冲突
         PRODUCT_BUNDLE_IDENTIFIER: com.wanxiang.reader.tests
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/WanxiangBook.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WanxiangBook"
+
+  # 万象书屋: iOS UI 测试 target (XCUITest). 跑真机冒烟测试, 自带截图存 xcresult.
+  # 真机命令: xcodebuild test -scheme WanxiangBook -destination 'platform=iOS,id=<UDID>' \
+  #   -only-testing:WanxiangBookUITests
+  WanxiangBookUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Tests/WanxiangBookUITests
+    dependencies:
+      - target: WanxiangBook
+    settings:
+      base:
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "6UX5G5838X"
+        GENERATE_INFOPLIST_FILE: YES
+        SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+        PRODUCT_BUNDLE_IDENTIFIER: com.wanxiang.reader.uitests
+        TEST_TARGET_NAME: WanxiangBook
 
 # SwiftPM 依赖
 packages:

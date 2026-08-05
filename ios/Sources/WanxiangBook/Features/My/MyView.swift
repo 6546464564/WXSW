@@ -80,6 +80,19 @@ struct MyView: View {
                     .accessibilityAddTraits(.isButton)
 
                     NavigationLink {
+                        BookSourceListView()
+                    } label: {
+                        MyRowLabel(
+                            icon: "books.vertical",
+                            title: "my.book_sources",
+                            subtitle: "my.book_sources_summary"
+                        )
+                    }
+                    .accessibilityIdentifier("my.row.book_sources")
+                    .accessibilityLabel("书源管理")
+                    .accessibilityAddTraits(.isButton)
+
+                    NavigationLink {
                         DownloadCenterView()
                     } label: {
                         MyRowLabel(

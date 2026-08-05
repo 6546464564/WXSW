@@ -220,6 +220,15 @@ struct RootView: View {
         book.durChapterTitle = "第一章 楔子"
         book.latestChapterTitle = "第五章 终章"
         try? await BookshelfRepository.shared.add(book)
+        // 万象书屋 (fix): add() 的 UPSERT 只更新元数据、不写进度字段, 已存在的 demo 书
+        // 会残留上次测试翻页累积的进度 (可能已到第 5 章末尾). 每次注入都重置回第一章,
+        // 否则测试进阅读器直接落在"已读完"页. 与上方 durChapterTitle=第一章 的意图一致.
+        try? await BookshelfRepository.shared.updateProgress(
+            bookUrl: bookUrl,
+            chapterIndex: 0,
+            chapterTitle: "第一章 楔子",
+            chapterPos: 0
+        )
 
         let titles = [
             "第一章 楔子",
@@ -247,7 +256,10 @@ struct RootView: View {
         }
         try? await ChapterRepository.shared.saveToc(bookUrl: bookUrl, chapters: chapters)
         for i in 0..<5 {
-            try? await ChapterRepository.shared.saveContent(
+            // 万象书屋: 用 saveDownloadedContent (写 downloaded_at) 让 ReaderEngine 无条件信任
+            // 本地缓存 — 内容约 600 字 < minTrustedContentLength 1500, 若走 saveContent 会被当
+            // 残缺缓存转远端拉取, demo://local 没有远端源 → 阅读器报"找不到书源".
+            try? await ChapterRepository.shared.saveDownloadedContent(
                 bookUrl: bookUrl,
                 chapterIndex: i,
                 content: String(repeating: bodies[i] + "\n\n", count: 6)

@@ -92,3 +92,13 @@
 "common.ok" = "好";
 "common.loading" = "加载中…";
 "common.network_error" = "网络错误";
+
+// MARK: - 书源管理
+"my.book_sources" = "书源管理";
+"my.book_sources_summary" = "查看并开关书源";
+"source_list_title" = "书源管理";
+"source_list_loading" = "正在加载书源…";
+"source_list_empty" = "暂无书源";
+"source_list_search" = "搜索书源名称 / URL / 分组";
+"source_list_ungrouped" = "未分组";
+"source_list_footnote" = "书源来自后端下发。关闭的书源不参与换源与详情找源；重启后以后端配置为准。";

@@ -81,6 +81,11 @@ object AdManager {
     // 可能同时播放两个广告、onRewarded 各发一次奖 (markRewardedSuccess 被调两次).
     private val rewardedSessionActive = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    // 万象书屋: 激励会话 180s 兜底超时的进程级 scope, 不绑任何 Activity lifecycle.
+    // 兜底必须能触发才能释放 rewardedSessionActive; 绑 lifecycle 的话 Activity 销毁
+    // 时协程被取消, 兜底永不执行, 守卫永久卡 true (见 loadAndShowRewardedInner).
+    private val rewardedTimeoutScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
+
     /**
      * 进程级初始化. 通常在 App.onCreate 之后、主界面冷启动时调用.
      *
@@ -411,8 +416,18 @@ object AdManager {
         }
 
         if (activity is LifecycleOwner) {
-            timeoutJob = activity.lifecycleScope.launch {
+            // 万象书屋: 兜底超时跑进程级 scope, 不绑 Activity lifecycle.
+            // 之前绑 lifecycleScope — Activity 销毁时协程被取消, 兜底永不触发,
+            // rewardedSessionActive 永久卡 true, 之后所有 loadAndShowRewarded
+            // 都走 onSkipped (解锁按钮静默失效, 只能靠 3 次失败宽限解锁, 直到重启 App).
+            timeoutJob = rewardedTimeoutScope.launch {
                 delay(180_000)  // 3 分钟兜底, 诱导下载类激励可能长达 2 分钟
+                if (activity.isFinishing || activity.isDestroyed) {
+                    // Activity 已销毁: 只释放守卫, 不再回调 UI (onSkipped/onRewarded
+                    // 都在死 Activity 上操作视图). 守卫释放后下次进阅读器恢复正常会话.
+                    rewardedSessionActive.set(false)
+                    return@launch
+                }
                 if (!dispatched.get()) {
                     LogUtils.d(TAG, "rewarded ${provider.name} hard timeout 180s, SDK is dead, treat as skip")
                     dispatch(false)

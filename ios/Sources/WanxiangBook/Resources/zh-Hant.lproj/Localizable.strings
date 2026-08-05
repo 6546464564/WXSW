@@ -90,3 +90,13 @@
 "common.ok" = "好";
 "common.loading" = "載入中…";
 "common.network_error" = "網路錯誤";
+
+// MARK: - 書源管理
+"my.book_sources" = "書源管理";
+"my.book_sources_summary" = "檢視並開關書源";
+"source_list_title" = "書源管理";
+"source_list_loading" = "正在載入書源…";
+"source_list_empty" = "暫無書源";
+"source_list_search" = "搜尋書源名稱 / URL / 分組";
+"source_list_ungrouped" = "未分組";
+"source_list_footnote" = "書源來自後端下發。關閉的書源不參與換源與詳情找源；重啟後以後端配置為準。";

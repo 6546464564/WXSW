@@ -1,70 +1,12 @@
 package io.legado.app
 
-import cn.hutool.core.lang.JarClassLoader
 import com.script.ScriptBindings
 import com.script.rhino.RhinoScriptEngine
-import dalvik.system.DexClassLoader
 import org.intellij.lang.annotations.Language
 import org.junit.Assert
 import org.junit.Test
-import org.mozilla.javascript.DefiningClassLoader
-import java.net.URLClassLoader
 
 class AndroidJsTest {
-
-    @Test
-    fun testPackages() {
-        @Language("js")
-        val js = """
-            var accessKeyId = '1111';
-            var accessKeySecret = '2222';
-            var timestamp = '3333';
-            var aly = new JavaImporter(Packages.javax.crypto.Mac, Packages.javax.crypto.spec.SecretKeySpec, Packages.javax.xml.bind.DatatypeConverter, Packages.java.net.URLEncoder, Packages.java.lang.String, Packages.android.util.Base64);
-            with (aly) {
-                function percentEncode(value) {
-                    return URLEncoder.encode(value, "UTF-8").replace("+", "%20")
-                        .replace("*", "%2A").replace("%7E", "~")
-                }
-            
-                function sign(stringToSign, accessKeySecret) {
-                    var mac = Mac.getInstance('HmacSHA1');
-                    mac.init(new SecretKeySpec(String(accessKeySecret + '&').getBytes("UTF-8"), "HmacSHA1"));
-                    var signData = mac.doFinal(String(stringToSign).getBytes("UTF-8"));
-                    var signBase64 = Base64.encodeToString(signData, Base64.NO_WRAP);
-                    var signUrlEncode = percentEncode(signBase64);
-                    return signUrlEncode;
-                }
-            }
-            var query = 'AccessKeyId=' + accessKeyId + '&Action=CreateToken&Format=JSON&RegionId=cn-shanghai&SignatureMethod=HMAC-SHA1&SignatureNonce=' + "xxccrr" + '&SignatureVersion=1.0&Timestamp=' + percentEncode(timestamp) + '&Version=2019-02-28';
-            var signStr = sign('GET&' + percentEncode('/') + '&' + percentEncode(query), accessKeySecret);
-            var queryStringWithSign = "Signature=" + signStr + "&" + query;
-            queryStringWithSign
-        """.trimIndent()
-        RhinoScriptEngine.eval(js)
-        @Language("js")
-        val js1 = """
-            var returnData = new Packages.io.legado.app.api.ReturnData()
-            returnData.getErrorMsg()
-        """.trimIndent()
-        val result1 = RhinoScriptEngine.eval(js1)
-        Assert.assertEquals(result1, "未知错误,请联系开发者!")
-    }
-
-    @Test
-    fun testPackages1() {
-        URLClassLoader.getSystemClassLoader()
-        DefiningClassLoader.getSystemClassLoader()
-        JarClassLoader.getSystemClassLoader()
-        DexClassLoader.getSystemClassLoader()
-        @Language("js")
-        val js = """
-            var ji = new JavaImporter(Packages.org.mozilla.javascript.DefiningClassLoader)
-            with(ji) {
-              let x = DefiningClassLoader.getSystemClassLoader()
-            }
-        """.trimIndent()
-        RhinoScriptEngine.eval(js)
-    }
 
     @Test
     fun testMap() {
@@ -79,6 +21,45 @@ class AndroidJsTest {
         val jsMap1 = """result.get("id")"""
         val result1 = RhinoScriptEngine.eval(jsMap1, bindings)
         Assert.assertEquals("3242532321", result1)
+    }
+
+    @Test
+    fun testHmacSign() {
+        // 书源常用的阿里云签名: 验证 JS 引擎能访问 javax.crypto 做 HmacSHA1
+        // 注意: 必须走带 bindings 的 eval 路径 (与产品 BaseSource/SharedJsScope 一致),
+        // 无参 eval(js) 的 ExternalScriptable 对 ConsString 处理有 bug, 产品不使用该路径.
+        @Language("js")
+        val js = """
+            var Mac = Packages.javax.crypto.Mac;
+            var SecretKeySpec = Packages.javax.crypto.spec.SecretKeySpec;
+            var mac = Mac.getInstance('HmacSHA1');
+            var keyBytes = new Packages.java.lang.String('key').getBytes('UTF-8');
+            mac.init(new SecretKeySpec(keyBytes, 'HmacSHA1'));
+            var data = mac.doFinal(new Packages.java.lang.String('hello').getBytes('UTF-8'));
+            var hex = '';
+            for (var i = 0; i < data.length; i++) {
+                var b = data[i] & 0xFF;
+                hex += (b < 16 ? '0' : '') + b.toString(16);
+            }
+            hex
+        """.trimIndent()
+        val result = RhinoScriptEngine.eval(js, ScriptBindings())
+        Assert.assertEquals(
+            "b34ceac4516ff23a143e61d79d0fa7a4fbe5f266",
+            result
+        )
+    }
+
+    @Test
+    fun testBase64() {
+        // 书源常用的 Base64 编解码 (android.util.Base64)
+        @Language("js")
+        val js = """
+            var bytes = new Packages.java.lang.String('hello').getBytes('UTF-8');
+            Packages.android.util.Base64.encodeToString(bytes, 2)
+        """.trimIndent()
+        val result = RhinoScriptEngine.eval(js, ScriptBindings())
+        Assert.assertEquals("aGVsbG8=", result)
     }
 
 }

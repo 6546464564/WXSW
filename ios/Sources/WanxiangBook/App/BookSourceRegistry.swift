@@ -231,6 +231,17 @@ public final class BookSourceRegistry: ObservableObject {
         sources.filter { $0.enabled }
     }
 
+    /// 万象书屋: 运行时切换书源启用状态 (书源列表页用).
+    /// 只改内存并触发 @Published; 重启后以后端下发的 enabled 为准.
+    /// (iOS 设计上是 in-memory only + 远端权威, 用户开关不影响后端下发.)
+    public func setEnabled(_ source: BookSource, enabled: Bool) {
+        guard let idx = sources.firstIndex(where: { normalize($0.bookSourceUrl) == normalize(source.bookSourceUrl) }),
+              sources[idx].enabled != enabled else { return }
+        var next = sources
+        next[idx].enabled = enabled
+        sources = next
+    }
+
     /// 等到远端/bootstrap 写入启用源或超时. 搜索首帧用: 比固定 100ms 轮询更快接上 `isLoaded`.
     public func waitUntilEnabledSourcesNonEmpty(timeout: TimeInterval) async {
         let deadline = Date().addingTimeInterval(timeout)

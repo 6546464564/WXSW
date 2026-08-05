@@ -829,6 +829,8 @@ final class SearchViewModel: ObservableObject {
         errors = []
         dedupeRowIndex.removeAll()
         isSearching = true
+        // 万象书屋 (fix): activeSources 之前从未赋值 → 搜索页永远显示 "0 个书源搜索中…"
+        activeSources = BookSourceRegistry.shared.enabledSources
 
         if let libraryResults = try? await WanxiangAPI.shared.searchLibrary(keyword: key), !libraryResults.isEmpty {
             var batchResults = self.results

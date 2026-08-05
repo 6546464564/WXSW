@@ -49,6 +49,16 @@
                ReferencedContainer = "container:WanxiangBook.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "C3CFC8386473A113D9879503"
+               BuildableName = "WanxiangBookUITests.xctest"
+               BlueprintName = "WanxiangBookUITests"
+               ReferencedContainer = "container:WanxiangBook.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

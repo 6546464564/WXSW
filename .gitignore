@@ -12,6 +12,7 @@ package-lock.json
 /tmp
 /release
 /captures
+.build/
 
 # ─── Android (现在统一在 android/ 下) ────────────────────
 android/.gradle/
