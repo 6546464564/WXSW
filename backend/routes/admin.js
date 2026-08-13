@@ -159,13 +159,30 @@ function createAdminRouter(deps) {
 
   router.post('/password', loginRateLimit, requireAdmin, async (req, res) => {
     const { oldPassword, newPassword } = req.body || {};
-    const ok = await db.verifyAdminPassword(oldPassword);
+    // 万象书屋: 多用户登录 (admin_users) 时改自己密码, legacy 无用户名登录时改 admin 表.
+    // 之前无论谁登录都改 admin 表, 导致 operator/cs 无法改自己密码, 且知道 legacy 密码即可踢掉所有人.
+    const username =
+      req.admin && req.admin.username && req.admin.username !== 'legacy'
+        ? req.admin.username
+        : null;
+
+    const ok = username
+      ? !!(await db.verifyAdminUser(username, oldPassword))
+      : await db.verifyAdminPassword(oldPassword);
     if (!ok) { recordLoginResult(res, false); return res.status(401).json({ ok: false, msg: 'wrong old password' }); }
     recordLoginResult(res, true);
     if (!newPassword || newPassword.length < 8) return res.status(400).json({ ok: false, msg: 'new password must be >= 8 chars' });
     if (newPassword === oldPassword) return res.status(400).json({ ok: false, msg: 'new password must differ from old' });
-    await db.setAdminPassword(newPassword);
-    db.destroyAllSessions();
+
+    if (username) {
+      // 多用户: 只改自己, 只踢自己当前会话 (不影响其他用户/其他设备)
+      await db.updateAdminPassword(username, newPassword);
+      db.destroySession(req.cookies.adm);
+    } else {
+      // legacy: 保持原行为 (改 admin 表 + 销毁全部会话)
+      await db.setAdminPassword(newPassword);
+      db.destroyAllSessions();
+    }
     res.clearCookie('adm');
     res.json({ ok: true });
   });

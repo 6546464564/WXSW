@@ -6,7 +6,6 @@
 const legadoEngine = require('./legadoEngine');
 
 const SEARCH_CONCURRENCY = 20;
-const PER_SOURCE_TIMEOUT_MS = 12000;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 const searchCache = new Map();
@@ -37,8 +36,8 @@ function dedupeKey(name, author) {
 }
 
 async function searchOneSource(source, keyword) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PER_SOURCE_TIMEOUT_MS);
+  // 万象书屋: 单源超时由 searchBook 内部的 httpGet AbortSignal.timeout(15s) 保证.
+  // 之前这里建了 AbortController 但 signal 从未传入, 是失效死代码 (12s 形同虚设).
   try {
     const books = await legadoEngine.searchBook(source, keyword);
     return books.map(b => ({
@@ -54,8 +53,6 @@ async function searchOneSource(source, keyword) {
     }));
   } catch {
     return [];
-  } finally {
-    clearTimeout(timer);
   }
 }
 

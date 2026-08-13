@@ -17,14 +17,22 @@ export interface SourceStat {
 
 let stats: Record<string, SourceStat> = {};
 let loaded = false;
+let loadPromise: Promise<void> | null = null;
 
 async function ensureLoaded() {
   if (loaded) return;
-  try {
-    const raw = await AsyncStorage.getItem(TRACKER_KEY);
-    if (raw) stats = JSON.parse(raw);
-  } catch {}
-  loaded = true;
+  // 万象书屋: 缓存 load promise, 并发 trackSource 只触发一次读盘,
+  // 避免首次加载期间多个 await getItem 让出后重复读盘/互相覆盖.
+  if (!loadPromise) {
+    loadPromise = (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(TRACKER_KEY);
+        if (raw) stats = JSON.parse(raw);
+      } catch {}
+      loaded = true;
+    })();
+  }
+  await loadPromise;
 }
 
 function persist() {

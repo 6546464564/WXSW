@@ -113,8 +113,15 @@ export const useBookshelfStore = create<BookshelfState>((set, get) => ({
     if (get().hydrated) return;
     const saved = await getObject<ShelfBook[]>(SHELF_KEY);
     const savedGroups = await getObject<string[]>(GROUPS_KEY);
+    // 万象书屋: hydrate 是异步读盘, 若期间有 addBook 写入, 磁盘旧快照直接 set 会覆盖丢失.
+    // 用内存中已有书 (hydrate 期间新增) 与磁盘快照按 bookUrl 去重合并.
+    const current = get().books;
+    const merged =
+      saved && saved.length > 0
+        ? [...saved, ...current.filter(b => !saved.some(s => s.bookUrl === b.bookUrl))]
+        : current;
     set({
-      books: saved && saved.length > 0 ? saved : [],
+      books: merged,
       groups: savedGroups || [],
       hydrated: true,
     });

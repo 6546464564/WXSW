@@ -311,7 +311,12 @@ actor BookCoverLoadLimiter {
         return 8
     }()
     private var inflight = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [Waiter] = []
+
+    /// 等待中的 continuation 包装, 便于取消时从队列移除 (避免泄漏)
+    private final class Waiter {
+        var cont: CheckedContinuation<Void, Never>?
+    }
 
     func acquire() async {
         if inflight < maxConcurrent {
@@ -319,17 +324,35 @@ actor BookCoverLoadLimiter {
             return
         }
         // 等待 slot: release 会从 waiters 头部 resume, slot 直接转移过来
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            waiters.append(cont)
+        let waiter = Waiter()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                waiter.cont = cont
+                waiters.append(waiter)
+            }
+        } onCancel: {
+            // 万象书屋: 视图滚出屏幕 .task(id:) 取消时, 把残留 waiter 从队列移除并 resume,
+            // 否则 continuation 永不唤醒 → 任务泄漏 (之前 withCheckedContinuation 无取消处理).
+            Task { await self.cancelWaiter(waiter) }
         }
         // 唤醒说明 release 已经把 slot 让出来了, inflight 不重复 +1
+    }
+
+    private func cancelWaiter(_ waiter: Waiter) {
+        guard let idx = waiters.firstIndex(where: { $0 === waiter }) else { return }
+        waiters.remove(at: idx)
+        let c = waiter.cont
+        waiter.cont = nil
+        c?.resume()
     }
 
     func release() {
         if let next = waiters.first {
             waiters.removeFirst()
             // slot 直接转移给等待者, inflight 不变
-            next.resume()
+            let c = next.cont
+            next.cont = nil
+            c?.resume()
         } else {
             inflight -= 1
         }

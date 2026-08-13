@@ -25,23 +25,39 @@ export async function saveObservations(list: Observation[]) {
   await AsyncStorage.setItem(KEY, JSON.stringify(list));
 }
 
-export async function addObservation(item: Observation) {
-  const list = await loadObservations();
-  list.unshift(item);
-  await saveObservations(list);
+// 万象书屋: 读-改-写串行队列. 之前 add/delete/update 各自 loadObservations() → 内存改 →
+// saveObservations(), 快速连点会读到同一份旧列表, 后写覆盖先写导致丢数据.
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
+  const result = writeQueue.then(fn);
+  writeQueue = result.catch(() => {});
+  return result;
 }
 
-export async function deleteObservation(id: string) {
-  const list = await loadObservations();
-  await saveObservations(list.filter(o => o.id !== id));
+export function addObservation(item: Observation): Promise<void> {
+  return enqueueWrite(async () => {
+    const list = await loadObservations();
+    list.unshift(item);
+    await saveObservations(list);
+  });
 }
 
-export async function updateObservation(id: string, patch: Partial<Observation>) {
-  const list = await loadObservations();
-  const idx = list.findIndex(o => o.id === id);
-  if (idx < 0) return;
-  list[idx] = {...list[idx], ...patch};
-  await saveObservations(list);
+export function deleteObservation(id: string): Promise<void> {
+  return enqueueWrite(async () => {
+    const list = await loadObservations();
+    await saveObservations(list.filter(o => o.id !== id));
+  });
+}
+
+export function updateObservation(id: string, patch: Partial<Observation>): Promise<void> {
+  return enqueueWrite(async () => {
+    const list = await loadObservations();
+    const idx = list.findIndex(o => o.id === id);
+    if (idx < 0) return;
+    list[idx] = {...list[idx], ...patch};
+    await saveObservations(list);
+  });
 }
 
 export function observationsByPlantName(list: Observation[], plantName: string) {
