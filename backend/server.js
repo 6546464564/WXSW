@@ -133,6 +133,8 @@ app.use('/api/', cors({ origin: false, credentials: false }));
 // body parser (路径级分流)
 const largeBodyRoutes = new Set([
   'POST /api/admin/sources',
+  // 万象书屋: mirror 发布完整 payload (9榜+女频+完结+出版池) 可能超 1MB, 单独放宽
+  'POST /api/admin/bookstore-mirror/publish',
 ]);
 app.use((req, res, next) => {
   const key = req.method + ' ' + req.path;

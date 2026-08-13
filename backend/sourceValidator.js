@@ -23,7 +23,8 @@ function isPrivateHost(hostname) {
   // IPv6 loopback / link-local / unique-local
   if (h === '::1' || h === '[::1]') return true;
   if (h.startsWith('fe80:') || h.startsWith('[fe80')) return true;
-  if (h.startsWith('fc') || h.startsWith('fd')) return true; // fc00::/7 unique local
+  // fc00::/7 unique local. 要求 f[cd] 后跟十六进制再跟冒号, 避免误伤 fc.example.com 等合法域名.
+  if (/^\[?f[cd][0-9a-f]*:/.test(h)) return true;
   // IPv4: 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x (link local / AWS metadata)
   const m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
   if (m) {
@@ -44,7 +45,7 @@ function isPrivateIp(ip) {
   // IPv6 loopback / link-local / unique-local / mapped
   if (lower === '::1' || lower === '::') return true;
   if (lower.startsWith('fe80:')) return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  if (/^f[cd][0-9a-f]*:/.test(lower)) return true;
   // ::ffff:127.0.0.1 (IPv4-mapped) → 转回检查
   const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (mapped) return isPrivateIp(mapped[1]);

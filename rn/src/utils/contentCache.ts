@@ -24,7 +24,9 @@ async function getCache<T>(key: string, ttl: number): Promise<T | null> {
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
     const entry: CacheEntry<T> = JSON.parse(raw);
-    if (Date.now() - entry.t > ttl) {
+    // 万象书屋: entry.t 缺失/非数字时 Date.now()-t 为 NaN, NaN > ttl 恒 false → 条目永不失效.
+    // 显式校验 t 为有限数字, 否则按过期处理.
+    if (typeof entry.t !== 'number' || !Number.isFinite(entry.t) || Date.now() - entry.t > ttl) {
       AsyncStorage.removeItem(key).catch(() => {});
       return null;
     }

@@ -52,6 +52,13 @@ enum MobiImporter {
             let recordOffset = Int(UInt32(bigEndian: data[off..<(off+4)].withUnsafeBytes { $0.load(as: UInt32.self) }))
             recordOffsets.append(recordOffset)
         }
+        // 万象书屋安全: 损坏/构造的 mobi 里 offset 可能越界或非单调, 直接切片会 fatal
+        // (Can't form Range with upperBound < lowerBound / index out of range).
+        // clamp 到 [0, data.count] 并排序保证单调递增, 让后续 data[a..<b] 切片安全;
+        // 合法文件本就递增有序, sorted() 无副作用.
+        recordOffsets = recordOffsets
+            .map { min(max($0, 0), data.count) }
+            .sorted()
         recordOffsets.append(data.count)  // sentinel for last record end
 
         // 3. record 0 = PalmDoc + MOBI header

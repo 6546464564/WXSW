@@ -72,7 +72,10 @@ function requireAdmin(req, res, next) {
 function requireRole(roles) {
   const allowed = Array.isArray(roles) ? new Set(roles) : new Set([roles]);
   return (req, res, next) => {
-    const role = req.admin?.role || 'super';
+    // 万象书屋安全: 不要用 || 'super' 兜底. requireRole 必须紧跟 requireAdmin 之后,
+    // 若某天单独挂载导致 req.admin 缺失, 静默授 super 是越权陷阱; 这里显式 401.
+    if (!req.admin) return res.status(401).json({ ok: false, msg: 'unauthorized' });
+    const role = req.admin.role || 'super';
     if (allowed.has(role)) return next();
     return res.status(403).json({ ok: false, msg: 'role denied: need ' + [...allowed].join('/') });
   };

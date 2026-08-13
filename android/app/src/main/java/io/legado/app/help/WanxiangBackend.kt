@@ -345,7 +345,9 @@ object WanxiangBackend {
             url("$url/api/sources")
             header("X-Platform", PLATFORM)
             if (consented) header("X-Device-Id", deviceId)
-            if (!tok.isNullOrBlank()) header("X-Device-Token", tok)
+            // 万象书屋: token 与 device_id 一样是设备可关联标识, 撤回同意后一并停止携带,
+            // 否则后端仍可凭 token 把匿名请求关联回具体设备, 撤回未真正切断可识别链路.
+            if (consented && !tok.isNullOrBlank()) header("X-Device-Token", tok)
             header("Accept", "application/json")
             // 万象书屋 (方案 G'): 主动带 If-None-Match. 服务端 ETag 不变 → 304, 1 KB 0 改动.
             // 仅在内存里有 etag 时才带 (冷启 first run 拿不到 304 优化, 但这是符合预期的).

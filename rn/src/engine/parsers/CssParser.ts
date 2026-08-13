@@ -16,12 +16,15 @@ export function queryCss(html: string, rule: string): string[] {
   const parts = parseRule(rule);
   let elements: any[];
   if (parts.textMatch) {
+    // 万象书屋: textMatch 含 " / \ 会破坏 :contains("...") 选择器甚至注入伪类,
+    // 转义后再拼入.
+    const esc = parts.textMatch.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const scope = parts.selector ? $(parts.selector) : $('body');
-    const all = scope.find(`*:contains("${parts.textMatch}")`).toArray();
+    const all = scope.find(`*:contains("${esc}")`).toArray();
     if (all.length > 0) {
       elements = all.filter(el => {
         const $el = $(el);
-        return $el.find(`*:contains("${parts.textMatch}")`).length === 0;
+        return $el.find(`*:contains("${esc}")`).length === 0;
       });
     } else {
       elements = scope.toArray().filter(el => {

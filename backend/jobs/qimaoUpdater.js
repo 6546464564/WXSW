@@ -132,8 +132,11 @@ async function updateBook(db, book, logger) {
     );
     for (const r of results) {
       if (r) {
-        insertStmt.run(bookId, r.chIdx, r.chTitle, r.content, r.wordCount, now);
-        downloaded++;
+        // 万象书屋: 用 changes 判断是否真正插入. INSERT OR IGNORE 命中 UNIQUE(book_id, chapter_idx)
+        // 时 changes=0 (重跑/并发已插入), 之前无脑 downloaded++ 会让 cached_chapters 虚高,
+        // 与真实 COUNT(*) 脱节, 影响首页"缓存章节数"与后续 up_to_date 判断.
+        const info = insertStmt.run(bookId, r.chIdx, r.chTitle, r.content, r.wordCount, now);
+        if (info.changes > 0) downloaded++;
       }
     }
   }
