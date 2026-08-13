@@ -72,13 +72,16 @@ actor DB {
         sqlite3_exec(h, "PRAGMA busy_timeout=5000;", nil, nil, nil)
         sqlite3_exec(h, "PRAGMA synchronous=NORMAL;", nil, nil, nil)
         sqlite3_exec(h, "PRAGMA foreign_keys=ON;", nil, nil, nil)
+        // 万象书屋: 先迁移成功再提交 self.handle. 之前先 self.handle = h 再 migrate(),
+        // 若 migrate 抛错 (如建表失败) handle 已非 nil, 下次 openIfNeeded 直接 return,
+        // 迁移永不补跑, DB 停在半迁移状态.
+        try migrate(h)
         self.handle = h
-        try migrate()
     }
 
     /// M0 阶段最小 schema. M2 各阶段往里加表.
-    private func migrate() throws {
-        guard let h = handle, !migrationApplied else { return }
+    private func migrate(_ h: OpaquePointer) throws {
+        guard !migrationApplied else { return }
 
         // 万象书屋: 5 张核心表对应 Android Room
         //   - books             →  io.legado.app.data.entities.Book

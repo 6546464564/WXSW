@@ -83,19 +83,48 @@ final class AsyncSemaphore: @unchecked Sendable {
         }
         lock.unlock()
 
-        let acquired = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask {
-                await self.wait()
+        // 万象书屋: 原实现用 withTaskGroup 竞速 wait() vs sleep, 存在 permit 泄漏竞态 —
+        // 当 wait() 恰好在超时瞬间被 signal() 唤醒 (count 已 -1) 但 group.next() 先拿到
+        // sleep 的 false 时, 调用方认为"超时未获取"不 signal, 已消耗的 permit 永久丢失.
+        // 改为与 wait() 相同的 token + lock 互斥模式: 超时/取消与 signal 通过 token.finished
+        // 互斥决定"谁来恢复", 保证 permit 不泄漏.
+        let token = WaiterToken()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                lock.lock()
+                if count > 0 {
+                    count -= 1
+                    token.finished = true
+                    lock.unlock()
+                    cont.resume(returning: true)
+                    return
+                }
+                waiters.append(WaiterEntry(token: token, continuation: cont))
+                lock.unlock()
+
+                Task {
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                    self.finishWaiter(token, value: false)
+                }
             }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                return false
-            }
-            let first = await group.next()!
-            group.cancelAll()
-            return first
+        } onCancel: {
+            self.finishWaiter(token, value: false)
         }
-        return acquired
+    }
+
+    /// 从 waiters 队列按 token 移除并恢复 continuation. 幂等: 与 signal 通过 token.finished 互斥,
+    /// 已恢复 (或已被 signal 唤醒) 的 token 不再重复 resume.
+    private func finishWaiter(_ token: WaiterToken, value: Bool) {
+        lock.lock()
+        if !token.finished,
+           let idx = waiters.firstIndex(where: { $0.token === token }) {
+            let entry = waiters.remove(at: idx)
+            token.finished = true
+            lock.unlock()
+            entry.continuation.resume(returning: value)
+        } else {
+            lock.unlock()
+        }
     }
 
     func signal() {

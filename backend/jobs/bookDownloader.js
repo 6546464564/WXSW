@@ -299,12 +299,27 @@ async function processById(db, bookId) {
 }
 
 /**
- * 取 N 本 pending 的书
+ * 取 N 本 pending 的书 (原子 claim: 抢占成功才返回, 防止并发重复下载)
  */
 function takePendingBooks(db, n) {
-  return db.__db.prepare(
-    `SELECT * FROM cached_books WHERE status = 'pending' ORDER BY priority DESC, id ASC LIMIT ?`
-  ).all(n);
+  // 万象书屋: 之前 SELECT 取书后不改状态, 自动下载 (server.js 每 6h processParallel) 与
+  // 手动下载 (admin /cache/download → processLoop) 是两个互不共享锁的循环, 会并发取到
+  // 同一批 pending 书, 导致同一本书被重复下载两遍 (重复请求 + 终态互相覆盖).
+  // 改为原子 claim: UPDATE ... WHERE status='pending' 用 changes 判断谁抢到, 抢失败的跳过.
+  const ids = db.__db.prepare(
+    `SELECT id FROM cached_books WHERE status = 'pending' ORDER BY priority DESC, id ASC LIMIT ?`
+  ).all(n).map(r => r.id);
+  const claimStmt = db.__db.prepare(
+    `UPDATE cached_books SET status = 'downloading' WHERE id = ? AND status = 'pending'`
+  );
+  const getStmt = db.__db.prepare(`SELECT * FROM cached_books WHERE id = ?`);
+  const claimed = [];
+  for (const id of ids) {
+    if (claimStmt.run(id).changes > 0) {
+      claimed.push(getStmt.get(id));
+    }
+  }
+  return claimed;
 }
 
 /**
