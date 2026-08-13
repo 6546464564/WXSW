@@ -863,12 +863,12 @@
                 html += '<table class="w-full text-left"><tr class="border-b"><th class="pb-1">书名</th><th class="pb-1">作者</th><th class="pb-1">来源</th></tr>';
                 for (const b of (r.books || [])) {
                     const srcCount = 1 + (b.mergedSourceURLs?.length || 0);
-                    html += `<tr class="border-b border-stone-100"><td class="py-1">${b.name}</td><td>${b.author}</td><td>${srcCount} 个源</td></tr>`;
+                    html += `<tr class="border-b border-stone-100"><td class="py-1">${escapeHtml(b.name)}</td><td>${escapeHtml(b.author)}</td><td>${srcCount} 个源</td></tr>`;
                 }
                 html += '</table>';
                 resultEl.innerHTML = html;
             } else {
-                resultEl.innerHTML = `<span class="text-red-600">✗ 搜索失败</span><br>${r.msg || '未知错误'}`;
+                resultEl.innerHTML = `<span class="text-red-600">✗ 搜索失败</span><br>${escapeHtml(r.msg || '未知错误')}`;
             }
             loadProxyConfig();
         }
@@ -1060,14 +1060,14 @@
             tbody.innerHTML = (r.recent || []).map(row => `
                 <tr class="border-t border-stone-100">
                     <td class="px-3 py-2 text-stone-700">${fmt(row.fetched_at)}</td>
-                    <td class="px-3 py-2 text-stone-500">${row.source || ''}</td>
+                    <td class="px-3 py-2 text-stone-500">${escapeHtml(row.source || '')}</td>
                     <td class="px-3 py-2 text-center">
                         ${row.ok
                             ? '<span class="text-emerald-700 text-xs">✓ 成功</span>'
                             : '<span class="text-red-600 text-xs">✗ 失败</span>'}
                     </td>
                     <td class="px-3 py-2 text-right text-stone-600 font-mono text-xs">${sizeKB(row.payload_size)}</td>
-                    <td class="px-3 py-2 text-red-600 text-xs">${row.err_msg || ''}</td>
+                    <td class="px-3 py-2 text-red-600 text-xs">${escapeHtml(row.err_msg || '')}</td>
                 </tr>
             `).join('') || '<tr><td colspan="5" class="px-4 py-6 text-center text-stone-400">暂无抓取记录</td></tr>';
         }

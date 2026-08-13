@@ -37,6 +37,27 @@ import {evaluateJs} from './JsRunner';
 const MAX_RECURSION_DEPTH = 16;
 const MAX_LIST_SIZE = 2000;
 const MAX_SOURCE_LENGTH = 2_000_000; // 2MB
+// 万象书屋: 分页目录/正文递归的环检测 + 深度上限. 书源规则 nextTocUrl/nextContentUrl
+// 若成环 (A→B→A) 会无限递归发网络请求, 这里用 visited 集合 + 深度 64 兜底.
+const MAX_PAGINATION_DEPTH = 64;
+
+// 万象书屋安全: 阻止书源驱动访问回环/链路本地地址 (SSRF-from-device, 探测设备自身服务).
+// 放行私有网段 (192.168/10/172.16-31), 用户自建 NAS 内网书源是合法场景.
+function isLoopbackOrLinkLocal(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const h = u.hostname;
+    return (
+      h === 'localhost' ||
+      h === '0.0.0.0' ||
+      h === '::1' ||
+      h.startsWith('127.') ||
+      h.startsWith('169.254.')
+    );
+  } catch {
+    return true; // 无法解析的 URL 视为不安全, 拒绝
+  }
+}
 
 function clampSource(s: string): string {
   if (s.length > MAX_SOURCE_LENGTH) return s.slice(0, MAX_SOURCE_LENGTH);
@@ -686,7 +707,14 @@ export class RuleEngine {
         .replace(/\{\{baseUrl\}\}/g, source.bookSourceUrl)
         .replace(/\{\{origin\}\}/g, source.bookSourceUrl);
     }
-    const res = await axios.get(url, {headers, timeout: 10000});
+    // 万象书屋安全: 阻断回环/链路本地 SSRF + 显式限制重定向 + 仅接受 2xx
+    if (isLoopbackOrLinkLocal(url)) return '';
+    const res = await axios.get(url, {
+      headers,
+      timeout: 10000,
+      maxRedirects: 5,
+      validateStatus: (s) => s >= 200 && s < 300,
+    });
     return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
   }
 
@@ -872,6 +900,21 @@ export class RuleEngine {
     tocUrl: string,
     bookCtx?: Record<string, string>,
   ): Promise<Chapter[]> {
+    return this.getTocPaginated(source, tocUrl, bookCtx, new Set<string>(), 0);
+  }
+
+  private async getTocPaginated(
+    source: BookSource,
+    tocUrl: string,
+    bookCtx: Record<string, string> | undefined,
+    visited: Set<string>,
+    depth: number,
+  ): Promise<Chapter[]> {
+    // 环检测 + 深度上限: 成环规则/异常分页直接终止, 避免无限递归发请求
+    if (depth > MAX_PAGINATION_DEPTH) return [];
+    if (visited.has(tocUrl)) return [];
+    visited.add(tocUrl);
+
     const html = await this.fetchHtml(tocUrl, source);
     const rules = source.ruleToc;
     if (!rules) return [];
@@ -923,7 +966,13 @@ export class RuleEngine {
     if (rules.nextTocUrl) {
       const nextUrl = await this.selectString(rules.nextTocUrl, html, ctx);
       if (nextUrl && nextUrl !== tocUrl) {
-        const nextChapters = await this.getToc(source, this.resolveUrl(nextUrl, tocUrl), bookCtx);
+        const nextChapters = await this.getTocPaginated(
+          source,
+          this.resolveUrl(nextUrl, tocUrl),
+          bookCtx,
+          visited,
+          depth + 1,
+        );
         for (const ch of nextChapters) {
           ch.index = chapters.length + ch.index;
           chapters.push(ch);
@@ -940,6 +989,29 @@ export class RuleEngine {
     bookCtx?: Record<string, string>,
     chapterCtx?: Record<string, string>,
   ): Promise<string> {
+    return this.getContentPaginated(
+      source,
+      chapterUrl,
+      bookCtx,
+      chapterCtx,
+      new Set<string>(),
+      0,
+    );
+  }
+
+  private async getContentPaginated(
+    source: BookSource,
+    chapterUrl: string,
+    bookCtx: Record<string, string> | undefined,
+    chapterCtx: Record<string, string> | undefined,
+    visited: Set<string>,
+    depth: number,
+  ): Promise<string> {
+    // 环检测 + 深度上限: 正文分页成环时终止, 避免无限递归发请求
+    if (depth > MAX_PAGINATION_DEPTH) return '';
+    if (visited.has(chapterUrl)) return '';
+    visited.add(chapterUrl);
+
     const html = await this.fetchHtml(chapterUrl, source);
     const rules = source.ruleContent;
     if (!rules) return html;
@@ -979,11 +1051,13 @@ export class RuleEngine {
     if (rules.nextContentUrl) {
       const nextUrl = await this.selectString(rules.nextContentUrl, html, ctx);
       if (nextUrl && nextUrl !== chapterUrl) {
-        const nextContent = await this.getContent(
+        const nextContent = await this.getContentPaginated(
           source,
           this.resolveUrl(nextUrl, chapterUrl),
           bookCtx,
           chapterCtx,
+          visited,
+          depth + 1,
         );
         if (nextContent) {
           content += '\n' + nextContent;

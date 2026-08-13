@@ -34,6 +34,32 @@ async function adminLogin(agent) {
   return r;
 }
 
+// promo 端点现需设备鉴权 (verifyDeviceTokenStrict). 注册设备拿 token,
+// 请求带 X-Device-Id / X-Device-Token. test 环境 rate limit 为 no-op, 可重复注册.
+async function registerDevice(deviceId) {
+  const r = await request(app).post('/api/device/register').send({ device_id: deviceId });
+  if (r.status === 409) {
+    const r2 = await request(app).post('/api/device/register?reissue=1').send({ device_id: deviceId });
+    return r2.body.token;
+  }
+  return r.body.token;
+}
+
+async function promoGet(path, deviceId, status = 200) {
+  const token = await registerDevice(deviceId);
+  return request(app).get(path)
+    .set('X-Device-Id', deviceId).set('X-Device-Token', token)
+    .expect(status);
+}
+
+async function promoPost(path, deviceId, body, status = 200) {
+  const token = await registerDevice(deviceId);
+  return request(app).post(path)
+    .set('X-Device-Id', deviceId).set('X-Device-Token', token)
+    .send({ device_id: deviceId, ...body })
+    .expect(status);
+}
+
 // ─────────────────────────────────────────────
 // /api/version-check (appVersion.js)
 // ─────────────────────────────────────────────
@@ -137,10 +163,11 @@ test('promo 公开列表在 review_mode 下返回空', async () => {
 });
 
 test('promo agent-stats 校验: 无码 400 / 不存在 / 停用', async () => {
+  const did = 'device-stats-1';
   // 无码
-  await request(app).get('/api/promo/agent-stats').expect(400);
+  await promoGet('/api/promo/agent-stats', did, 400);
   // 不存在
-  const rMiss = await request(app).get('/api/promo/agent-stats?code=NOPE').expect(200);
+  const rMiss = await promoGet('/api/promo/agent-stats?code=NOPE', did);
   assert.equal(rMiss.body.ok, false);
   assert.equal(rMiss.body.msg, '推广码不存在');
 });
@@ -163,33 +190,31 @@ test('promo 全链路: 建码 → 列表 → usage → 上限 → 单设备 → 
   assert.equal(item.max_uses, 2);
 
   // agent-stats 现在有数据
-  const stats = await request(app).get('/api/promo/agent-stats?code=COVER01').expect(200);
+  const stats = await promoGet('/api/promo/agent-stats?code=COVER01', 'device-stats-2');
   assert.equal(stats.body.ok, true);
   assert.equal(stats.body.agentName, '覆盖测试');
 
   // usage 成功 (设备 A)
-  const u1 = await request(app).post('/api/promo/usage').send({
-    code: 'COVER01', device_id: 'dev-a', device_model: 'iPhone 15',
-  }).expect(200);
+  const u1 = await promoPost('/api/promo/usage', 'device-a', {
+    code: 'COVER01', device_model: 'iPhone 15',
+  });
   assert.equal(u1.body.ok, true);
 
   // 单设备限制: 同设备重复使用被拒
-  const u2 = await request(app).post('/api/promo/usage').send({
-    code: 'COVER01', device_id: 'dev-a',
-  }).expect(400);
+  const u2 = await promoPost('/api/promo/usage', 'device-a', { code: 'COVER01' }, 400);
   assert.equal(u2.body.msg, '该推广码仅限单个设备使用');
 
   // 第二个设备成功
-  await request(app).post('/api/promo/usage').send({ code: 'COVER01', device_id: 'dev-b' }).expect(200);
+  await promoPost('/api/promo/usage', 'device-b', { code: 'COVER01' });
 
   // 达到 max_uses=2 → 第三个设备被拒
-  const u3 = await request(app).post('/api/promo/usage').send({ code: 'COVER01', device_id: 'dev-c' }).expect(400);
+  const u3 = await promoPost('/api/promo/usage', 'device-c', { code: 'COVER01' }, 400);
   assert.equal(u3.body.msg, '该推广码已达使用上限');
 
   // attempt 记录
-  await request(app).post('/api/promo/attempt').send({
-    code: 'COVER01', device_id: 'dev-x', success: false, device_model: 'Pixel',
-  }).expect(200);
+  await promoPost('/api/promo/attempt', 'device-x', {
+    code: 'COVER01', success: false, device_model: 'Pixel',
+  });
 
   // admin stats
   const o = await agent.get('/api/admin/promo/stats').expect(200);
@@ -207,14 +232,14 @@ test('promo 全链路: 建码 → 列表 → usage → 上限 → 单设备 → 
   // 停用 → agent-stats 拒绝 + usage 拒绝
   const dis = await agent.put('/api/admin/promo/codes/COVER01').send({ enabled: false }).expect(200);
   assert.equal(dis.body.ok, true);
-  const agentStatsDisabled = await request(app).get('/api/promo/agent-stats?code=COVER01').expect(200);
+  const agentStatsDisabled = await promoGet('/api/promo/agent-stats?code=COVER01', 'device-stats-2');
   assert.equal(agentStatsDisabled.body.msg, '该推广码已停用');
-  const uDisabled = await request(app).post('/api/promo/usage').send({ code: 'COVER01', device_id: 'dev-d' }).expect(400);
+  const uDisabled = await promoPost('/api/promo/usage', 'device-d', { code: 'COVER01' }, 400);
   assert.equal(uDisabled.body.msg, '该推广码已停用');
 
   // 删除
   await agent.delete('/api/admin/promo/codes/COVER01').expect(200);
-  const afterDel = await request(app).get('/api/promo/agent-stats?code=COVER01').expect(200);
+  const afterDel = await promoGet('/api/promo/agent-stats?code=COVER01', 'device-stats-2');
   assert.equal(afterDel.body.msg, '推广码不存在');
 });
 
@@ -224,7 +249,7 @@ test('promo 有效期过期拒绝', async () => {
   await agent.post('/api/admin/promo/codes').send({
     code: 'EXPIRED01', agentName: '过期测试', expiresAt: Date.now() - 1000,
   }).expect(200);
-  const u = await request(app).post('/api/promo/usage').send({ code: 'EXPIRED01', device_id: 'dev-e' }).expect(400);
+  const u = await promoPost('/api/promo/usage', 'device-e', { code: 'EXPIRED01' }, 400);
   assert.equal(u.body.msg, '该推广码已过期');
   await agent.delete('/api/admin/promo/codes/EXPIRED01').expect(200);
 });
@@ -235,11 +260,11 @@ test('promo fraud detection 抓同设备多码', async () => {
   await agent.post('/api/admin/promo/codes').send({ code: 'FRAUD01', agentName: '风控测试' }).expect(200);
   await agent.post('/api/admin/promo/codes').send({ code: 'FRAUD02', agentName: '风控测试2' }).expect(200);
   // 同一设备用两个码
-  await request(app).post('/api/promo/usage').send({ code: 'FRAUD01', device_id: 'fraud-dev' }).expect(200);
-  await request(app).post('/api/promo/usage').send({ code: 'FRAUD02', device_id: 'fraud-dev' }).expect(200);
+  await promoPost('/api/promo/usage', 'fraud-device', { code: 'FRAUD01' });
+  await promoPost('/api/promo/usage', 'fraud-device', { code: 'FRAUD02' });
   const fraud = await agent.get('/api/admin/promo/fraud').expect(200);
   assert.ok(Array.isArray(fraud.body.alerts));
-  const hit = fraud.body.alerts.find(a => a.type === 'multi_code_device' && a.detail.deviceId === 'fraud-dev');
+  const hit = fraud.body.alerts.find(a => a.type === 'multi_code_device' && a.detail.deviceId === 'fraud-device');
   assert.ok(hit, '应抓到同设备多码告警');
   await agent.delete('/api/admin/promo/codes/FRAUD01').expect(200);
   await agent.delete('/api/admin/promo/codes/FRAUD02').expect(200);

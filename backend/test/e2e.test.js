@@ -140,10 +140,30 @@ test('e2e: 未知路由 404 JSON', async () => {
   assert.equal(res.status, 404);
 });
 
-test('e2e: 参数校验 400 (promo usage 缺参数)', async () => {
-  const res = await fetch(`${baseURL}/api/promo/usage`, {
+test('e2e: promo usage 未鉴权 401 + 鉴权后缺参 400', async () => {
+  // 未带设备凭证 → strict 鉴权拒绝 401
+  const unauth = await fetch(`${baseURL}/api/promo/usage`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: 'X' }), // 缺 device_id
+    body: JSON.stringify({ code: 'X', device_id: 'device-e2e-1' }),
+  });
+  assert.equal(unauth.status, 401);
+
+  // 注册设备拿 token
+  const reg = await fetch(`${baseURL}/api/device/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: 'device-e2e-12345' }),
+  });
+  assert.equal(reg.status, 200);
+  const { token } = await reg.json();
+
+  // 带凭证但缺 code → 400
+  const res = await fetch(`${baseURL}/api/promo/usage`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Device-Id': 'device-e2e-12345', 'X-Device-Token': token,
+    },
+    body: JSON.stringify({ device_id: 'device-e2e-12345' }), // 缺 code
   });
   assert.equal(res.status, 400);
 });

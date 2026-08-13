@@ -128,7 +128,9 @@ class WebViewLoginFragment : BaseFragment(R.layout.fragment_web_view_login) {
                 handler: SslErrorHandler?,
                 error: SslError?
             ) {
-                handler?.proceed()
+                // 万象书屋安全: 登录页会写入书源 Cookie 凭据, 绝不能放过自签/伪造证书
+                // (MITM 可窃取账号密码/登录态). 走系统默认校验, 证书无效直接拒绝加载.
+                handler?.cancel()
             }
         }
         binding.webView.webChromeClient = object : WebChromeClient() {

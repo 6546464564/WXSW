@@ -59,10 +59,12 @@ const rateLimitAdEvent     = makeRateLimit({ windowMs: 3_000, max: 5, keyPrefix:
 const rateLimitFeedback    = makeRateLimit({ windowMs: 5 * 60_000, max: 5, keyPrefix: 'f:' });
 const rateLimitSourceError = makeRateLimit({ windowMs: 30_000, max: 100, keyPrefix: 'se:' });
 const rateLimitRedeem      = makeRateLimit({ windowMs: 60_000, max: 5, keyPrefix: 'r:' });
+// 万象书屋: 推广码端点限速 (防枚举码/刷爆 used_count/灌 promo_attempts)
+const rateLimitPromo       = makeRateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'pm:' });
 
 module.exports = {
   makeRateLimit,
   rateLimitSources, rateLimitPing, rateLimitAdConfig,
   rateLimitAdEvent,
-  rateLimitFeedback, rateLimitSourceError, rateLimitRedeem,
+  rateLimitFeedback, rateLimitSourceError, rateLimitRedeem, rateLimitPromo,
 };

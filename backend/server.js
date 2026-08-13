@@ -16,7 +16,7 @@ const logger = require('./logger');
 // middleware
 const { makeRateLimit, rateLimitSources, rateLimitPing, rateLimitAdConfig,
         rateLimitAdEvent,
-        rateLimitFeedback, rateLimitSourceError } = require('./middleware/rateLimit');
+        rateLimitFeedback, rateLimitSourceError, rateLimitPromo } = require('./middleware/rateLimit');
 const deviceAuth = require('./middleware/deviceAuth');
 const adminAuth = require('./middleware/adminAuth');
 
@@ -496,7 +496,9 @@ app.get('/api/iap/entitlements', blockBlacklistedDevice, verifyDeviceToken, (req
 });
 
 // --- 推广代理码 (客户端) ---
-app.get('/api/promo/codes', blockBlacklistedDevice, (req, res) => {
+// 万象书屋安全: usage/attempt 会写库(自增 used_count/灌表), agent-stats 泄露用量明细,
+// 全部加设备鉴权 + 限速, 防止匿名刷爆配额/枚举/灌表.
+app.get('/api/promo/codes', rateLimitPromo, blockBlacklistedDevice, verifyDeviceToken, (req, res) => {
   if (db.kvGet('review_mode') === '1') {
     return res.json({ ok: true, codes: [] });
   }
@@ -508,7 +510,7 @@ app.get('/api/promo/codes', blockBlacklistedDevice, (req, res) => {
   res.json({ ok: true, codes });
 });
 
-app.get('/api/promo/agent-stats', (req, res) => {
+app.get('/api/promo/agent-stats', rateLimitPromo, blockBlacklistedDevice, verifyDeviceTokenStrict, (req, res) => {
   const code = (req.query.code || '').trim();
   if (!code) return res.status(400).json({ ok: false, msg: '请输入推广码' });
   const codeRow = db.listPromoCodes().find(c => c.code.toLowerCase() === code.toLowerCase());
@@ -525,14 +527,14 @@ app.get('/api/promo/agent-stats', (req, res) => {
   });
 });
 
-app.post('/api/promo/attempt', blockBlacklistedDevice, (req, res) => {
+app.post('/api/promo/attempt', rateLimitPromo, blockBlacklistedDevice, verifyDeviceTokenStrict, (req, res) => {
   const { code, success, device_id, device_model } = req.body || {};
   if (!code || !device_id) return res.status(400).json({ ok: false, msg: 'code & device_id required' });
   db.recordPromoAttempt({ code, deviceId: device_id, deviceModel: device_model, success: !!success, ip: req.ip });
   res.json({ ok: true });
 });
 
-app.post('/api/promo/usage', blockBlacklistedDevice, (req, res) => {
+app.post('/api/promo/usage', rateLimitPromo, blockBlacklistedDevice, verifyDeviceTokenStrict, (req, res) => {
   const { code, agent_name, device_id, device_model, system_version } = req.body || {};
   if (!code || !device_id) return res.status(400).json({ ok: false, msg: 'code & device_id required' });
   const result = db.recordPromoUsage({ code, agentName: agent_name, deviceId: device_id, deviceModel: device_model, systemVersion: system_version, ip: req.ip });

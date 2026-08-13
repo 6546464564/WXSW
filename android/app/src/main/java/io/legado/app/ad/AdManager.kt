@@ -125,7 +125,15 @@ object AdManager {
      */
     fun setConsent(appContext: Context, granted: Boolean) {
         consented = granted
-        if (granted) bootstrap(appContext, true)
+        if (granted) {
+            bootstrap(appContext, true)
+            // 万象书屋 PIPL: 同意后补一次设备注册. registerDeviceIfNeeded 有 consent 门控,
+            // 首次启动未同意时会被跳过, 这里同意后确保拿到 token (幂等, 已注册则空转).
+            io.legado.app.help.coroutine.Coroutine.async {
+                runCatching { io.legado.app.help.WanxiangBackend.ensureDeviceRegistered() }
+                    .onFailure { LogUtils.d("AdManager", "post-consent register failed: ${it.message}") }
+            }
+        }
     }
 
     /** 万象书屋: WanxiangBackend 上报前的隐私门, 一行检查即可. */

@@ -258,7 +258,11 @@ export default function BookDetailScreen() {
         if (source) {
           try {
             const tocUrl = info?.tocUrl || resolvedBookUrl;
-            toc = await ruleEngine.getToc(source, tocUrl);
+            // 万象书屋: 加 10s 超时, 防止成环/慢源让 tocLoading 永久卡死 (对齐 ReaderScreen)
+            toc = await Promise.race([
+              ruleEngine.getToc(source, tocUrl),
+              new Promise<Chapter[]>((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000)),
+            ]);
           } catch {}
         }
         if (toc.length === 0) {

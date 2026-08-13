@@ -123,6 +123,12 @@ object WanxiangBackend {
      */
     private suspend fun registerDeviceIfNeeded(url: String) = withContext(Dispatchers.IO) {
         if (deviceToken != null) return@withContext  // 已注册过, 跳过
+        // 万象书屋 PIPL: 未同意隐私政策前不采集/上传 ANDROID_ID.
+        // 首次启动时 consented=false 会在此跳过; 用户同意后由 AdManager.setConsent(true) 补注册.
+        if (!io.legado.app.ad.AdManager.isConsented()) {
+            LogUtils.d(TAG, "consent not granted, skip device register")
+            return@withContext
+        }
 
         /** @return Pair(token?, httpCode). httpCode==-1 表示网络异常 / 0 表示成功. */
         suspend fun tryRegister(reissue: Boolean): Pair<String?, Int> {

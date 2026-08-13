@@ -37,8 +37,14 @@ enum Keychain {
         var addQ = q
         addQ[kSecValueData as String] = data
         let status = SecItemAdd(addQ as CFDictionary, nil)
-        // 总是镜像到 UserDefaults (simulator 兜底)
+        // 仅 simulator 镜像到 UserDefaults 兜底 (Apple Silicon 上 SecItemAdd 返回 success 但读不到).
+        // 真机绝不写明文镜像: UserDefaults 明文且进未加密备份, 会抵消 Keychain 加密价值.
+#if targetEnvironment(simulator)
         UserDefaults.standard.set(value, forKey: mirrorPrefix + key.rawValue)
+#else
+        // 真机: 主动清掉历史版本遗留的明文镜像 (旧版本无条件写镜像)
+        UserDefaults.standard.removeObject(forKey: mirrorPrefix + key.rawValue)
+#endif
         return status == errSecSuccess
     }
 
@@ -56,8 +62,12 @@ enum Keychain {
            let s = String(data: data, encoding: .utf8) {
             return s
         }
-        // Keychain 读不到 → 试 UserDefaults 镜像 (simulator fallback)
+        // Keychain 读不到 → 试 UserDefaults 镜像 (仅 simulator fallback)
+#if targetEnvironment(simulator)
         return UserDefaults.standard.string(forKey: mirrorPrefix + key.rawValue)
+#else
+        return nil
+#endif
     }
 
     @discardableResult

@@ -64,10 +64,16 @@ function recordPromoUsage({ code, agentName, deviceId, deviceModel, systemVersio
       ).get(code, deviceId);
       if (existing.c > 0) return { ok: false, msg: '该推广码仅限单个设备使用' };
     }
-    db.prepare(`INSERT INTO promo_usage (code, agent_name, device_id, device_model, system_version, ip, ts)
-                VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(code, agentName || '', deviceId, deviceModel || null, systemVersion || null, ip || null, now);
-    db.prepare('UPDATE promo_codes SET used_count = used_count + 1 WHERE code=?').run(code);
+    // 万象书屋: INSERT usage + UPDATE used_count 放同一事务,
+    // 用 changes 判断 used_count 是否真的自增成功, 避免并发下 max_uses 被刷超.
+    const result = db.transaction(() => {
+      db.prepare(`INSERT INTO promo_usage (code, agent_name, device_id, device_model, system_version, ip, ts)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(code, agentName || '', deviceId, deviceModel || null, systemVersion || null, ip || null, now);
+      const upd = db.prepare('UPDATE promo_codes SET used_count = used_count + 1 WHERE code=?').run(code);
+      return upd.changes;
+    })();
+    if (result === 0) return { ok: false, msg: '该推广码不存在' };
     return { ok: true };
   } catch (e) {
     return { ok: false, msg: e.message };

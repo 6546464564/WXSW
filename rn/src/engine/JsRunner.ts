@@ -55,6 +55,30 @@ function getAndroidId(): string {
 // ─── JS lib cache (importScript) ───
 const jsLibCache: Record<string, string> = {};
 
+// 万象书屋安全: 阻断远端书源 JS 通过全局作用域逃逸沙箱.
+// new Function 创建的函数作用域链含全局对象, 书源 JS 可直接访问 fetch/XMLHttpRequest
+// 发起任意请求、访问 globalThis 拿到任意能力. 这里用局部 var 声明把这些危险全局
+// shadow 成 undefined, 书源 JS 只能走注入的 java.connect/java.post 受限网络接口.
+const SANDBOX_GUARDS =
+  'var fetch, XMLHttpRequest, WebSocket, require, process, global, self, window, document, localStorage, sessionStorage, globalThis;';
+
+// 万象书屋安全: 阻断书源 JS 的 java.connect/post 访问回环/链路本地地址 (SSRF-from-device).
+function isLoopbackOrLinkLocal(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const h = u.hostname;
+    return (
+      h === 'localhost' ||
+      h === '0.0.0.0' ||
+      h === '::1' ||
+      h.startsWith('127.') ||
+      h.startsWith('169.254.')
+    );
+  } catch {
+    return true;
+  }
+}
+
 /**
  * 自动给表达式包 return。
  */
@@ -463,7 +487,12 @@ function createJavaBridge(scope: JSScope) {
 
     async connect(urlStr: string): Promise<string> {
       try {
-        const res = await axios.get(urlStr, {timeout: 10000});
+        if (isLoopbackOrLinkLocal(urlStr)) return '';
+        const res = await axios.get(urlStr, {
+          timeout: 10000,
+          maxRedirects: 5,
+          validateStatus: (s) => s >= 200 && s < 300,
+        });
         return typeof res.data === 'string'
           ? res.data
           : JSON.stringify(res.data);
@@ -487,7 +516,12 @@ function createJavaBridge(scope: JSScope) {
       _contentType?: string,
     ): Promise<string> {
       try {
-        const res = await axios.post(urlStr, body, {timeout: 10000});
+        if (isLoopbackOrLinkLocal(urlStr)) return '';
+        const res = await axios.post(urlStr, body, {
+          timeout: 10000,
+          maxRedirects: 5,
+          validateStatus: (s) => s >= 200 && s < 300,
+        });
         return typeof res.data === 'string'
           ? res.data
           : JSON.stringify(res.data);
@@ -1449,6 +1483,7 @@ export async function evaluateJs(
       'nextChapterUrl',
       'BASE',
       `
+      ${SANDBOX_GUARDS}
       var keyword = key;
       var searchKey = key;
       ${getJavaPolyfills()}
@@ -1535,6 +1570,7 @@ export function evaluateJsSync(script: string, scope: JSScope): any {
       'chapter',
       'BASE',
       `
+      ${SANDBOX_GUARDS}
       var keyword = key;
       var searchKey = key;
       ${getJavaPolyfills()}
