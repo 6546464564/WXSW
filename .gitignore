@@ -59,7 +59,10 @@ scratch/
 
 # ─── 本地 IDE / AI 工具配置 ──────────────────────────────
 .claude/
-.cursor/
+.cursor/*
+# 例外: Cloud Agent 开发环境配置纳入版本控制
+!.cursor/environment.json
+!.cursor/install.sh
 .vscode/
 *.log
 

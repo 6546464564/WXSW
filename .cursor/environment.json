@@ -1,0 +1,11 @@
+{
+  "name": "Wanxiang Reader (backend)",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "backend",
+      "command": "cd backend && BCRYPT_COST=4 ADMIN_INITIAL_PASSWORD=wanxiang2026 DEVICE_TOKEN_SECRET=dev-only-cloud-agent-secret PORT=3000 npm start"
+    }
+  ],
+  "ports": [3000]
+}
